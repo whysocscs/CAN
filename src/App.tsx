@@ -7,6 +7,11 @@ import DesignSystemProvider from "@/design/DesignSystemProvider"
 import { designVersion, previewAccessOpen } from "@/design/version"
 import CoursePage from "@/pages/CoursePage"
 import DashboardPage from "@/pages/DashboardPage"
+import AttackPracticePage, {
+  type AttackRoute,
+} from "@/pages/AttackPracticePage"
+import ModelManagerPage from "@/pages/ModelManagerPage"
+import CanPracticeOnlyPage from "@/pages/CanPracticeOnlyPage"
 import ScaffoldPage, { type ScaffoldPageContent } from "@/pages/ScaffoldPage"
 import ECUPage from "@/pages/can-basics/ECUPage"
 import FramePage from "@/pages/can-basics/FramePage"
@@ -344,6 +349,16 @@ function Router() {
   const scaffold = scaffoldPages[currentRoute]
 
   const getPage = () => {
+    if (currentRoute === "practice/normal") {
+      return <CanPracticeOnlyPage />
+    }
+
+    if (designVersion === "ver4" && currentRoute.startsWith("attacks/")) {
+      return <AttackPracticePage route={currentRoute as AttackRoute} />
+    }
+
+    if (currentRoute === "models") return <ModelManagerPage />
+
     if (scaffold) return <ScaffoldPage {...scaffold} />
 
     switch (currentRoute) {
