@@ -21,6 +21,60 @@ interface RouteLessonProps {
   introduction: string
   objective: ReactNode
   chapters: RouteLessonChapter[]
+  snapScope?: "can-basics"
+}
+
+const STATIONS_HEIGHT = 72
+const WHEEL_GESTURE_THRESHOLD = 52
+const WHEEL_INERTIA_RELEASE_MS = 220
+const PAGE_SETTLE_MS = 520
+const PAGE_LOCK_SAFETY_MS = 1400
+const SNAP_POSITION_TOLERANCE = 2
+const CHAPTER_ENTRANCE_MS = 520
+
+type TravelDirection = "forward" | "backward"
+
+interface ChapterEntrance {
+  index: number
+  direction: TravelDirection
+  sequence: number
+}
+
+function normalizedWheelDelta(event: WheelEvent, viewportHeight: number) {
+  if (event.deltaMode === WheelEvent.DOM_DELTA_LINE) return event.deltaY * 16
+  if (event.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+    return event.deltaY * viewportHeight
+  }
+  return event.deltaY
+}
+
+function nestedElementCanScroll(
+  target: EventTarget | null,
+  root: HTMLElement,
+  deltaY: number,
+) {
+  let element = target instanceof Element ? target : null
+
+  while (element && element !== root) {
+    if (element instanceof HTMLElement) {
+      const { overflowY } = window.getComputedStyle(element)
+      const scrollable =
+        (overflowY === "auto" || overflowY === "scroll") &&
+        element.scrollHeight > element.clientHeight + 1
+
+      if (scrollable) {
+        const canScrollDown =
+          element.scrollTop + element.clientHeight < element.scrollHeight - 1
+        const canScrollUp = element.scrollTop > 1
+        if ((deltaY > 0 && canScrollDown) || (deltaY < 0 && canScrollUp)) {
+          return true
+        }
+      }
+    }
+    element = element.parentElement
+  }
+
+  return false
 }
 
 export default function RouteLesson({
@@ -28,15 +82,27 @@ export default function RouteLesson({
   introduction,
   objective,
   chapters,
+  snapScope,
 }: RouteLessonProps) {
   const scrollRootRef = useRef<HTMLDivElement>(null)
+  const introRef = useRef<HTMLElement>(null)
   const chapterRefs = useRef<Array<HTMLElement | null>>([])
+  const activeIndexRef = useRef(0)
+  const snapSettlingRef = useRef(false)
+  const entranceSequenceRef = useRef(0)
+  const entranceClearTimerRef = useRef<number | undefined>(undefined)
   const [activeIndex, setActiveIndex] = useState(0)
+  const [stageDirection, setStageDirection] =
+    useState<TravelDirection>("forward")
+  const [chapterEntrance, setChapterEntrance] =
+    useState<ChapterEntrance | null>(null)
+  const [motionReady, setMotionReady] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
   const chapterKey = useMemo(
     () => chapters.map((chapter) => chapter.id).join("|"),
     [chapters],
   )
+  const fullPageSnap = snapScope === "can-basics"
 
   useEffect(() => {
     const media = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -45,6 +111,59 @@ export default function RouteLesson({
     media.addEventListener("change", syncPreference)
     return () => media.removeEventListener("change", syncPreference)
   }, [])
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setMotionReady(true))
+    return () => window.cancelAnimationFrame(frame)
+  }, [])
+
+  const activateChapter = useCallback(
+    (nextIndex: number) => {
+      const boundedIndex = Math.max(0, Math.min(nextIndex, chapters.length - 1))
+      activeIndexRef.current = boundedIndex
+      setActiveIndex(boundedIndex)
+    },
+    [chapters.length],
+  )
+
+  const commitChapter = useCallback(
+    (nextIndex: number, direction: TravelDirection) => {
+      setStageDirection(direction)
+      activateChapter(nextIndex)
+    },
+    [activateChapter],
+  )
+
+  const startChapterEntrance = useCallback(
+    (nextIndex: number, direction: TravelDirection) => {
+      const boundedIndex = Math.max(0, Math.min(nextIndex, chapters.length - 1))
+      if (!fullPageSnap || prefersReducedMotion) return
+
+      const sequence = entranceSequenceRef.current + 1
+      entranceSequenceRef.current = sequence
+      setChapterEntrance({ index: boundedIndex, direction, sequence })
+
+      if (entranceClearTimerRef.current !== undefined) {
+        window.clearTimeout(entranceClearTimerRef.current)
+      }
+      entranceClearTimerRef.current = window.setTimeout(() => {
+        setChapterEntrance((current) =>
+          current?.sequence === sequence ? null : current,
+        )
+        entranceClearTimerRef.current = undefined
+      }, CHAPTER_ENTRANCE_MS)
+    },
+    [chapters.length, fullPageSnap, prefersReducedMotion],
+  )
+
+  useEffect(
+    () => () => {
+      if (entranceClearTimerRef.current !== undefined) {
+        window.clearTimeout(entranceClearTimerRef.current)
+      }
+    },
+    [],
+  )
 
   useEffect(() => {
     const root = scrollRootRef.current
@@ -56,11 +175,11 @@ export default function RouteLesson({
           .filter((entry) => entry.isIntersecting)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
 
-        if (!visible) return
+        if (!visible || (fullPageSnap && snapSettlingRef.current)) return
         const nextIndex = Number(
           (visible.target as HTMLElement).dataset.chapterIndex,
         )
-        if (Number.isFinite(nextIndex)) setActiveIndex(nextIndex)
+        if (Number.isFinite(nextIndex)) activateChapter(nextIndex)
       },
       {
         root,
@@ -74,7 +193,7 @@ export default function RouteLesson({
     })
 
     return () => observer.disconnect()
-  }, [chapterKey])
+  }, [activateChapter, chapterKey, fullPageSnap])
 
   const goToChapter = useCallback(
     (index: number) => {
@@ -85,19 +204,349 @@ export default function RouteLesson({
       const rootRect = root.getBoundingClientRect()
       const chapterRect = chapter.getBoundingClientRect()
       root.scrollTo({
-        top: root.scrollTop + chapterRect.top - rootRect.top - 72,
+        top:
+          root.scrollTop +
+          chapterRect.top -
+          rootRect.top -
+          STATIONS_HEIGHT,
         behavior: prefersReducedMotion ? "auto" : "smooth",
       })
-      setActiveIndex(index)
+      commitChapter(
+        index,
+        index >= activeIndexRef.current ? "forward" : "backward",
+      )
     },
-    [prefersReducedMotion],
+    [commitChapter, prefersReducedMotion],
   )
 
+  useEffect(() => {
+    const root = scrollRootRef.current
+    const intro = introRef.current
+    if (!fullPageSnap || !root || !intro) return
+
+    const desktop = window.matchMedia("(min-width: 1051px)")
+    let wheelAccumulator = 0
+    let pageLocked = false
+    let lockStartedAt = 0
+    let lockUntil = 0
+    let settleTargetTop: number | null = null
+    let pendingChapterIndex: number | null = null
+    let pendingEntranceStarted = false
+    let lockedDirection: 1 | -1 = 1
+    let accumulatorResetTimer: number | undefined
+    let lockReleaseTimer: number | undefined
+    let arrivalFrame: number | undefined
+
+    const clearAccumulator = () => {
+      wheelAccumulator = 0
+      if (accumulatorResetTimer !== undefined) {
+        window.clearTimeout(accumulatorResetTimer)
+        accumulatorResetTimer = undefined
+      }
+    }
+
+    const cancelArrivalWatch = () => {
+      if (arrivalFrame !== undefined) {
+        window.cancelAnimationFrame(arrivalFrame)
+        arrivalFrame = undefined
+      }
+    }
+
+    const startPendingChapterEntrance = () => {
+      if (pendingChapterIndex === null || pendingEntranceStarted) return
+      startChapterEntrance(
+        pendingChapterIndex,
+        lockedDirection > 0 ? "forward" : "backward",
+      )
+      pendingEntranceStarted = true
+    }
+
+    const commitPendingChapter = () => {
+      if (pendingChapterIndex === null) return
+      startPendingChapterEntrance()
+      commitChapter(
+        pendingChapterIndex,
+        lockedDirection > 0 ? "forward" : "backward",
+      )
+      pendingChapterIndex = null
+    }
+
+    const watchForArrival = () => {
+      if (!pageLocked || settleTargetTop === null) {
+        arrivalFrame = undefined
+        return
+      }
+
+      const distanceToTarget = Math.abs(root.scrollTop - settleTargetTop)
+      const effectiveViewport = Math.max(
+        1,
+        root.clientHeight - STATIONS_HEIGHT,
+      )
+      const entranceDistance = Math.max(
+        140,
+        Math.min(320, effectiveViewport * 0.32),
+      )
+
+      if (distanceToTarget <= entranceDistance) {
+        startPendingChapterEntrance()
+      }
+
+      if (distanceToTarget <= SNAP_POSITION_TOLERANCE) {
+        commitPendingChapter()
+        arrivalFrame = undefined
+        return
+      }
+
+      arrivalFrame = window.requestAnimationFrame(watchForArrival)
+    }
+
+    const finishPageLock = () => {
+      if (lockReleaseTimer !== undefined) {
+        window.clearTimeout(lockReleaseTimer)
+        lockReleaseTimer = undefined
+      }
+      cancelArrivalWatch()
+      if (
+        settleTargetTop !== null &&
+        Math.abs(root.scrollTop - settleTargetTop) > SNAP_POSITION_TOLERANCE
+      ) {
+        const previousScrollBehavior = root.style.scrollBehavior
+        root.style.scrollBehavior = "auto"
+        root.scrollTop = settleTargetTop
+        root.style.scrollBehavior = previousScrollBehavior
+      }
+      commitPendingChapter()
+      pageLocked = false
+      snapSettlingRef.current = false
+      lockStartedAt = 0
+      lockUntil = 0
+      settleTargetTop = null
+      delete root.dataset.snapSettling
+    }
+
+    const releasePageLock = () => {
+      const remaining = lockUntil - window.performance.now()
+      if (remaining > 1) {
+        lockReleaseTimer = window.setTimeout(releasePageLock, remaining)
+        return
+      }
+      finishPageLock()
+    }
+
+    const extendPageLock = (
+      duration: number,
+      targetTop?: number,
+      nextChapterIndex?: number | null,
+      direction?: 1 | -1,
+    ) => {
+      const now = window.performance.now()
+      if (!pageLocked) {
+        lockStartedAt = now
+        lockUntil = 0
+      }
+      pageLocked = true
+      snapSettlingRef.current = true
+      root.dataset.snapSettling = "true"
+      if (targetTop !== undefined) {
+        settleTargetTop = targetTop
+        pendingChapterIndex = nextChapterIndex ?? null
+        pendingEntranceStarted = false
+        lockedDirection = direction ?? lockedDirection
+        cancelArrivalWatch()
+        arrivalFrame = window.requestAnimationFrame(watchForArrival)
+      }
+      lockUntil = Math.min(
+        lockStartedAt + PAGE_LOCK_SAFETY_MS,
+        Math.max(lockUntil, now + duration),
+      )
+      if (lockReleaseTimer !== undefined) {
+        window.clearTimeout(lockReleaseTimer)
+      }
+      lockReleaseTimer = window.setTimeout(
+        releasePageLock,
+        Math.max(0, lockUntil - window.performance.now()),
+      )
+    }
+
+    const onWheel = (event: WheelEvent) => {
+      if (
+        !desktop.matches ||
+        event.ctrlKey ||
+        Math.abs(event.deltaX) > Math.abs(event.deltaY) * 1.15
+      ) {
+        return
+      }
+
+      const deltaY = normalizedWheelDelta(event, root.clientHeight)
+      if (Math.abs(deltaY) < 1.5) return
+
+      if (pageLocked) {
+        const incomingDirection: 1 | -1 = deltaY > 0 ? 1 : -1
+        const hasArrived =
+          settleTargetTop !== null &&
+          Math.abs(root.scrollTop - settleTargetTop) <= SNAP_POSITION_TOLERANCE
+
+        if (incomingDirection !== lockedDirection && hasArrived) {
+          finishPageLock()
+        } else {
+          event.preventDefault()
+          if (incomingDirection === lockedDirection) {
+            extendPageLock(WHEEL_INERTIA_RELEASE_MS)
+          }
+          return
+        }
+      }
+
+      if (nestedElementCanScroll(event.target, root, deltaY)) {
+        clearAccumulator()
+        return
+      }
+
+      const rootRect = root.getBoundingClientRect()
+      const nodes = [intro, ...chapterRefs.current.filter(Boolean)] as HTMLElement[]
+      const snapTargets = nodes.map((node, index) => {
+        const nodeRect = node.getBoundingClientRect()
+        const viewportHeight =
+          index === 0 ? root.clientHeight : root.clientHeight - STATIONS_HEIGHT
+        return {
+          top: Math.max(
+            0,
+            root.scrollTop +
+              nodeRect.top -
+              rootRect.top -
+              (index === 0 ? 0 : STATIONS_HEIGHT),
+          ),
+          overflowing: nodeRect.height > viewportHeight + 2,
+        }
+      })
+
+      if (snapTargets.length < 2) return
+
+      const direction = deltaY > 0 ? 1 : -1
+      const currentTop = root.scrollTop
+      let containingIndex = 0
+      snapTargets.forEach((target, index) => {
+        if (target.top <= currentTop + 2) containingIndex = index
+      })
+
+      const containingTarget = snapTargets[containingIndex]
+      if (containingTarget.overflowing) {
+        const nextBoundary =
+          snapTargets[containingIndex + 1]?.top ??
+          root.scrollHeight - root.clientHeight
+        const canContinueDown =
+          direction > 0 && currentTop < nextBoundary - 6
+        const canContinueUp =
+          direction < 0 && currentTop > containingTarget.top + 6
+
+        if (canContinueDown || canContinueUp) {
+          clearAccumulator()
+          return
+        }
+      }
+
+      event.preventDefault()
+      if (Math.sign(wheelAccumulator) !== direction) wheelAccumulator = 0
+      wheelAccumulator += deltaY
+
+      if (accumulatorResetTimer !== undefined) {
+        window.clearTimeout(accumulatorResetTimer)
+      }
+      accumulatorResetTimer = window.setTimeout(clearAccumulator, 140)
+
+      if (Math.abs(wheelAccumulator) < WHEEL_GESTURE_THRESHOLD) return
+
+      const closestIndex = snapTargets.reduce(
+        (closest, target, index) =>
+          Math.abs(target.top - currentTop) <
+          Math.abs(snapTargets[closest].top - currentTop)
+            ? index
+            : closest,
+        0,
+      )
+      const anchorIndex = containingTarget.overflowing
+        ? containingIndex
+        : closestIndex
+      const destinationIndex = Math.max(
+        0,
+        Math.min(anchorIndex + direction, snapTargets.length - 1),
+      )
+
+      clearAccumulator()
+      if (destinationIndex === anchorIndex) return
+
+      extendPageLock(
+        prefersReducedMotion ? WHEEL_INERTIA_RELEASE_MS : PAGE_SETTLE_MS,
+        snapTargets[destinationIndex].top,
+        destinationIndex > 0 ? destinationIndex - 1 : null,
+        direction,
+      )
+      root.scrollTo({
+        top: snapTargets[destinationIndex].top,
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+      })
+    }
+
+    let wheelListenerAttached = false
+    const syncWheelListener = () => {
+      if (desktop.matches && !wheelListenerAttached) {
+        root.addEventListener("wheel", onWheel, { passive: false })
+        wheelListenerAttached = true
+        return
+      }
+
+      if (!desktop.matches && wheelListenerAttached) {
+        root.removeEventListener("wheel", onWheel)
+        wheelListenerAttached = false
+        clearAccumulator()
+        finishPageLock()
+      }
+    }
+
+    desktop.addEventListener("change", syncWheelListener)
+    syncWheelListener()
+    return () => {
+      desktop.removeEventListener("change", syncWheelListener)
+      if (wheelListenerAttached) root.removeEventListener("wheel", onWheel)
+      if (accumulatorResetTimer !== undefined) {
+        window.clearTimeout(accumulatorResetTimer)
+      }
+      if (lockReleaseTimer !== undefined) {
+        window.clearTimeout(lockReleaseTimer)
+      }
+      cancelArrivalWatch()
+      snapSettlingRef.current = false
+      delete root.dataset.snapSettling
+    }
+  }, [
+    chapterKey,
+    commitChapter,
+    fullPageSnap,
+    prefersReducedMotion,
+    startChapterEntrance,
+  ])
+
   const activeChapter = chapters[activeIndex] ?? chapters[0]
+  const rootClassName = [
+    "route-lesson",
+    fullPageSnap && "route-lesson--section-snap",
+    fullPageSnap && motionReady && !prefersReducedMotion && "route-lesson--motion-ready",
+    fullPageSnap && prefersReducedMotion && "route-lesson--reduced-motion",
+  ]
+    .filter(Boolean)
+    .join(" ")
 
   return (
-    <div className="route-lesson" ref={scrollRootRef}>
-      <header className="route-lesson__intro">
+    <div
+      className={rootClassName}
+      data-scroll-scope={snapScope}
+      data-stage-direction={stageDirection}
+      role={fullPageSnap ? "region" : undefined}
+      aria-label={fullPageSnap ? `${title} 전체 화면 학습` : undefined}
+      tabIndex={fullPageSnap ? 0 : undefined}
+      ref={scrollRootRef}
+    >
+      <header ref={introRef} className="route-lesson__intro">
         <h1>{title}</h1>
         <p>{introduction}</p>
         <div className="route-lesson__objective">
@@ -147,6 +596,14 @@ export default function RouteLesson({
               className="route-lesson__chapter"
               data-chapter-index={index}
               data-active={index === activeIndex}
+              data-entering={
+                chapterEntrance?.index === index ? "true" : undefined
+              }
+              data-enter-direction={
+                chapterEntrance?.index === index
+                  ? chapterEntrance.direction
+                  : undefined
+              }
               aria-labelledby={`${chapter.id}-title`}
             >
               <span

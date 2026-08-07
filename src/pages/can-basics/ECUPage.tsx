@@ -107,6 +107,7 @@ export default function ECUPage() {
 
     return (
       <RouteLesson
+        snapScope="can-basics"
         title="차량의 ECU 경계를 읽기"
         introduction="외부 통신부터 차체 제어까지 ECU가 어떤 도메인에 속하고, Gateway가 메시지 경계를 어떻게 지키는지 살펴봅니다."
         objective="주요 ECU의 역할과 연결 구조를 이해하고 Gateway ECU의 필터링 역할을 설명할 수 있습니다."

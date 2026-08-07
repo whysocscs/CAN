@@ -63,6 +63,7 @@ export default function ProtocolPage() {
   if (designVersion === "ver4") {
     return (
       <RouteLesson
+        snapScope="can-basics"
         title="CAN은 어떻게 흐르는가"
         introduction="하나의 버스에 연결된 여러 ECU가 메시지를 공유하고, 충돌 없이 우선순위를 결정하는 과정을 따라갑니다."
         objective={

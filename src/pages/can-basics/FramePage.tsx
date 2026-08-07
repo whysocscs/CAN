@@ -134,6 +134,7 @@ export default function FramePage() {
   if (designVersion === "ver4") {
     return (
       <RouteLesson
+        snapScope="can-basics"
         title="한 프레임을 비트 단위로 읽기"
         introduction="프레임의 시작부터 종료까지 각 필드가 맡은 역할을 따라가고, Standard와 Extended 형식의 차이를 확인합니다."
         objective="각 필드의 위치와 역할을 식별하고 DLC, ID, CRC, ACK의 의미를 설명할 수 있습니다."

@@ -74,7 +74,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     designVersion === "ver2" ? "dark" : "light",
   )
-  const [currentRoute, setCurrentRoute] = useState<Route>("practice/normal")
+  const [currentRoute, setCurrentRoute] = useState<Route>("courses")
   const [devMode, setDevMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
