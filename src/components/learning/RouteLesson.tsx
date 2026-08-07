@@ -24,6 +24,15 @@ interface RouteLessonProps {
   snapScope?: "can-basics"
 }
 
+type TransitionStyle = "slide" | "fade" | "slide-h" | "scale"
+
+const TRANSITION_LABELS: Record<TransitionStyle, string> = {
+  slide: "수직 슬라이드",
+  fade: "페이드",
+  "slide-h": "수평 슬라이드",
+  scale: "스케일",
+}
+
 const STATIONS_HEIGHT = 72
 const WHEEL_GESTURE_THRESHOLD = 52
 const WHEEL_INERTIA_RELEASE_MS = 220
@@ -98,6 +107,7 @@ export default function RouteLesson({
     useState<ChapterEntrance | null>(null)
   const [motionReady, setMotionReady] = useState(false)
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false)
+  const [transitionStyle, setTransitionStyle] = useState<TransitionStyle>("slide")
   const chapterKey = useMemo(
     () => chapters.map((chapter) => chapter.id).join("|"),
     [chapters],
@@ -541,6 +551,7 @@ export default function RouteLesson({
       className={rootClassName}
       data-scroll-scope={snapScope}
       data-stage-direction={stageDirection}
+      data-transition-style={transitionStyle}
       role={fullPageSnap ? "region" : undefined}
       aria-label={fullPageSnap ? `${title} 전체 화면 학습` : undefined}
       tabIndex={fullPageSnap ? 0 : undefined}
@@ -662,9 +673,40 @@ export default function RouteLesson({
               >
                 <ArrowLeft size={18} aria-hidden="true" />
               </button>
-              <span>
-                {activeIndex + 1} / {chapters.length}
-              </span>
+              <div className="route-lesson__transition-picker" role="group" aria-label="전환 스타일">
+                {(["slide", "fade", "slide-h", "scale"] as TransitionStyle[]).map((style) => (
+                  <button
+                    key={style}
+                    type="button"
+                    aria-pressed={transitionStyle === style}
+                    title={TRANSITION_LABELS[style]}
+                    onClick={() => setTransitionStyle(style)}
+                  >
+                    {style === "slide" && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <path d="M7 2v10M3.5 5.5 7 2l3.5 3.5M3.5 8.5 7 12l3.5-3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                    {style === "fade" && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5" strokeDasharray="2.5 1.5"/>
+                        <circle cx="7" cy="7" r="1.8" fill="currentColor"/>
+                      </svg>
+                    )}
+                    {style === "slide-h" && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <path d="M2 7h10M5.5 3.5 2 7l3.5 3.5M8.5 3.5 12 7l-3.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                      </svg>
+                    )}
+                    {style === "scale" && (
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                        <rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.5"/>
+                        <rect x="1.5" y="1.5" width="11" height="11" rx="2" stroke="currentColor" strokeWidth="1" strokeDasharray="2 1.5" strokeOpacity="0.5"/>
+                      </svg>
+                    )}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 aria-label="다음 개념"
