@@ -4,7 +4,8 @@ import { designVersion } from "@/design/version"
 import RouteLesson from "@/components/learning/RouteLesson"
 import LessonQuiz, { RouteAction } from "@/components/learning/LessonQuiz"
 import {
-  FrameComparisonVisual,
+  FrameIntegrityVisual,
+  FrameMessageVisual,
   FrameQuizVisual,
   FrameStructureVisual,
 } from "@/components/learning/LessonVisuals"
@@ -135,57 +136,42 @@ export default function FramePage() {
     return (
       <RouteLesson
         snapScope="can-basics"
-        title="한 프레임을 비트 단위로 읽기"
-        introduction="프레임의 시작부터 종료까지 각 필드가 맡은 역할을 따라가고, Standard와 Extended 형식의 차이를 확인합니다."
-        objective="각 필드의 위치와 역할을 식별하고 DLC, ID, CRC, ACK의 의미를 설명할 수 있습니다."
+        title="한 Frame을 메시지로 읽기"
+        introduction="CAN Frame은 주소가 아니라 Identifier와 Data를 함께 싣는 메시지 단위입니다. 교육용 예시를 따라 한 줄의 CAN 표기를 실제 의미로 풀어봅니다."
+        objective="0x101#01 같은 Frame을 Identifier, DLC, Data로 나누어 읽고 CRC와 ACK가 왜 필요한지 설명할 수 있습니다."
         chapters={[
           {
-            id: "frame-map",
-            title: "프레임 전체 보기",
+            id: "frame-message",
+            title: "Frame은 ID와 값을 함께 싣습니다",
             summary:
-              "CAN 프레임은 시작, 중재, 제어, 데이터, 검증, 응답, 종료 필드가 정해진 순서로 이어집니다.",
+              "교육용 표기 0x101#01에서 0x101은 메시지의 의미와 우선순위이고, 01은 실제로 전달할 값입니다.",
             content: (
-              <div className="lesson-segmented" aria-label="프레임 형식 선택">
-                <button
-                  type="button"
-                  className={frameType === "standard" ? "is-active" : ""}
-                  aria-pressed={frameType === "standard"}
-                  onClick={() => setFrameType("standard")}
-                >
-                  Standard <small>11-bit ID</small>
-                </button>
-                <button
-                  type="button"
-                  className={frameType === "extended" ? "is-active" : ""}
-                  aria-pressed={frameType === "extended"}
-                  onClick={() => setFrameType("extended")}
-                >
-                  Extended <small>29-bit ID</small>
-                </button>
-              </div>
+              <dl className="lesson-comparison-list">
+                <div>
+                  <dt>0x101</dt>
+                  <dd>Identifier</dd>
+                </div>
+                <div>
+                  <dt>#</dt>
+                  <dd>Identifier와 Data의 구분</dd>
+                </div>
+                <div>
+                  <dt>01</dt>
+                  <dd>1 byte Data</dd>
+                </div>
+                <div>
+                  <dt>중요</dt>
+                  <dd>수신 ECU 주소가 아니라 메시지 ID</dd>
+                </div>
+              </dl>
             ),
-            visual: (
-              <FrameStructureVisual
-                fields={standardFields}
-                selectedField={selectedField}
-                frameType={frameType}
-                onSelect={(field) =>
-                  setSelectedField(
-                    field
-                      ? (standardFields.find(
-                          (item) => item.name === field.name,
-                        ) ?? null)
-                      : null,
-                  )
-                }
-              />
-            ),
+            visual: <FrameMessageVisual />,
           },
           {
             id: "frame-fields",
-            title: "필드 역할 확인",
+            title: "Identifier, DLC, Data를 순서대로 해석합니다",
             summary:
-              "오른쪽 프레임에서 필드를 선택하면 비트 수, 역할, 고정 비트 상태를 같은 자리에서 확인할 수 있습니다.",
+              "Identifier는 메시지의 의미와 중재 우선순위를 알려주고, DLC는 Data의 바이트 수를, Data는 실제 상태나 제어 값을 전달합니다.",
             content: selectedField ? (
               <div className="lesson-selected-detail">
                 <div>
@@ -203,15 +189,15 @@ export default function FramePage() {
               </div>
             ) : (
               <p className="lesson-note">
-                SOF, ID, DLC, Data, CRC, ACK 중 하나를 선택해 세부 역할을
-                확인하세요.
+                오른쪽 Frame에서 ID, DLC, Data를 선택해 각 필드가 0x101#01을
+                어떻게 구성하는지 확인하세요.
               </p>
             ),
             visual: (
               <FrameStructureVisual
                 fields={standardFields}
                 selectedField={selectedField}
-                frameType={frameType}
+                frameType="standard"
                 onSelect={(field) =>
                   setSelectedField(
                     field
@@ -225,36 +211,35 @@ export default function FramePage() {
             ),
           },
           {
-            id: "frame-comparison",
-            title: "Standard와 Extended",
+            id: "frame-delivery",
+            title: "CRC, ACK, EOF가 전달을 마무리합니다",
             summary:
-              "두 형식의 핵심 차이는 ID 길이입니다. Extended Frame은 더 넓은 식별자 공간을 위해 중재 필드가 길어집니다.",
+              "수신 노드는 CRC로 Frame의 손상을 확인하고, 정상이라면 ACK 슬롯에 응답합니다. EOF는 해당 Frame의 끝을 알립니다.",
             content: (
-              <dl className="lesson-comparison-list">
-                <div>
-                  <dt>ID 길이</dt>
-                  <dd>11-bit / 29-bit</dd>
-                </div>
-                <div>
-                  <dt>최대 ID</dt>
-                  <dd>0x7FF / 0x1FFFFFFF</dd>
-                </div>
-                <div>
-                  <dt>IDE 비트</dt>
-                  <dd>0 / 1</dd>
-                </div>
-                <div>
-                  <dt>주 용도</dt>
-                  <dd>일반 차량망 / 확장 ID 시스템</dd>
-                </div>
-              </dl>
+              <div className="lesson-process" aria-label="프레임 검증 순서">
+                <span>
+                  <small>01</small>
+                  <strong>CRC 검사</strong>
+                </span>
+                <i aria-hidden="true" />
+                <span>
+                  <small>02</small>
+                  <strong>ACK 응답</strong>
+                </span>
+                <i aria-hidden="true" />
+                <span>
+                  <small>03</small>
+                  <strong>EOF 종료</strong>
+                </span>
+              </div>
             ),
-            visual: <FrameComparisonVisual />,
+            visual: <FrameIntegrityVisual />,
           },
           {
             id: "frame-quiz",
             title: "이해 확인",
-            summary: "DLC가 프레임 안에서 어떤 정보를 전달하는지 확인합니다.",
+            summary:
+              "0x101#01에서 Data 01을 정확하게 읽으려면 DLC가 알려주는 길이가 필요합니다.",
             content: (
               <LessonQuiz
                 question="CAN Standard Frame에서 DLC 필드의 역할은 무엇입니까?"

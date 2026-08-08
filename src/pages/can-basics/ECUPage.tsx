@@ -5,9 +5,9 @@ import RouteLesson from "@/components/learning/RouteLesson"
 import { RouteAction } from "@/components/learning/LessonQuiz"
 import {
   CourseCompleteVisual,
+  ECUProcessingVisual,
   ECUNetworkVisual,
-  ECUPriorityVisual,
-  GatewayFlowVisual,
+  GatewayPolicyVisual,
 } from "@/components/learning/LessonVisuals"
 
 const ecuNodes = [
@@ -87,7 +87,7 @@ export default function ECUPage() {
   const { navigate, completeItem, addScore, addNotification } = useApp()
   const [selectedNode, setSelectedNode] = useState<typeof ecuNodes[0] | null>(
     designVersion === "ver4"
-      ? (ecuNodes.find((node) => node.id === "gateway") ?? null)
+      ? (ecuNodes.find((node) => node.id === "body") ?? null)
       : null,
   )
 
@@ -103,20 +103,20 @@ export default function ECUPage() {
 
   if (designVersion === "ver4") {
     const activeNode =
-      selectedNode ?? ecuNodes.find((node) => node.id === "gateway") ?? null
+      selectedNode ?? ecuNodes.find((node) => node.id === "body") ?? null
 
     return (
       <RouteLesson
         snapScope="can-basics"
-        title="차량의 ECU 경계를 읽기"
-        introduction="외부 통신부터 차체 제어까지 ECU가 어떤 도메인에 속하고, Gateway가 메시지 경계를 어떻게 지키는지 살펴봅니다."
-        objective="주요 ECU의 역할과 연결 구조를 이해하고 Gateway ECU의 필터링 역할을 설명할 수 있습니다."
+        title="메시지가 ECU를 거쳐 차량 기능이 되기까지"
+        introduction="Frame은 버스에서 끝나지 않습니다. ECU가 신호를 읽고 기능으로 바꾸며, Gateway가 다른 CAN 영역으로 넘어갈 수 있는지를 결정합니다."
+        objective="ECU의 Transceiver·Controller·Software 역할과 Gateway의 허용·차단 정책을 교육용 메시지 흐름으로 설명할 수 있습니다."
         chapters={[
           {
             id: "ecu-network",
-            title: "차량 ECU 네트워크",
+            title: "ECU는 기능별로 나뉜 제어 컴퓨터입니다",
             summary:
-              "차량 기능은 여러 ECU에 나뉘어 있고, 각 도메인의 메시지는 Gateway ECU를 중심으로 연결됩니다.",
+              "도어, 계기판, 진단, 통신처럼 차량 기능은 각자의 ECU가 맡습니다. 오른쪽 노드를 선택하면 담당 기능과 연결 위치를 확인할 수 있습니다.",
             content: activeNode ? (
               <div className="lesson-selected-detail">
                 <div>
@@ -153,60 +153,131 @@ export default function ECUPage() {
             ),
           },
           {
-            id: "ecu-gateway",
-            title: "Gateway가 지키는 경계",
+            id: "ecu-processing",
+            title: "ECU는 신호를 읽고 필요한 Frame만 고릅니다",
             summary:
-              "Gateway ECU는 서로 다른 CAN 도메인을 연결하면서 메시지 ID, 방향, 허용 정책을 검사합니다.",
+              "Transceiver가 전기 신호를 bit로 바꾸고, CAN Controller가 Identifier 필터를 적용한 뒤, ECU Software가 Data를 해석합니다.",
             content: (
-              <div className="lesson-gateway-rules">
+              <div className="lesson-process" aria-label="ECU 처리 순서">
                 <span>
-                  <strong>검사</strong>
-                  <small>ID와 송신 도메인을 확인</small>
+                  <small>01</small>
+                  <strong>Transceiver</strong>
                 </span>
+                <i aria-hidden="true" />
                 <span>
-                  <strong>필터</strong>
-                  <small>허용되지 않은 메시지를 차단</small>
+                  <small>02</small>
+                  <strong>Controller</strong>
                 </span>
+                <i aria-hidden="true" />
                 <span>
-                  <strong>라우팅</strong>
-                  <small>필요한 도메인으로만 전달</small>
+                  <small>03</small>
+                  <strong>Software</strong>
                 </span>
               </div>
             ),
-            visual: <GatewayFlowVisual />,
+            visual: <ECUProcessingVisual stage="filter" />,
           },
           {
-            id: "ecu-security",
-            title: "보안 중요도",
+            id: "ecu-action",
+            title: "Data가 해석되면 차량 상태가 바뀝니다",
             summary:
-              "외부 연결, 물리 접근, 도메인 경계를 가진 ECU는 공격 경로가 되기 쉬워 우선 보호해야 합니다.",
+              "교육용 Body ECU는 Identifier 0x101을 수신하고 Data 01을 문 잠금 요청으로 해석합니다. 같은 원리로 각 ECU가 자신의 기능을 처리합니다.",
             content: (
               <dl className="lesson-comparison-list">
                 <div>
-                  <dt>경계 제어</dt>
-                  <dd>Gateway ECU</dd>
+                  <dt>수신 Frame</dt>
+                  <dd>0x101#01</dd>
                 </div>
                 <div>
-                  <dt>이상 탐지</dt>
-                  <dd>IDS ECU</dd>
+                  <dt>Identifier</dt>
+                  <dd>Body ECU 필터 일치</dd>
                 </div>
                 <div>
-                  <dt>외부 연결</dt>
-                  <dd>TCU, IVI</dd>
+                  <dt>Data</dt>
+                  <dd>01 = 교육용 잠금 요청</dd>
                 </div>
                 <div>
-                  <dt>물리 접근</dt>
-                  <dd>OBD-II</dd>
+                  <dt>결과</dt>
+                  <dd>Door: Locked</dd>
                 </div>
               </dl>
             ),
-            visual: <ECUPriorityVisual />,
+            visual: <ECUProcessingVisual stage="act" />,
+          },
+          {
+            id: "gateway-boundary",
+            title: "Gateway는 CAN 영역 사이의 경계입니다",
+            summary:
+              "차량은 하나의 거대한 CAN Bus가 아니라 Body, 진단처럼 여러 영역으로 나뉠 수 있습니다. Gateway가 영역 사이의 출입 지점이 됩니다.",
+            content: (
+              <div className="lesson-gateway-rules">
+                <span>
+                  <strong>영역</strong>
+                  <small>진단 CAN과 Body CAN을 분리</small>
+                </span>
+                <span>
+                  <strong>방향</strong>
+                  <small>어느 쪽으로 갈지 확인</small>
+                </span>
+                <span>
+                  <strong>정책</strong>
+                  <small>전달 가능 여부를 결정</small>
+                </span>
+              </div>
+            ),
+            visual: <GatewayPolicyVisual state="boundary" />,
+          },
+          {
+            id: "gateway-allowed",
+            title: "허용된 Frame만 다음 영역으로 전달합니다",
+            summary:
+              "Gateway는 Identifier와 방향을 정책과 비교합니다. 교육용 정책 예시에서 0x101#01은 Body CAN 전달이 허용됩니다.",
+            content: (
+              <dl className="lesson-comparison-list">
+                <div>
+                  <dt>입력</dt>
+                  <dd>0x101#01</dd>
+                </div>
+                <div>
+                  <dt>정책</dt>
+                  <dd>Body CAN 전달 허용</dd>
+                </div>
+                <div>
+                  <dt>결과</dt>
+                  <dd>Body ECU가 수신</dd>
+                </div>
+              </dl>
+            ),
+            visual: <GatewayPolicyVisual state="allowed" />,
+          },
+          {
+            id: "gateway-blocked",
+            title: "정책 밖의 메시지는 Gateway에서 멈춥니다",
+            summary:
+              "허용되지 않은 ID나 방향이면 Gateway는 Frame을 전달하지 않습니다. 이 경계가 도메인 간 불필요한 통신을 줄이고 실습의 탐지 지점이 됩니다.",
+            content: (
+              <dl className="lesson-comparison-list">
+                <div>
+                  <dt>입력</dt>
+                  <dd>0x700#01</dd>
+                </div>
+                <div>
+                  <dt>정책</dt>
+                  <dd>교육용 정책 불일치</dd>
+                </div>
+                <div>
+                  <dt>결과</dt>
+                  <dd>Body CAN 미전달</dd>
+                </div>
+              </dl>
+            ),
+            visual: <GatewayPolicyVisual state="blocked" />,
           },
           {
             id: "ecu-complete",
             title: "CAN 기초 완료",
             summary:
-              "프로토콜, 프레임, ECU 경계를 모두 확인했습니다. 이제 실제 프레임이 오가는 실습으로 이동합니다.",
+              "프로토콜, Frame, ECU 처리, Gateway 경계까지 확인했습니다. 이제 vcan0에서 Frame이 실제로 오가는 실습으로 이동합니다.",
             content: (
               <div className="lesson-complete-actions">
                 <p>

@@ -40,6 +40,7 @@ const PAGE_SETTLE_MS = 520
 const PAGE_LOCK_SAFETY_MS = 1400
 const SNAP_POSITION_TOLERANCE = 2
 const CHAPTER_ENTRANCE_MS = 520
+const MANUAL_NAVIGATION_LOCK_MS = 760
 
 type TravelDirection = "forward" | "backward"
 
@@ -98,6 +99,7 @@ export default function RouteLesson({
   const chapterRefs = useRef<Array<HTMLElement | null>>([])
   const activeIndexRef = useRef(0)
   const snapSettlingRef = useRef(false)
+  const manualNavigationTimerRef = useRef<number | undefined>(undefined)
   const entranceSequenceRef = useRef(0)
   const entranceClearTimerRef = useRef<number | undefined>(undefined)
   const [activeIndex, setActiveIndex] = useState(0)
@@ -171,6 +173,9 @@ export default function RouteLesson({
       if (entranceClearTimerRef.current !== undefined) {
         window.clearTimeout(entranceClearTimerRef.current)
       }
+      if (manualNavigationTimerRef.current !== undefined) {
+        window.clearTimeout(manualNavigationTimerRef.current)
+      }
     },
     [],
   )
@@ -213,12 +218,25 @@ export default function RouteLesson({
 
       const rootRect = root.getBoundingClientRect()
       const chapterRect = chapter.getBoundingClientRect()
+
+      if (fullPageSnap) {
+        if (manualNavigationTimerRef.current !== undefined) {
+          window.clearTimeout(manualNavigationTimerRef.current)
+        }
+        snapSettlingRef.current = true
+        root.dataset.snapSettling = "true"
+        manualNavigationTimerRef.current = window.setTimeout(
+          () => {
+            snapSettlingRef.current = false
+            delete root.dataset.snapSettling
+            manualNavigationTimerRef.current = undefined
+          },
+          prefersReducedMotion ? 0 : MANUAL_NAVIGATION_LOCK_MS,
+        )
+      }
+
       root.scrollTo({
-        top:
-          root.scrollTop +
-          chapterRect.top -
-          rootRect.top -
-          STATIONS_HEIGHT,
+        top: root.scrollTop + chapterRect.top - rootRect.top - STATIONS_HEIGHT,
         behavior: prefersReducedMotion ? "auto" : "smooth",
       })
       commitChapter(
@@ -226,7 +244,7 @@ export default function RouteLesson({
         index >= activeIndexRef.current ? "forward" : "backward",
       )
     },
-    [commitChapter, prefersReducedMotion],
+    [commitChapter, fullPageSnap, prefersReducedMotion],
   )
 
   useEffect(() => {
@@ -288,10 +306,7 @@ export default function RouteLesson({
       }
 
       const distanceToTarget = Math.abs(root.scrollTop - settleTargetTop)
-      const effectiveViewport = Math.max(
-        1,
-        root.clientHeight - STATIONS_HEIGHT,
-      )
+      const effectiveViewport = Math.max(1, root.clientHeight - STATIONS_HEIGHT)
       const entranceDistance = Math.max(
         140,
         Math.min(320, effectiveViewport * 0.32),
@@ -413,7 +428,10 @@ export default function RouteLesson({
       }
 
       const rootRect = root.getBoundingClientRect()
-      const nodes = [intro, ...chapterRefs.current.filter(Boolean)] as HTMLElement[]
+      const nodes = [
+        intro,
+        ...chapterRefs.current.filter(Boolean),
+      ] as HTMLElement[]
       const snapTargets = nodes.map((node, index) => {
         const nodeRect = node.getBoundingClientRect()
         const viewportHeight =
@@ -444,8 +462,7 @@ export default function RouteLesson({
         const nextBoundary =
           snapTargets[containingIndex + 1]?.top ??
           root.scrollHeight - root.clientHeight
-        const canContinueDown =
-          direction > 0 && currentTop < nextBoundary - 6
+        const canContinueDown = direction > 0 && currentTop < nextBoundary - 6
         const canContinueUp =
           direction < 0 && currentTop > containingTarget.top + 6
 
@@ -540,7 +557,10 @@ export default function RouteLesson({
   const rootClassName = [
     "route-lesson",
     fullPageSnap && "route-lesson--section-snap",
-    fullPageSnap && motionReady && !prefersReducedMotion && "route-lesson--motion-ready",
+    fullPageSnap &&
+      motionReady &&
+      !prefersReducedMotion &&
+      "route-lesson--motion-ready",
     fullPageSnap && prefersReducedMotion && "route-lesson--reduced-motion",
   ]
     .filter(Boolean)
