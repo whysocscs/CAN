@@ -87,11 +87,13 @@ type EcuModule = {
   id: string
   label: string
   detail: string
+  anchorPosition: [number, number, number]
   position: [number, number, number]
   labelOffset: [number, number, number]
   labelShift: [number, number]
   rotation: number
   tone: string
+  role: "gateway" | "interface" | "display" | "body" | "security" | "rear"
 }
 
 const ecuModules: EcuModule[] = [
@@ -99,63 +101,114 @@ const ecuModules: EcuModule[] = [
     id: "obd",
     label: "Training OBD-II",
     detail: "Driver footwell",
-    position: [0.55, 0.69, 1.08],
-    labelOffset: [0.18, 0.3, 0.12],
-    labelShift: [116, -58],
-    rotation: -0.1,
+    anchorPosition: [0.55, 0.69, 1.08],
+    position: [0.3, 0.4, 0.9],
+    labelOffset: [0, 0.2, 0],
+    labelShift: [0, 8],
+    rotation: -0.04,
     tone: "#4ee4db",
+    role: "interface",
   },
   {
     id: "dashboard",
     label: "Dashboard ECU",
     detail: "Instrument cluster",
-    position: [0.35, 1.04, 0.74],
-    labelOffset: [-0.18, 0.32, 0.08],
-    labelShift: [-108, -90],
-    rotation: 0.08,
+    anchorPosition: [0.35, 1.04, 0.74],
+    position: [-0.5, 0.72, 0.9],
+    labelOffset: [0, 0.18, 0],
+    labelShift: [-10, -2],
+    rotation: -0.02,
     tone: "#8cc9ff",
+    role: "display",
   },
   {
     id: "gateway",
     label: "Gateway ECU",
     detail: "Centre tunnel · policy",
-    position: [0.2, 0.72, 0.14],
-    labelOffset: [0.1, 0.34, 0.1],
-    labelShift: [-30, 4],
+    anchorPosition: [0.2, 0.72, 0.14],
+    position: [-0.1, 0.66, -0.4],
+    labelOffset: [0, 0.2, 0],
+    labelShift: [0, -2],
     rotation: -0.04,
     tone: "#ffba6b",
+    role: "gateway",
   },
   {
     id: "body",
     label: "Body ECU",
     detail: "B-pillar · door/signal",
-    position: [0.67, 0.73, -0.54],
-    labelOffset: [0.2, 0.29, 0.08],
-    labelShift: [100, -98],
-    rotation: 0.2,
+    anchorPosition: [0.67, 0.73, -0.54],
+    position: [-0.5, 0.66, -1],
+    labelOffset: [0, 0.18, 0],
+    labelShift: [-8, 4],
+    rotation: -0.04,
     tone: "#a9e67f",
+    role: "body",
   },
   {
     id: "ids",
     label: "IDS ECU",
     detail: "Rear floor · rule engine",
-    position: [0.27, 0.55, -0.84],
-    labelOffset: [-0.18, 0.29, 0.08],
-    labelShift: [-30, 100],
-    rotation: -0.06,
+    anchorPosition: [0.27, 0.55, -0.84],
+    position: [0.1, 0.55, 0.4],
+    labelOffset: [0, 0.18, 0],
+    labelShift: [0, 4],
+    rotation: -0.03,
     tone: "#ee8eb4",
+    role: "security",
   },
   {
     id: "rear",
     label: "Rear Module",
     detail: "Rear quarter · light/lock",
-    position: [0.56, 0.6, -1.58],
-    labelOffset: [0.13, 0.28, -0.12],
-    labelShift: [-282, 72],
-    rotation: 0.1,
+    anchorPosition: [0.56, 0.6, -1.58],
+    position: [-0.1, 0.56, -1.5],
+    labelOffset: [0, 0.18, 0],
+    labelShift: [4, 0],
+    rotation: 0.04,
     tone: "#8cc9ff",
+    role: "rear",
   },
 ]
+
+function offsetPoint(
+  [x, y, z]: [number, number, number],
+  [dx, dy, dz]: [number, number, number],
+): [number, number, number] {
+  return [x + dx, y + dy, z + dz]
+}
+
+function getModuleStem(module: EcuModule) {
+  return [
+    offsetPoint(module.anchorPosition, [0, 0.12, 0]),
+    offsetPoint(module.anchorPosition, [0, 0.24, 0]),
+    offsetPoint(module.position, [0, -0.06, 0]),
+  ] satisfies [number, number, number][]
+}
+
+const busConnections: Array<{
+  from: EcuModule["id"]
+  to: EcuModule["id"]
+}> = [
+  { from: "gateway", to: "ids" },
+  { from: "gateway", to: "dashboard" },
+  { from: "gateway", to: "body" },
+  { from: "gateway", to: "rear" },
+  { from: "ids", to: "obd" },
+]
+
+function getBusRoute(from: EcuModule, to: EcuModule) {
+  const start = offsetPoint(from.position, [0.16, 0.1, 0])
+  const apexY = Math.max(from.position[1], to.position[1]) + 0.16
+  const midX = (from.position[0] + to.position[0]) / 2
+  const midZ = (from.position[2] + to.position[2]) / 2
+
+  return [
+    start,
+    [midX, apexY, midZ],
+    offsetPoint(to.position, [0, 0.1, 0]),
+  ] satisfies [number, number, number][]
+}
 
 function VehicleModel({ xray }: { xray: boolean }) {
   const gltf = useGLTF(MODEL_PATH)
@@ -195,19 +248,36 @@ function VehicleModel({ xray }: { xray: boolean }) {
 
 function EcuBoard({ module }: { module: EcuModule }) {
   const connectorPositions = [-0.14, -0.07, 0, 0.07, 0.14]
+  const isGateway = module.role === "gateway"
+  const boardWidth = isGateway ? 0.56 : 0.44
+  const boardDepth = isGateway ? 0.34 : 0.28
+  const panelWidth = isGateway ? 0.46 : 0.37
+  const panelDepth = isGateway ? 0.26 : 0.21
+  const chipWidth = isGateway ? 0.16 : 0.13
+  const chipDepth = isGateway ? 0.1 : 0.084
 
   return (
     <group position={module.position} rotation={[0, module.rotation, 0]}>
       <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.44, 0.08, 0.28]} />
-        <meshStandardMaterial color="#172131" roughness={0.56} metalness={0.55} />
+        <boxGeometry args={[boardWidth, 0.08, boardDepth]} />
+        <meshStandardMaterial
+          color={isGateway ? "#1f2437" : "#172131"}
+          roughness={0.56}
+          metalness={0.55}
+        />
       </mesh>
       <mesh position={[0, 0.058, 0]} castShadow>
-        <boxGeometry args={[0.37, 0.035, 0.21]} />
-        <meshStandardMaterial color="#2c8b75" roughness={0.44} metalness={0.22} emissive="#103d35" emissiveIntensity={0.28} />
+        <boxGeometry args={[panelWidth, 0.035, panelDepth]} />
+        <meshStandardMaterial
+          color={isGateway ? "#2956a1" : "#2c8b75"}
+          roughness={0.44}
+          metalness={0.22}
+          emissive={isGateway ? "#17305d" : "#103d35"}
+          emissiveIntensity={isGateway ? 0.42 : 0.28}
+        />
       </mesh>
       <mesh position={[0.02, 0.092, 0.005]} castShadow>
-        <boxGeometry args={[0.13, 0.027, 0.084]} />
+        <boxGeometry args={[chipWidth, 0.027, chipDepth]} />
         <meshStandardMaterial color="#10151f" roughness={0.42} metalness={0.64} />
       </mesh>
       <mesh position={[-0.12, 0.084, -0.045]}>
@@ -220,9 +290,16 @@ function EcuBoard({ module }: { module: EcuModule }) {
           <meshStandardMaterial color="#d59b4d" roughness={0.42} metalness={0.68} />
         </mesh>
       ))}
+    </group>
+  )
+}
+
+function EcuLabel({ module }: { module: EcuModule }) {
+  return (
+    <group position={module.position}>
       <Html position={module.labelOffset} center distanceFactor={7.8} sprite>
         <div
-          className="canlab__ecu-marker"
+          className={`canlab__ecu-marker canlab__ecu-marker--${module.role}`}
           style={{ transform: `translate(${module.labelShift[0]}px, ${module.labelShift[1]}px)` }}
         >
           <strong>{module.label}</strong>
@@ -234,33 +311,73 @@ function EcuBoard({ module }: { module: EcuModule }) {
 }
 
 function EcuVehicleNetwork({
-  showModules,
+  showLabels,
+  showHardware,
   showBus,
   active,
 }: {
-  showModules: boolean
+  showLabels: boolean
+  showHardware: boolean
   showBus: boolean
   active: boolean
 }) {
-  const busPath: [number, number, number][] = ecuModules.map(({ position }) => [
-    position[0],
-    position[1] + 0.14,
-    position[2],
-  ])
+  const modulesById = Object.fromEntries(
+    ecuModules.map((module) => [module.id, module]),
+  ) as Record<EcuModule["id"], EcuModule>
 
   return (
     <group>
-      {showModules && ecuModules.map((module) => <EcuBoard key={module.id} module={module} />)}
+      {ecuModules.map((module) => (
+        <group key={module.id}>
+          {showLabels && <EcuLabel module={module} />}
+          {showHardware && (
+            <>
+              <Line
+                points={getModuleStem(module)}
+                color={module.tone}
+                transparent
+                opacity={0.54}
+                lineWidth={0.85}
+              />
+              <mesh position={module.anchorPosition}>
+                <sphereGeometry args={[0.032, 12, 12]} />
+                <meshStandardMaterial
+                  color={module.tone}
+                  emissive={module.tone}
+                  emissiveIntensity={0.7}
+                />
+              </mesh>
+              <EcuBoard module={module} />
+            </>
+          )}
+        </group>
+      ))}
       {showBus && (
         <>
-          <Line points={busPath} color="#59d9ef" transparent opacity={0.92} lineWidth={1.25} />
-          <Line
-            points={busPath.map(([x, y, z]) => [x + 0.028, y - 0.02, z])}
-            color="#f59d6f"
-            transparent
-            opacity={0.72}
-            lineWidth={0.8}
-          />
+          {busConnections.map(({ from, to }) => {
+            const fromModule = modulesById[from]
+            const toModule = modulesById[to]
+            const route = getBusRoute(fromModule, toModule)
+
+            return (
+              <group key={`bus-${from}-${to}`}>
+                <Line
+                  points={route}
+                  color="#59d9ef"
+                  transparent
+                  opacity={0.86}
+                  lineWidth={1.05}
+                />
+                <Line
+                  points={route.map(([x, y, z]) => [x + 0.028, y - 0.025, z])}
+                  color={toModule.tone}
+                  transparent
+                  opacity={0.64}
+                  lineWidth={0.7}
+                />
+              </group>
+            )
+          })}
           <mesh position={active ? [0.52, 0.91, -0.34] : [0.52, 0.91, 0.05]}>
             <sphereGeometry args={[0.045, 16, 16]} />
             <meshStandardMaterial
@@ -311,13 +428,13 @@ class VehicleLoadBoundary extends Component<
 function VehicleCanvas({
   autoRotate,
   orbitCommand,
-  showEcuMap,
+  showLabels,
   showBus,
   networkActive,
 }: {
   autoRotate: boolean
   orbitCommand: { id: number; angle: number }
-  showEcuMap: boolean
+  showLabels: boolean
   showBus: boolean
   networkActive: boolean
 }) {
@@ -374,10 +491,11 @@ function VehicleCanvas({
           <Bounds fit observe margin={0.9}>
             <Center>
               <group>
-                <VehicleModel xray={showEcuMap || showBus} />
-                {(showEcuMap || showBus) && (
+                <VehicleModel xray={showLabels || showBus} />
+                {(showLabels || showBus) && (
                   <EcuVehicleNetwork
-                    showModules={showEcuMap}
+                    showLabels={showLabels}
+                    showHardware={showBus}
                     showBus={showBus}
                     active={networkActive}
                   />
@@ -647,7 +765,7 @@ export default function CanPracticeOnlyPage() {
                     aria-pressed={showLabels}
                     onClick={() => setShowLabels((value) => !value)}
                   >
-                    <Eye size={14} /> ECU Map
+                    <Eye size={14} /> ECU Name
                   </button>
                   <button
                     className={showBus ? "is-active" : ""}
@@ -678,7 +796,7 @@ export default function CanPracticeOnlyPage() {
                 <VehicleCanvas
                   autoRotate={autoRotate && !reducedMotion}
                   orbitCommand={orbitCommand}
-                  showEcuMap={showLabels}
+                  showLabels={showLabels}
                   showBus={showBus}
                   networkActive={completedSteps.length >= 3}
                   key={viewKey}
@@ -820,7 +938,7 @@ export default function CanPracticeOnlyPage() {
               onClick={() => setGuideOpen((value) => !value)}
             >
               <span>
-                <strong>정상 CAN 메시지 송수신</strong>
+                <strong>정상 CAN 메시지 송수신(중앙 집중형 게이트웨이 아키텍처)</strong>
                 <small>다음 단계 · {steps.find((step) => step.id === activeStep)?.title}</small>
               </span>
               <CaretDown size={16} />

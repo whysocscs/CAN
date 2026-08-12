@@ -351,13 +351,13 @@
 
 .canlab__ecu-marker {
   display: grid;
-  min-width: 76px;
+  min-width: 70px;
   gap: 1px;
-  padding: 4px 6px;
+  padding: 3px 5px;
   border: 1px solid rgba(71, 202, 245, .78);
   border-radius: 5px;
-  background: rgba(10, 16, 27, .92);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .3);
+  background: rgba(10, 16, 27, .94);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .22);
   color: #f1f7ff;
   font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
   line-height: 1.15;
@@ -366,14 +366,45 @@
 }
 
 .canlab__ecu-marker strong {
-  font-size: 9px;
+  font-size: 7px;
   font-weight: 800;
 }
 
 .canlab__ecu-marker span {
   color: #aebdca;
-  font-size: 7px;
+  font-size: 5px;
   font-weight: 600;
+}
+
+.canlab__ecu-marker--gateway {
+  border-color: rgba(255, 191, 94, .92);
+  background: rgba(29, 20, 7, .94);
+  box-shadow: 0 10px 28px rgba(255, 166, 77, .2);
+}
+
+.canlab__ecu-marker--gateway strong,
+.canlab__ecu-marker--gateway span {
+  color: #ffe2b4;
+}
+
+.canlab__ecu-marker--interface {
+  border-color: rgba(94, 234, 212, .82);
+}
+
+.canlab__ecu-marker--display {
+  border-color: rgba(125, 211, 252, .84);
+}
+
+.canlab__ecu-marker--body {
+  border-color: rgba(163, 230, 53, .82);
+}
+
+.canlab__ecu-marker--security {
+  border-color: rgba(244, 114, 182, .82);
+}
+
+.canlab__ecu-marker--rear {
+  border-color: rgba(251, 146, 60, .84);
 }
 
 .canlab__vehicle-badge,
