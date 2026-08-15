@@ -351,29 +351,34 @@
 
 .canlab__ecu-marker {
   display: grid;
-  min-width: 70px;
+  min-width: 48px;
   gap: 1px;
-  padding: 3px 5px;
+  padding: 2px 3px;
   border: 1px solid rgba(71, 202, 245, .78);
-  border-radius: 5px;
+  border-radius: 4px;
   background: rgba(10, 16, 27, .94);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, .22);
+  box-shadow: 0 3px 10px rgba(0, 0, 0, .2);
   color: #f1f7ff;
   font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
   line-height: 1.15;
-  pointer-events: none;
+  pointer-events: auto;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .canlab__ecu-marker strong {
-  font-size: 7px;
+  font-size: 5px;
   font-weight: 800;
 }
 
 .canlab__ecu-marker span {
   color: #aebdca;
-  font-size: 5px;
+  font-size: 3px;
   font-weight: 600;
+}
+
+.canlab__ecu-marker.is-selected {
+  box-shadow: 0 0 0 1px rgba(255,255,255,.16), 0 0 0 2px rgba(125, 255, 77, .24);
 }
 
 .canlab__ecu-marker--gateway {
@@ -438,6 +443,42 @@
   color: #047857;
   font-size: 10px;
   font-weight: 700;
+}
+
+.canlab__vehicle-state:not(.canlab__vehicle-state--dynamic) {
+  display: none;
+}
+
+.canlab__vehicle-actions {
+  position: absolute;
+  top: 48px;
+  right: 14px;
+  width: min(240px, calc(100% - 28px));
+  padding: 10px 12px;
+  border: 1px solid rgba(148, 163, 184, .28);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, .78);
+  box-shadow: 0 10px 24px rgba(2, 6, 23, .22);
+  backdrop-filter: blur(8px);
+}
+
+.canlab__vehicle-actions strong {
+  display: block;
+  color: #e2e8f0;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.canlab__vehicle-actions ul {
+  margin: 7px 0 0;
+  padding-left: 15px;
+  color: #cbd5e1;
+  font-size: 9px;
+  line-height: 1.5;
+}
+
+.canlab__vehicle-actions li + li {
+  margin-top: 3px;
 }
 
 .canlab__vehicle-label {
@@ -672,10 +713,28 @@
 .canlab__data-pane th { padding: 8px; border-bottom: 1px solid #e2e8f0; color: #94a3b8; font-weight: 600; }
 .canlab__data-pane td { padding: 9px 8px; border-bottom: 1px solid #f1f5f9; color: #475569; }
 .canlab__data-pane td:nth-child(2), .canlab__data-pane td:nth-child(4) { color: #0f766e; font-weight: 700; }
+.canlab__monitor-row { cursor: pointer; transition: background-color .16s ease, box-shadow .16s ease; }
+.canlab__monitor-row:hover { background: #f8fafc; }
+.canlab__monitor-row.is-selected { background: #eff6ff; box-shadow: inset 2px 0 0 #2563eb; }
+.canlab__empty-state { margin: 12px 0 0; color: #64748b; font-size: 10px; line-height: 1.6; }
 .canlab__inspector-pane dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
 .canlab__inspector-pane dl > div { display: block; margin: 0; padding: 9px; border-radius: 7px; background: #f8fafc; }
 .canlab__inspector-pane dt { color: #94a3b8; font-size: 9px; }
 .canlab__inspector-pane dd { margin: 3px 0 0; color: #334155; font-family: "JetBrains Mono Variable", monospace; font-size: 11px; font-weight: 700; }
+.canlab__inspector-section + .canlab__inspector-section { margin-top: 14px; }
+.canlab__inspector-section h3 { margin: 0 0 9px; color: #475569; font-size: 11px; font-weight: 800; }
+.canlab__inspector-placeholder { display: grid; gap: 8px; color: #475569; font-size: 10px; line-height: 1.6; }
+.canlab__inspector-placeholder strong { color: #0f172a; font-size: 12px; }
+
+.canlab__mock-commands { display: grid; gap: 12px; padding: 14px; border-top: 1px solid #e2e8f0; background: #f8fafc; }
+.canlab__mock-commands-head { display: grid; gap: 3px; }
+.canlab__mock-commands-head strong { color: #334155; font-size: 11px; }
+.canlab__mock-commands-head span { color: #64748b; font-size: 10px; line-height: 1.5; }
+.canlab__mock-command-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(168px, 1fr)); gap: 8px; }
+.canlab__mock-command { display: grid; gap: 5px; padding: 10px; border: 1px solid #dbe5f1; border-radius: 8px; background: #fff; text-align: left; }
+.canlab__mock-command:hover { border-color: #93c5fd; background: #eff6ff; }
+.canlab__mock-command strong { color: #1e293b; font-size: 10px; font-weight: 800; }
+.canlab__mock-command code { color: #1d4ed8; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; line-height: 1.45; white-space: normal; word-break: break-all; }
 
 .canlab__guide { padding: 0 12px 24px; overflow-y: auto; background: #fff; }
 .canlab__guide-top { display: flex; width: 100%; min-height: 40px; align-items: center; justify-content: space-between; border: 0; border-bottom: 1px solid #eef0f3; background: transparent; color: #172033; font-size: 12px; text-align: left; }
@@ -720,6 +779,108 @@
 .canlab__hint > button:hover { border-color: #93c5fd; background: #eff6ff; color: #2563eb; }
 .canlab__hint p { margin: 8px 2px 0; color: #475569; font-size: 10px; line-height: 1.6; }
 .canlab__hint code { padding: 1px 3px; border-radius: 3px; background: #eff6ff; color: #1d4ed8; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; }
+
+.canlab__quiz-popup {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, .45);
+  z-index: 30;
+}
+
+.canlab__quiz-card {
+  width: min(560px, 100%);
+  max-height: min(80vh, 760px);
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid #dbe5f1;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, .22);
+}
+
+.canlab__quiz-header,
+.canlab__quiz-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.canlab__quiz-header strong {
+  font-size: 15px;
+  color: #0f172a;
+}
+
+.canlab__quiz-header button,
+.canlab__quiz-footer button {
+  padding: 7px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.canlab__quiz-footer button {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.canlab__quiz-body {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.canlab__quiz-question {
+  padding: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+
+.canlab__quiz-question legend {
+  padding: 0 4px;
+  color: #1e293b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.canlab__quiz-question label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 10px;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.canlab__quiz-question input {
+  margin-top: 2px;
+}
+
+.canlab__quiz-footer {
+  margin-top: 16px;
+}
+
+.canlab__quiz-footer p {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.canlab__quiz-footer p.is-success {
+  color: #15803d;
+}
+
+.canlab__quiz-footer p.is-warning {
+  color: #b45309;
+}
 
 .canlab ::-webkit-scrollbar { width: 8px; height: 8px; }
 .canlab ::-webkit-scrollbar-thumb { border: 2px solid transparent; border-radius: 999px; background: #cbd5e1; background-clip: padding-box; }
