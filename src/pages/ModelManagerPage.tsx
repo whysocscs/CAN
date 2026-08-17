@@ -28,6 +28,12 @@ import {
 } from "@phosphor-icons/react"
 import * as THREE from "three"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
+import {
+  useCanVehicleStream,
+  useVehicleRig,
+  useVehicleState,
+  vehicle,
+} from "../features/vehicle"
 
 const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 
@@ -42,6 +48,8 @@ function VehicleModel() {
   const gltf = useGLTF(MODEL_PATH)
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
 
+  useVehicleRig(scene)
+
   useMemo(() => {
     scene.traverse((object) => {
       const mesh = object as THREE.Mesh
@@ -53,6 +61,38 @@ function VehicleModel() {
   }, [scene])
 
   return <primitive object={scene} />
+}
+
+function VehicleControls() {
+  const state = useVehicleState()
+  // 백엔드가 떠 있으면 실제 CAN 프레임에도 반응합니다. 없으면 버튼만 동작합니다.
+  const streamStatus = useCanVehicleStream()
+
+  return (
+    <>
+      <span
+        className="model-manager__stream-status"
+        title={`CAN 스트림: ${streamStatus}`}
+        aria-label={`CAN 스트림 ${streamStatus}`}
+      >
+        CAN {streamStatus === "open" ? "연결됨" : "오프라인"}
+      </span>
+      <button
+        type="button"
+        aria-pressed={state.doorL > 0.5 && state.doorR > 0.5}
+        onClick={() => vehicle.toggleDoor()}
+      >
+        {state.doorL > 0.5 ? "문 닫기" : "문 열기"}
+      </button>
+      <button
+        type="button"
+        aria-pressed={state.tailgate > 0.5}
+        onClick={() => vehicle.toggleTrunk()}
+      >
+        {state.tailgate > 0.5 ? "트렁크 닫기" : "트렁크 열기"}
+      </button>
+    </>
+  )
 }
 
 function ModelLoading() {
@@ -241,6 +281,7 @@ export default function ModelManagerPage() {
                 <ArrowClockwise size={16} aria-hidden="true" />
                 보기 초기화
               </button>
+              <VehicleControls />
             </div>
           </div>
 

@@ -29,6 +29,11 @@ export interface CanEvent {
   timestamp: number
   channel: string
   origin: CanEventOrigin
+  /**
+   * 접속 직후 서버가 재생해 준 스냅샷 프레임입니다.
+   * 지금 버스에서 일어난 일이 아니므로 트래픽 목록에는 넣지 않습니다.
+   */
+  replay?: boolean
   frame: CanFrameData
   context: {
     command?: CanCommand
