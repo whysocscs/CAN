@@ -12,6 +12,7 @@ import AttackPracticePage, {
 } from "@/pages/AttackPracticePage"
 import ModelManagerPage from "@/pages/ModelManagerPage"
 import CanPracticeOnlyPage from "@/pages/CanPracticeOnlyPage"
+import CanFrameSenderPage from "@/pages/CanFrameSenderPage"
 import ScaffoldPage, { type ScaffoldPageContent } from "@/pages/ScaffoldPage"
 import ECUPage from "@/pages/can-basics/ECUPage"
 import FramePage from "@/pages/can-basics/FramePage"
@@ -351,6 +352,10 @@ function Router() {
   const getPage = () => {
     if (currentRoute === "practice/normal") {
       return <CanPracticeOnlyPage />
+    }
+
+    if (currentRoute === "practice/sender") {
+      return <CanFrameSenderPage />
     }
 
     if (designVersion === "ver4" && currentRoute.startsWith("attacks/")) {
