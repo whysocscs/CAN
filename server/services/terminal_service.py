@@ -1,9 +1,4 @@
-"""Loopback-only PTY bridge for the CANLite local lab terminal.
-
-This service intentionally executes commands with the same permissions as the
-person who starts it.  It is for a single local browser only: keep the Uvicorn
-host set to 127.0.0.1 and do not deploy it to a shared or public network.
-"""
+"""PTY, shell process, and terminal I/O handling."""
 
 from __future__ import annotations
 
@@ -17,33 +12,8 @@ import signal
 import struct
 import termios
 from pathlib import Path
-from typing import Final
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, status
-from fastapi.middleware.cors import CORSMiddleware
-
-
-HOST: Final = "127.0.0.1"
-PORT: Final = 8010
-PROJECT_ROOT: Final = Path(os.environ.get("CANLITE_SHELL_CWD", Path.cwd())).resolve()
-SHELL: Final = os.environ.get("CANLITE_SHELL", "/bin/bash")
-ALLOWED_ORIGINS: Final = frozenset(
-    origin.strip()
-    for origin in os.environ.get(
-        "CANLITE_TERMINAL_ORIGINS",
-        "http://127.0.0.1:8447,http://localhost:8447",
-    ).split(",")
-    if origin.strip()
-)
-
-app = FastAPI(title="CANLite Local Terminal", docs_url=None, redoc_url=None)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=sorted(ALLOWED_ORIGINS),
-    allow_credentials=False,
-    allow_methods=["GET"],
-    allow_headers=["*"],
-)
+from fastapi import WebSocket, WebSocketDisconnect
 
 
 def set_window_size(file_descriptor: int, rows: int, columns: int) -> None:
@@ -75,35 +45,23 @@ def terminate_process(process: asyncio.subprocess.Process) -> None:
         os.killpg(process.pid, signal.SIGTERM)
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {
-        "status": "ok",
-        "host": HOST,
-        "cwd": str(PROJECT_ROOT),
-        "shell": SHELL,
-    }
-
-
-@app.websocket("/ws/terminal")
-async def terminal_socket(websocket: WebSocket) -> None:
-    origin = websocket.headers.get("origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    await websocket.accept()
+async def run_terminal_session(
+    websocket: WebSocket,
+    *,
+    project_root: Path,
+    shell: str,
+) -> None:
     master_fd, slave_fd = pty.openpty()
     set_window_size(master_fd, rows=28, columns=112)
     process = await asyncio.create_subprocess_exec(
-        SHELL,
+        shell,
         "--noprofile",
         "--norc",
         "-i",
         stdin=slave_fd,
         stdout=slave_fd,
         stderr=slave_fd,
-        cwd=str(PROJECT_ROOT),
+        cwd=str(project_root),
         env=shell_environment(),
         start_new_session=True,
     )
