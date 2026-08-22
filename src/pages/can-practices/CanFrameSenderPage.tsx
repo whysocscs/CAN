@@ -100,7 +100,7 @@ const STEP_OBSERVATIONS: Record<StepKey, string> = {
 
 const STEP_SUBSTAGE_COUNT: Record<StepKey, number> = {
   command: 10,
-  frame: 6,
+  frame: 3,
   socketcan: 5,
   filter: 4,
   message: 4,
@@ -506,45 +506,17 @@ function StepFrameStage({
 }) {
   const frameFields = buildFrameFields(analysis)
   const selectedField =
-    substage >= 6
+    substage >= 3
       ? frameFields.find((field) => field.name === "Data") ?? null
-      : substage >= 5
+      : substage >= 2
         ? frameFields.find((field) => field.name === "DLC") ?? null
-        : substage >= 4
+        : substage >= 1
           ? frameFields.find((field) => field.name === "ID\n[10:0]") ?? null
           : null
 
   return (
     <div className="senderlab__scene senderlab__scene--frame">
-      <div className={`senderlab__frame-build-row ${substage >= 1 ? "is-on" : ""}`}>
-        <code>{analysis.parsed.canId}</code>
-        <CaretRight size={18} />
-        <code>{formatPayload(analysis.parsed.dataBytes)}</code>
-      </div>
-
-      <div className={`senderlab__mini-frame ${substage >= 2 ? "is-on" : ""}`}>
-        <div>
-          <span>CAN ID</span>
-          <code>{analysis.parsed.canId}</code>
-        </div>
-        <div>
-          <span>DLC</span>
-          <code>{substage >= 4 ? analysis.parsed.len : "?"}</code>
-        </div>
-        <div>
-          <span>DATA</span>
-          <code>{formatPayload(analysis.parsed.dataBytes)}</code>
-        </div>
-      </div>
-
-      <div className={`senderlab__dlc-calc ${substage >= 3 ? "is-on" : ""}`}>
-        <span>DATA</span>
-        <code>{formatPayload(analysis.parsed.dataBytes)}</code>
-        <small>{analysis.parsed.len} Byte</small>
-        <b>DLC = {analysis.parsed.len}</b>
-      </div>
-
-      <div className={`senderlab__frame-lesson ${substage >= 4 ? "is-on" : ""}`}>
+      <div className={`senderlab__frame-lesson ${substage >= 1 ? "is-on" : ""}`}>
         <FrameStructureVisual
           fields={frameFields}
           selectedField={selectedField}
@@ -553,7 +525,7 @@ function StepFrameStage({
         />
       </div>
 
-      <div className={`senderlab__frame-emphasis ${substage >= 6 ? "is-on" : ""}`}>
+      <div className={`senderlab__frame-emphasis ${substage >= 3 ? "is-on" : ""}`}>
         <span>CAN 기초 페이지와 동일한 프레임 도식에서 ID, DLC, DATA만 현재 입력값 기준으로 집중해서 확인합니다.</span>
       </div>
     </div>
