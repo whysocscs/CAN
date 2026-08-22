@@ -60,6 +60,53 @@ type RunAnalysis = {
   explanation: string
 }
 
+type StepFrameStageElement =
+  | {
+      id: "frame-lesson"
+      label: "CAN Frame"
+      activateAt: 1
+      className: "senderlab__frame-lesson"
+      kind: "frame"
+      fields: Array<{
+        id: "can-id" | "dlc" | "data"
+        label: "CAN ID" | "DLC" | "DATA"
+        activateAt: 1 | 2 | 3
+        fieldName: "ID\n[10:0]" | "DLC" | "Data"
+      }>
+    }
+  | {
+      id: "frame-emphasis"
+      label: "CAN Frame 설명"
+      activateAt: 3
+      className: "senderlab__frame-emphasis"
+      kind: "emphasis"
+      description: string
+    }
+
+// STEP 2의 표시 순서, 활성화 phase, 기존 CSS 클래스를 한곳에서 관리한다.
+const STEP_FRAME_STAGE_CONFIG: StepFrameStageElement[] = [
+  {
+    id: "frame-lesson",
+    label: "CAN Frame",
+    activateAt: 1,
+    className: "senderlab__frame-lesson",
+    kind: "frame",
+    fields: [
+      { id: "can-id", label: "CAN ID", activateAt: 1, fieldName: "ID\n[10:0]" },
+      { id: "dlc", label: "DLC", activateAt: 2, fieldName: "DLC" },
+      { id: "data", label: "DATA", activateAt: 3, fieldName: "Data" },
+    ],
+  },
+  {
+    id: "frame-emphasis",
+    label: "CAN Frame 설명",
+    activateAt: 3,
+    className: "senderlab__frame-emphasis",
+    kind: "emphasis",
+    description: "CAN 기초 페이지와 동일한 프레임 도식에서 ID, DLC, DATA만 현재 입력값 기준으로 집중해서 확인합니다.",
+  },
+]
+
 const STEP_SEQUENCE: Array<{ key: StepKey; title: string; short: string }> = [
   { key: "command", title: "STEP 1 : Command Parsing", short: "Command Parsing" },
   { key: "frame", title: "STEP 2 : CAN Frame Build", short: "CAN Frame Build" },
@@ -505,29 +552,38 @@ function StepFrameStage({
   substage: number
 }) {
   const frameFields = buildFrameFields(analysis)
-  const selectedField =
-    substage >= 3
-      ? frameFields.find((field) => field.name === "Data") ?? null
-      : substage >= 2
-        ? frameFields.find((field) => field.name === "DLC") ?? null
-        : substage >= 1
-          ? frameFields.find((field) => field.name === "ID\n[10:0]") ?? null
-          : null
+  const frameElement = STEP_FRAME_STAGE_CONFIG.find((element) => element.kind === "frame")
+  const activeField = frameElement?.fields
+    .filter((field) => substage >= field.activateAt)
+    .at(-1)
+  const selectedField = activeField
+    ? frameFields.find((field) => field.name === activeField.fieldName) ?? null
+    : null
 
   return (
     <div className="senderlab__scene senderlab__scene--frame">
-      <div className={`senderlab__frame-lesson ${substage >= 1 ? "is-on" : ""}`}>
-        <FrameStructureVisual
-          fields={frameFields}
-          selectedField={selectedField}
-          frameType="standard"
-          onSelect={() => {}}
-        />
-      </div>
+      {STEP_FRAME_STAGE_CONFIG.map((element) => {
+        const isOn = substage >= element.activateAt
 
-      <div className={`senderlab__frame-emphasis ${substage >= 3 ? "is-on" : ""}`}>
-        <span>CAN 기초 페이지와 동일한 프레임 도식에서 ID, DLC, DATA만 현재 입력값 기준으로 집중해서 확인합니다.</span>
-      </div>
+        if (element.kind === "frame") {
+          return (
+            <div key={element.id} className={`${element.className} ${isOn ? "is-on" : ""}`}>
+              <FrameStructureVisual
+                fields={frameFields}
+                selectedField={selectedField}
+                frameType="standard"
+                onSelect={() => {}}
+              />
+            </div>
+          )
+        }
+
+        return (
+          <div key={element.id} className={`${element.className} ${isOn ? "is-on" : ""}`}>
+            <span>{element.description}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
