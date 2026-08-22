@@ -1,37 +1,71 @@
 # CANLite
 
-자동차 사이버보안 교육 플랫폼의 프론트엔드 프리뷰입니다.
+CANLite는 자동차 보안 입문자가 CAN 프레임과 ECU 흐름을 학습하고, 격리된 Toy 환경에서 공격 가설을 검증하는 교육 플랫폼이다.
 
-현재 저장소에는 다음 범위만 포함합니다.
+현재 저장소에는 다음이 구현되어 있다.
 
-- 학습 과정과 대시보드 화면
-- CAN 프로토콜, CAN 프레임, ECU와 Gateway 기초 학습
-- CAN 실습, 공격 실습, IDS 실습 및 관리 메뉴의 화면 틀
-- 라이트·다크 테마와 반응형 레이아웃
+- React + TypeScript + Vite 기반 CAN 기초·실습 UI
+- 실제 GLB 차량 모델과 CAN WebSocket 이벤트 시각화
+- FastAPI 기반 loopback CAN event stream
+- in-memory Toy Body ECU/Toy IDS 및 Black-box Door Attack 실습
+- 제한 명령만 해석하는 공격 실습용 virtual terminal
+- localhost 전용 Docker Compose 패키징
 
-FastAPI, Django, 데이터베이스, GLB 처리, API 호출, CAN 시뮬레이션 로직은 포함하지 않습니다.
+SQLite, 사용자 인증/진도 영속화, 실제 차량·물리 CAN 검증, OEM IDS, RCE/LPE 실습은 현재 범위에 포함되지 않는다.
 
-## 실행
+## Docker로 빠르게 실행
+
+Docker Compose v2가 필요하다.
 
 ```bash
-corepack pnpm install
-corepack pnpm dev
+docker compose up --build
 ```
 
-기본 실행 화면은 VER4 Route Atlas입니다.
+`http://127.0.0.1:8447`을 열고 **공격 실습 → 전체 공격 체인**으로 이동한다. 종료할 때는 다음을 실행한다.
+
+```bash
+docker compose down
+```
+
+기본 배포는 `127.0.0.1:8447`(frontend), `127.0.0.1:8010`(backend), `CANLITE_CAN_MODE=loopback`만 사용한다. TLS/HTTPS를 제공하지 않으므로 외부 네트워크에 공개하지 않는다. 상세한 학습자·교사용 절차는 [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)를 참고한다.
+
+## 로컬 개발
+
+Python 3.12, Node.js 22, pnpm `10.34.3` 기준이다. 먼저 backend 환경을 준비한다.
+
+```powershell
+python -m venv .venv
+.venv\Scripts\python -m pip install -r server\requirements.txt -r server\requirements-dev.txt
+$env:CANLITE_CAN_MODE = "loopback"
+.venv\Scripts\python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+```
+
+다른 PowerShell에서 frontend를 실행한다. pnpm 버전을 명시해 Corepack의 자동 버전 선택을 피한다.
+
+```powershell
+$env:COREPACK_ENABLE_PROJECT_SPEC = "0"
+corepack pnpm@10.34.3 install --frozen-lockfile
+corepack pnpm@10.34.3 dev:ver4
+```
+
+개발 화면은 `http://127.0.0.1:8447`이다.
+
+## 터미널 두 종류
+
+공격 실습 페이지의 `/labs/door-blackbox/.../terminal`은 whitelist parser이며 실제 shell을 만들지 않는다. `pwd`, `ls`, `cat`, 제한된 `candump`/`cansend` 문법만 Toy 결과로 처리한다.
+
+별도의 `/ws/terminal`은 호스트 권한으로 POSIX PTY를 여는 기존 기능이다. 보안상 `CANLITE_ENABLE_REAL_TERMINAL=true`를 명시하고 허용된 `Origin`으로 접속한 경우에만 lazy-load되며, Docker Compose에서는 항상 비활성화한다. 이 기능은 공격 실습에 필요하지 않으며 공개 서버에서 활성화하면 안 된다.
 
 ## 검사와 빌드
 
-```bash
-corepack pnpm typecheck
-corepack pnpm build
+```powershell
+.venv\Scripts\python -m pytest server\tests -q
+.venv\Scripts\python -m compileall -q server
+$env:COREPACK_ENABLE_PROJECT_SPEC = "0"
+corepack pnpm@10.34.3 test
+corepack pnpm@10.34.3 typecheck
+corepack pnpm@10.34.3 build
+docker compose config --quiet
 ```
 
-기존 디자인 비교가 필요할 때만 아래 명령을 사용할 수 있습니다.
-
-```bash
-corepack pnpm dev:ver1
-corepack pnpm dev:ver2
-corepack pnpm dev:ver3
-corepack pnpm dev:ver4
-```
+실습은 교육용 논리 모델이다. GLB 문 움직임은 Toy ECU가 승인한 상태 이벤트의 시각화이며 실제 차량의 물리 동작이나 특정 차종의 취약점을 뜻하지 않는다.

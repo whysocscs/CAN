@@ -21,6 +21,10 @@ ALLOWED_ORIGINS: Final = frozenset(
 router = APIRouter()
 
 
+def _real_terminal_enabled() -> bool:
+    return os.environ.get("CANLITE_ENABLE_REAL_TERMINAL", "").strip().lower() == "true"
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {
@@ -33,14 +37,18 @@ async def health() -> dict[str, str]:
 
 @router.websocket("/ws/terminal")
 async def terminal_socket(websocket: WebSocket) -> None:
+    if not _real_terminal_enabled():
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    origin = websocket.headers.get("origin")
+    if origin not in ALLOWED_ORIGINS:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     # PTY support is POSIX-specific.  Keep the health/CAN routers importable on
     # Windows; the restricted door lab itself never uses this real terminal.
     from server.services.terminal_service import run_terminal_session
-
-    origin = websocket.headers.get("origin")
-    if origin and origin not in ALLOWED_ORIGINS:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
 
     await websocket.accept()
     await run_terminal_session(
