@@ -70,7 +70,7 @@ def _script_response(result: ScriptResult) -> dict[str, object]:
     }
 
 
-def _metadata_for(session: DoorBlackboxSession, attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
+def _metadata_for(session_id: str, attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
     return {
         "context": {
             "command": "DOOR_LOCK",
@@ -82,7 +82,11 @@ def _metadata_for(session: DoorBlackboxSession, attempt: FrameAttempt, ids_statu
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
         "monitoring": {"idsObserved": True, "status": ids_status},
-        "lab": {"labId": "door-blackbox-v1", "sessionId": session.session_id},
+        "lab": {
+            "labId": "door-blackbox-v1",
+            "sessionId": session_id,
+            "generation": attempt.generation,
+        },
     }
 
 
@@ -129,7 +133,7 @@ async def terminal_command(
     # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
     for attempt in result.frames:
         if attempt.accepted:
-            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session, attempt, "ALERT"))
+            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session.session_id, attempt, "ALERT"))
     return _terminal_response(result)
 
 
@@ -147,6 +151,6 @@ async def run_script(
             continue
         if emitted and result.interval_ms is not None:
             await asyncio.sleep(result.interval_ms / 1000)
-        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session, attempt, result.ids_status))
+        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session.session_id, attempt, result.ids_status))
         emitted = True
     return _script_response(result)

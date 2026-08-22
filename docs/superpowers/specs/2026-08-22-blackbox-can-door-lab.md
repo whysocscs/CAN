@@ -93,13 +93,13 @@ cansend vcan0 456#000115B1
 
 Base path: `/labs/door-blackbox`
 
-- `POST /sessions`: 새 in-memory session을 만들고 public state를 반환한다. single-user lab에서는 생성 전에 lab-only `0x456` accepted replay snapshot과 보류 metadata를 정리하며, 다른 CAN ID snapshot은 보존한다.
+- `POST /sessions`: 새 in-memory session을 만들고 `generation: 0`을 포함한 public state를 반환한다. single-user lab에서는 생성 전에 lab-only `0x456` accepted replay snapshot과 보류 metadata를 정리하며, 다른 CAN ID snapshot은 보존한다.
 - `GET /sessions/{session_id}`: current public state를 반환한다.
-- `POST /sessions/{session_id}/reset`: session과 lab-only `0x456` accepted replay state를 초기화한다. 응답의 `vehicleState`는 연결된 UI가 로컬 rig를 reset하는 계약이며, 다른 CAN ID snapshot은 보존한다.
+- `POST /sessions/{session_id}/reset`: sessionId는 유지한 채 generation을 하나 증가시키고 session과 lab-only `0x456` accepted replay state를 초기화한다. 응답의 `vehicleState`는 연결된 UI가 로컬 rig를 reset하는 계약이며, 다른 CAN ID snapshot은 보존한다.
 - `POST /sessions/{session_id}/terminal` body `{ "command": string }`: virtual command 결과와 optional structured frames를 반환한다.
 - `POST /sessions/{session_id}/run` body `{ "script": string }`: parsed attempts, ECU/IDS verdict, state를 반환한다.
 
-Public state에는 `sessionId`, `stage`, `targetLabel`, `messageContractStatus`, `vehicleState`, `evidence`, `attemptCount`, `completed`만 포함한다. checksum seed/formula와 expected counter는 포함하지 않는다.
+Public state에는 `sessionId`, 비밀값이 아닌 정수 `generation`, `stage`, `targetLabel`, `messageContractStatus`, `vehicleState`, `evidence`, `attemptCount`, `completed`만 포함한다. checksum seed/formula와 expected counter는 포함하지 않는다.
 
 `run`의 각 attempt와 terminal의 structured capture frame은 `attemptId`, epoch-millisecond `timestamp`, `canId`, `data`, `verdict`를 반환한다. 스크립트 attempt timestamp는 선언된 `interval_ms` 순서를 반영하고, capture timestamp는 candump 기록 원본을 보존한다.
 
@@ -125,12 +125,13 @@ Accepted CAN event metadata:
   },
   "lab": {
     "labId": "door-blackbox-v1",
-    "sessionId": "<opaque-session-id>"
+    "sessionId": "<opaque-session-id>",
+    "generation": 0
   }
 }
 ```
 
-Loopback event timestamp은 epoch milliseconds를 사용한다. Rejected attempts are returned to the attack page monitor but are not emitted as vehicle state events.
+각 FrameAttempt는 처리 시점 generation을 내부적으로 고정한다. 따라서 reset 전 만들어진 delayed accepted event도 새 generation으로 오표기되지 않는다. Loopback event timestamp은 epoch milliseconds를 사용한다. Rejected attempts are returned to the attack page monitor but are not emitted as vehicle state events.
 
 ## Frontend behavior
 

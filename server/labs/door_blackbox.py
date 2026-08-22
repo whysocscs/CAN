@@ -46,6 +46,7 @@ _DOOR_OPEN_LOG: Final = "\n".join(
 class FrameAttempt:
     attempt_id: str
     timestamp: int
+    generation: int
     can_id: str
     data: tuple[str, ...]
     verdict: str
@@ -80,9 +81,11 @@ class DoorBlackboxSession:
         self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._attempt_sequence = 0
         self._capture_sequence = 0
+        self._generation = -1
         self.reset()
 
     def reset(self) -> None:
+        self._generation += 1
         self._expected_counter = _RESET_COUNTER
         self._left_door = "closed"
         self._right_door = "closed"
@@ -114,6 +117,7 @@ class DoorBlackboxSession:
             evidence.append({"kind": "toy_ids", "status": "normal"})
         return {
             "sessionId": self.session_id,
+            "generation": self._generation,
             "stage": stage,
             "targetLabel": "Toy Body ECU",
             "messageContractStatus": "INFERRED" if self._attempt_count else ("OBSERVED" if self._capture_seen else "UNKNOWN"),
@@ -219,6 +223,7 @@ class DoorBlackboxSession:
         return FrameAttempt(
             f"{self.session_id}-attempt-{self._attempt_sequence:06d}",
             self._clock_ms() if timestamp is None else timestamp,
+            self._generation,
             can_id,
             data,
             verdict,
@@ -255,6 +260,7 @@ class DoorBlackboxSession:
                 FrameAttempt(
                     f"{self.session_id}-capture-{self._capture_sequence:06d}",
                     int(float(raw_timestamp.strip("()")) * 1000),
+                    self._generation,
                     f"0x{raw_id.lower()}",
                     tuple(payload[i : i + 2] for i in range(0, len(payload), 2)),
                     "OBSERVED",

@@ -365,3 +365,85 @@ Relevant output:
 `compileall` and `git diff --check` exited 0 with no output. The sole warning
 is the existing FastAPI/Starlette `TestClient` deprecation warning. No frontend
 production file was changed in this correction.
+
+## Task 3 reset-generation correction
+
+### Scope and implementation
+
+- Added the non-secret `generation` integer to `DoorBlackboxSession`: a new
+  session starts at `0`, and each reset increments it while preserving the
+  opaque `sessionId`. The public session state now exposes only this lifecycle
+  marker in addition to the existing non-secret state.
+- Each `FrameAttempt` snapshots its processing-time generation. This includes
+  scripted frames, candump capture frames, and virtual-terminal frames, so a
+  reset that happens after an attempt is created cannot relabel it.
+- Accepted event correlation metadata now includes
+  `{labId, sessionId, generation}`. The router derives `generation` from the
+  frozen attempt rather than reading current session state during emission.
+  BLOCKED and OBSERVED attempts remain non-emitting.
+- Updated the black-box lab protocol specification with the generation/reset
+  and delayed-event correlation contract. No frontend production file changed.
+
+### RED — generation lifecycle and attempt freeze
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_door_blackbox.py -q
+```
+
+Relevant output before implementation:
+
+```text
+.........FFFF....                                                        [100%]
+4 failed, 13 passed in 0.18s
+```
+
+The failures showed the missing public `generation` key, `KeyError` when
+reading it, and the missing `FrameAttempt.generation` field.
+
+GREEN (same focused command):
+
+```text
+.................                                                        [100%]
+17 passed in 0.05s
+```
+
+### RED — API metadata and no-emission contract
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_labs_api.py -q
+```
+
+Relevant output before implementation:
+
+```text
+.....F...F..F...                                                         [100%]
+3 failed, 13 passed, 1 warning in 1.17s
+```
+
+All three failures were missing `generation: 0` from accepted event `lab`
+metadata, including the run that resets between delayed emissions.
+
+GREEN (same focused command):
+
+```text
+................                                                         [100%]
+16 passed, 1 warning in 1.01s
+```
+
+### Final verification
+
+```powershell
+.venv\Scripts\python -m pytest server\tests -q
+.venv\Scripts\python -m compileall -q server
+git diff --check
+```
+
+Relevant output:
+
+```text
+.................................                                        [100%]
+33 passed, 1 warning in 1.04s
+```
+
+`compileall` and `git diff --check` exited 0 with no output. The sole warning
+remains the upstream FastAPI/Starlette `TestClient` deprecation warning.

@@ -89,13 +89,13 @@ def test_loopback_lab_event_uses_epoch_timestamp_and_session_metadata(monkeypatc
             can.emit(
                 "0x456",
                 ["00", "01", "13", "B7"],
-                lab={"labId": "door-blackbox-v1", "sessionId": "session-1"},
+                lab={"labId": "door-blackbox-v1", "sessionId": "session-1", "generation": 0},
             )
         ) is True
 
         event = can._last_frames["0x456"]
         assert event["timestamp"] == 1_700_000_000_123
-        assert event["lab"] == {"labId": "door-blackbox-v1", "sessionId": "session-1"}
+        assert event["lab"] == {"labId": "door-blackbox-v1", "sessionId": "session-1", "generation": 0}
     finally:
         can._last_frames.clear()
         can._last_frames.update(original_frames)
@@ -119,7 +119,7 @@ def test_socketcan_bridge_keeps_lab_session_metadata(monkeypatch) -> None:
             can.emit(
                 "456",
                 ["00", "01", "13", "B7"],
-                lab={"labId": "door-blackbox-v1", "sessionId": "session-1"},
+                lab={"labId": "door-blackbox-v1", "sessionId": "session-1", "generation": 0},
             )
         ) is True
         observed = can.parse_candump("(1.0) vcan0 456#000113B7")
@@ -128,6 +128,7 @@ def test_socketcan_bridge_keeps_lab_session_metadata(monkeypatch) -> None:
         assert can.attach_pending_metadata(observed)["lab"] == {
             "labId": "door-blackbox-v1",
             "sessionId": "session-1",
+            "generation": 0,
         }
     finally:
         can._pending_metadata.clear()
@@ -148,6 +149,7 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
     created = client.post("/labs/door-blackbox/sessions")
     assert created.status_code == 201
     session_id = created.json()["sessionId"]
+    assert created.json()["generation"] == 0
     assert "checksum" not in repr(created.json()).lower()
 
     current = client.get(f"/labs/door-blackbox/sessions/{session_id}")
@@ -189,12 +191,13 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
         "monitoring": {"idsObserved": True, "status": "NORMAL"},
-        "lab": {"labId": "door-blackbox-v1", "sessionId": session_id},
+        "lab": {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
     }
 
     reset = client.post(f"/labs/door-blackbox/sessions/{session_id}/reset")
     assert reset.status_code == 200
     assert reset.json()["attemptCount"] == 0
+    assert reset.json()["generation"] == 1
 
 
 def test_unknown_session_returns_not_found() -> None:
@@ -290,7 +293,7 @@ def test_terminal_cansend_emits_an_accepted_toy_frame() -> None:
     assert response.status_code == 200
     assert response.json()["code"] == "EXECUTED"
     assert emitted[0]["processing"] == {"filterResult": "ACCEPT", "executionResult": "EXECUTED"}
-    assert emitted[0]["lab"] == {"labId": "door-blackbox-v1", "sessionId": session_id}
+    assert emitted[0]["lab"] == {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0}
 
 
 def test_terminal_cansend_does_not_emit_a_blocked_toy_frame() -> None:
@@ -313,6 +316,75 @@ def test_terminal_cansend_does_not_emit_a_blocked_toy_frame() -> None:
 
     assert response.status_code == 200
     assert response.json()["code"] == "CHECKSUM_INVALID"
+    assert emitted == []
+
+
+def test_session_api_generation_starts_at_zero_and_increments_without_changing_session_id() -> None:
+    app = FastAPI()
+    app.include_router(labs.router)
+    client = TestClient(app)
+
+    created = client.post("/labs/door-blackbox/sessions").json()
+    first_reset = client.post(f"/labs/door-blackbox/sessions/{created['sessionId']}/reset").json()
+    second_reset = client.post(f"/labs/door-blackbox/sessions/{created['sessionId']}/reset").json()
+
+    assert [created["generation"], first_reset["generation"], second_reset["generation"]] == [0, 1, 2]
+    assert {created["sessionId"], first_reset["sessionId"], second_reset["sessionId"]} == {created["sessionId"]}
+
+
+def test_run_emits_attempt_generation_even_when_session_resets_between_frames() -> None:
+    emitted: list[dict[str, object]] = []
+    session_id = ""
+
+    async def emit_then_reset(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        if len(emitted) == 1:
+            labs._sessions[session_id].reset()
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: emit_then_reset
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    response = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={
+            "script": "interval_ms=100\n"
+            "cansend vcan0 456#000113B7\n"
+            "cansend vcan0 456#000114B0\n"
+            "cansend vcan0 456#000115B1"
+        },
+    )
+
+    assert response.status_code == 200
+    assert [event["lab"] for event in emitted] == [
+        {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
+    ] * 3
+    assert client.get(f"/labs/door-blackbox/sessions/{session_id}").json()["generation"] == 1
+
+
+def test_terminal_capture_is_observed_but_never_emitted() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record_emit
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    response = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cat baseline.log"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["frames"][0]["verdict"] == "OBSERVED"
     assert emitted == []
 
 

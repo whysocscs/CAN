@@ -115,6 +115,7 @@ def test_public_state_does_not_expose_private_protocol_answers() -> None:
 
     assert set(state) == {
         "sessionId",
+        "generation",
         "stage",
         "targetLabel",
         "messageContractStatus",
@@ -126,6 +127,40 @@ def test_public_state_does_not_expose_private_protocol_answers() -> None:
     serialized = repr(state).lower()
     for private_term in ("checksum", "counter", "0xa5", "0x12", "0x13", "0x456"):
         assert private_term not in serialized
+
+
+def test_session_generation_starts_at_zero_and_increments_on_each_reset() -> None:
+    session = DoorBlackboxSession(session_id="test")
+
+    initial = session.public_state()
+    session.reset()
+    first_reset = session.public_state()
+    session.reset()
+    second_reset = session.public_state()
+
+    assert [initial["generation"], first_reset["generation"], second_reset["generation"]] == [0, 1, 2]
+    assert initial["sessionId"] == first_reset["sessionId"] == second_reset["sessionId"] == "test"
+
+
+def test_attempt_generation_is_captured_before_a_later_reset() -> None:
+    session = DoorBlackboxSession(session_id="test", clock_ms=lambda: 1)
+
+    old_attempt = session.run_script("cansend vcan0 456#000113B7").attempts[0]
+    session.reset()
+    new_attempt = session.run_script("cansend vcan0 456#000113B7").attempts[0]
+
+    assert (old_attempt.generation, new_attempt.generation) == (0, 1)
+
+
+def test_capture_and_terminal_frames_keep_the_generation_at_processing_time() -> None:
+    session = DoorBlackboxSession(session_id="test", clock_ms=lambda: 1)
+
+    capture = session.execute_terminal("cat baseline.log")
+    session.reset()
+    terminal = session.execute_terminal("cansend vcan0 456#000113B7")
+
+    assert capture.frames[0].generation == 0
+    assert terminal.frames[0].generation == 1
 
 
 def test_lab_target_isolated_from_public_tutorial_door_id() -> None:
