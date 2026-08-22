@@ -33,10 +33,20 @@ class _AsyncThreadLock:
         try:
             await asyncio.shield(acquire)
         except asyncio.CancelledError:
-            # ``shield`` lets the worker finish.  If its waiter is cancelled,
-            # release the acquired lock before propagating cancellation.
-            await acquire
-            self._lock.release()
+            # Never await cleanup in the cancelled task: a second cancellation
+            # can interrupt that await while the executor later acquires the
+            # threading lock.  The shielded future owns the eventual release.
+            def release_late_acquisition(future: asyncio.Future[bool]) -> None:
+                if future.cancelled():
+                    return
+                try:
+                    acquired = future.result()
+                except BaseException:
+                    return
+                if acquired:
+                    self._lock.release()
+
+            acquire.add_done_callback(release_late_acquisition)
             raise
         return self
 
@@ -123,8 +133,8 @@ def _clear_lab_replay_state() -> None:
     clear_frame_snapshot(_LAB_TARGET_CAN_ID)
 
 
-def _is_active_attempt(session_id: str, attempt: FrameAttempt) -> bool:
-    return _active_correlation == (session_id, attempt.generation)
+def _is_active_attempt(correlation: tuple[str, int], attempt: FrameAttempt) -> bool:
+    return _active_correlation == correlation and attempt.generation == correlation[1]
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
@@ -142,14 +152,15 @@ async def create_session() -> dict[str, object]:
 
 @router.get("/sessions/{session_id}")
 async def get_session(session_id: str) -> dict[str, object]:
-    return _session_or_404(session_id).public_state()
+    async with _lifecycle_lock:
+        return _session_or_404(session_id).public_state()
 
 
 @router.post("/sessions/{session_id}/reset")
 async def reset_session(session_id: str) -> dict[str, object]:
     global _active_correlation
-    session = _session_or_404(session_id)
     async with _lifecycle_lock:
+        session = _session_or_404(session_id)
         session.reset()
         state = session.public_state()
         # An old browser tab may still call reset, but it must not reactivate
@@ -169,14 +180,19 @@ async def terminal_command(
     request: TerminalRequest,
     emit_frame: FrameEmitter = Depends(get_frame_emitter),
 ) -> dict[str, object]:
-    session = _session_or_404(session_id)
-    result = session.execute_terminal(request.command)
+    async with _lifecycle_lock:
+        session = _session_or_404(session_id)
+        request_correlation = (
+            session.session_id,
+            int(session.public_state()["generation"]),
+        )
+        result = session.execute_terminal(request.command)
     # Capture output contains observed frames, not executable frames.  Only the
     # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
     for attempt in result.frames:
         if attempt.accepted:
             async with _lifecycle_lock:
-                if _is_active_attempt(session.session_id, attempt):
+                if _is_active_attempt(request_correlation, attempt):
                     await emit_frame(
                         attempt.can_id,
                         list(attempt.data),
@@ -191,8 +207,13 @@ async def run_script(
     request: ScriptRequest,
     emit_frame: FrameEmitter = Depends(get_frame_emitter),
 ) -> dict[str, object]:
-    session = _session_or_404(session_id)
-    result = session.run_script(request.script)
+    async with _lifecycle_lock:
+        session = _session_or_404(session_id)
+        request_correlation = (
+            session.session_id,
+            int(session.public_state()["generation"]),
+        )
+        result = session.run_script(request.script)
     emitted = False
     for attempt in result.attempts:
         if not attempt.accepted:
@@ -200,7 +221,7 @@ async def run_script(
         if emitted and result.interval_ms is not None:
             await asyncio.sleep(result.interval_ms / 1000)
         async with _lifecycle_lock:
-            if not _is_active_attempt(session.session_id, attempt):
+            if not _is_active_attempt(request_correlation, attempt):
                 continue
             await emit_frame(
                 attempt.can_id,

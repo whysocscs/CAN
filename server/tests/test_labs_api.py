@@ -3,9 +3,11 @@ from __future__ import annotations
 import asyncio
 from collections import deque
 import json
+import threading
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pytest
 
 from server.routers import can, labs
 
@@ -391,8 +393,14 @@ def test_terminal_capture_is_observed_but_never_emitted() -> None:
 def test_create_session_clears_only_old_lab_snapshot_before_reconnect() -> None:
     original_frames = dict(can._last_frames)
     original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
     can._last_frames.clear()
     can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
     can._last_frames["0x456"] = can.build_event("0x456", ["00", "01", "13", "B7"], timestamp_ms=1, channel="vcan0")
     can._last_frames["0x101"] = can.build_event("0x101", ["01", "01"], timestamp_ms=2, channel="vcan0")
     can._pending_metadata[("0x456", ("00", "01", "13", "B7"))] = deque([{"lab": {"sessionId": "old"}}])
@@ -415,6 +423,10 @@ def test_create_session_clears_only_old_lab_snapshot_before_reconnect() -> None:
         can._last_frames.update(original_frames)
         can._pending_metadata.clear()
         can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
 
 
 def test_terminal_capture_response_has_stable_id_and_candump_timestamp() -> None:
@@ -573,8 +585,13 @@ def test_new_session_waits_for_inflight_emit_then_invalidates_the_old_session() 
 def test_socketcan_echo_cleared_during_reset_is_dropped_once_not_forever(monkeypatch) -> None:
     original_frames = dict(can._last_frames)
     original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
     can._last_frames.clear()
     can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
     can._cleared_echo_tombstones.clear()
     monkeypatch.setattr(can, "MODE", "socketcan")
     key = ("0x456", ("00", "01", "13", "B7"))
@@ -599,4 +616,644 @@ def test_socketcan_echo_cleared_during_reset_is_dropped_once_not_forever(monkeyp
         can._last_frames.update(original_frames)
         can._pending_metadata.clear()
         can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
         can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_run_domain_mutation_waits_for_the_lifecycle_lock() -> None:
+    """Moving only emission under the lock still lets a reset split domain state."""
+
+    async def scenario() -> None:
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        session = labs._sessions[session_id]
+        lock_entered = asyncio.Event()
+        release_lock = asyncio.Event()
+
+        async def hold_lifecycle_lock() -> None:
+            async with labs._lifecycle_lock:
+                lock_entered.set()
+                await release_lock.wait()
+
+        async def record_emit(_can_id: str, _data: list[str], **_metadata: object) -> bool:
+            return True
+
+        holder = asyncio.create_task(hold_lifecycle_lock())
+        await lock_entered.wait()
+        run_task = asyncio.create_task(
+            labs.run_script(
+                session_id,
+                labs.ScriptRequest(
+                    script="interval_ms=100\n"
+                    "cansend vcan0 456#000113B7\n"
+                    "cansend vcan0 456#000114B0\n"
+                    "cansend vcan0 456#000115B1"
+                ),
+                record_emit,
+            )
+        )
+
+        await asyncio.sleep(0)
+        state_while_lifecycle_is_blocked = session.public_state()
+        release_lock.set()
+        await asyncio.gather(holder, run_task)
+
+        assert state_while_lifecycle_is_blocked["generation"] == 0
+        assert state_while_lifecycle_is_blocked["attemptCount"] == 0
+        assert state_while_lifecycle_is_blocked["vehicleState"] == {
+            "leftDoor": "closed",
+            "rightDoor": "closed",
+        }
+        assert state_while_lifecycle_is_blocked["completed"] is False
+
+    asyncio.run(scenario())
+
+
+def test_terminal_domain_mutation_waits_for_the_lifecycle_lock() -> None:
+    """A terminal cansend must not create a later-generation accepted result."""
+
+    async def scenario() -> None:
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        session = labs._sessions[session_id]
+        lock_entered = asyncio.Event()
+        release_lock = asyncio.Event()
+
+        async def hold_lifecycle_lock() -> None:
+            async with labs._lifecycle_lock:
+                lock_entered.set()
+                await release_lock.wait()
+
+        async def record_emit(_can_id: str, _data: list[str], **_metadata: object) -> bool:
+            return True
+
+        holder = asyncio.create_task(hold_lifecycle_lock())
+        await lock_entered.wait()
+        terminal_task = asyncio.create_task(
+            labs.terminal_command(
+                session_id,
+                labs.TerminalRequest(command="cansend vcan0 456#000113B7"),
+                record_emit,
+            )
+        )
+
+        await asyncio.sleep(0)
+        state_while_lifecycle_is_blocked = session.public_state()
+        release_lock.set()
+        await asyncio.gather(holder, terminal_task)
+
+        assert state_while_lifecycle_is_blocked["generation"] == 0
+        assert state_while_lifecycle_is_blocked["attemptCount"] == 0
+        assert state_while_lifecycle_is_blocked["vehicleState"]["leftDoor"] == "closed"
+
+    asyncio.run(scenario())
+
+
+def test_lost_stale_echo_does_not_consume_current_identical_echo_or_leak_metadata(monkeypatch) -> None:
+    """A key-only reset tombstone drops the new echo and poisons the next frame."""
+
+    class SuccessfulProcess:
+        returncode = 0
+
+        async def wait(self) -> None:
+            return None
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> SuccessfulProcess:
+        return SuccessfulProcess()
+
+    original_frames = dict(can._last_frames)
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    wall_time = 1_700_000_000.0
+    monotonic_time = 10.0
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: wall_time)
+    monkeypatch.setattr(can.time, "monotonic", lambda: monotonic_time)
+    can._last_frames.clear()
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        nonlocal wall_time, monotonic_time
+        frame = ["00", "01", "13", "B7"]
+        assert await can.emit(
+            "0x456",
+            frame,
+            lab={"sessionId": "stale", "generation": 0},
+        ) is True
+        can.clear_frame_snapshot("0x456")
+
+        # The old echo is lost.  A reset is followed by a byte-identical frame
+        # for the current generation.
+        wall_time = 1_700_000_001.0
+        monotonic_time = 11.0
+        assert await can.emit(
+            "0x456",
+            frame,
+            lab={"sessionId": "current", "generation": 1},
+        ) is True
+
+        current_echo = can.parse_candump("(1700000001.100000) vcan0 456#000113B7")
+        next_identical_traffic = can.parse_candump("(1700000001.200000) vcan0 456#000113B7")
+        assert current_echo is not None
+        assert next_identical_traffic is not None
+
+        assert await can.publish_observed_event(current_echo) is True
+        assert can._last_frames["0x456"]["lab"] == {
+            "sessionId": "current",
+            "generation": 1,
+        }
+        assert can._OBSERVED_AT_US_KEY not in can._last_frames["0x456"]
+        assert not can._pending_metadata
+
+        assert await can.publish_observed_event(next_identical_traffic) is True
+        assert "lab" not in can._last_frames["0x456"]
+        assert not can._cleared_echo_tombstones
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_cleared_socketcan_echo_tracking_is_bounded(monkeypatch) -> None:
+    """Lost SocketCAN echoes must not grow reset correlation state forever."""
+
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+    try:
+        for index in range(200):
+            can_id = f"0x{index:03x}"
+            key = (can_id, (f"{index % 256:02X}",))
+            can._pending_metadata[key] = deque([{"lab": {"sessionId": str(index)}}])
+            can.clear_frame_snapshot(can_id)
+
+        assert len(can._cleared_echo_tombstones) <= 128
+    finally:
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_async_thread_lock_double_cancel_releases_late_acquisition() -> None:
+    """A second cancellation must not strand the executor-acquired thread lock."""
+
+    async def scenario() -> None:
+        underlying = threading.Lock()
+        underlying.acquire()
+        acquire_started = threading.Event()
+        acquire_finished = threading.Event()
+
+        class ObservableThreadLock:
+            def acquire(self, blocking: bool = True) -> bool:
+                acquire_started.set()
+                acquired = underlying.acquire(blocking)
+                if acquired:
+                    acquire_finished.set()
+                return acquired
+
+            def release(self) -> None:
+                underlying.release()
+
+        lock = labs._AsyncThreadLock()
+        lock._lock = ObservableThreadLock()
+        waiter = asyncio.create_task(lock.__aenter__())
+        assert await asyncio.to_thread(acquire_started.wait, 1)
+
+        waiter.cancel()
+        # The callback runs after the first CancelledError reaches __aenter__.
+        # On the buggy implementation this is the cancellation that interrupts
+        # its cleanup await while the executor thread is still blocked.
+        asyncio.get_running_loop().call_soon(waiter.cancel)
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+        underlying.release()
+        assert await asyncio.to_thread(acquire_finished.wait, 1)
+        await asyncio.sleep(0)
+
+        acquired_after_cancel = underlying.acquire(blocking=False)
+        try:
+            assert acquired_after_cancel is True
+        finally:
+            if acquired_after_cancel or underlying.locked():
+                underlying.release()
+
+    asyncio.run(scenario())
+
+
+def test_same_millisecond_stale_echo_cannot_take_current_identical_metadata(monkeypatch) -> None:
+    """candump's six decimal places must remain available for echo correlation."""
+
+    class SuccessfulProcess:
+        returncode = 0
+
+        async def wait(self) -> None:
+            return None
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> SuccessfulProcess:
+        return SuccessfulProcess()
+
+    original_frames = dict(can._last_frames)
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    wall_time = 1_000.0
+    monotonic_time = 10.0
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: wall_time)
+    monkeypatch.setattr(can.time, "monotonic", lambda: monotonic_time)
+    can._last_frames.clear()
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        nonlocal wall_time, monotonic_time
+        frame = ["00", "01", "13", "B7"]
+        assert await can.emit(
+            "0x456",
+            frame,
+            lab={"sessionId": "stale", "generation": 0},
+        ) is True
+        can.clear_frame_snapshot("0x456")
+
+        # Both sends and the stale observation fall in timestamp millisecond
+        # 1000000.  Their microsecond ordering is nevertheless unambiguous.
+        wall_time = 1_000.000900
+        monotonic_time = 11.0
+        assert await can.emit(
+            "0x456",
+            frame,
+            lab={"sessionId": "current", "generation": 1},
+        ) is True
+
+        stale_echo = can.parse_candump("(1000.000100) vcan0 456#000113B7")
+        current_echo = can.parse_candump("(1000.001000) vcan0 456#000113B7")
+        next_identical = can.parse_candump("(1000.002000) vcan0 456#000113B7")
+        assert stale_echo is not None
+        assert current_echo is not None
+        assert next_identical is not None
+
+        assert await can.publish_observed_event(stale_echo) is False
+        assert can._pending_metadata
+        assert await can.publish_observed_event(current_echo) is True
+        assert can._last_frames["0x456"]["lab"] == {
+            "sessionId": "current",
+            "generation": 1,
+        }
+        assert not can._pending_metadata
+
+        assert await can.publish_observed_event(next_identical) is True
+        assert "lab" not in can._last_frames["0x456"]
+        assert not can._cleared_echo_tombstones
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_global_snapshot_clear_preserves_and_creates_socketcan_echo_tombstones(monkeypatch) -> None:
+    """A global clear must keep both old and newly invalidated echoes out."""
+
+    class SuccessfulProcess:
+        returncode = 0
+
+        async def wait(self) -> None:
+            return None
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> SuccessfulProcess:
+        return SuccessfulProcess()
+
+    original_frames = dict(can._last_frames)
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: 1_000.0)
+    can._last_frames.clear()
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        assert await can.emit(
+            "0x456",
+            ["00", "01", "13", "B7"],
+            lab={"sessionId": "already-cleared"},
+        ) is True
+        can.clear_frame_snapshot("0x456")
+        assert len(can._cleared_echo_tombstones) == 1
+
+        assert await can.emit(
+            "0x457",
+            ["AA"],
+            lab={"sessionId": "pending-at-global-clear"},
+        ) is True
+        await can.clear_snapshot()
+
+        old_echo = can.parse_candump("(1000.001000) vcan0 456#000113B7")
+        pending_echo = can.parse_candump("(1000.002000) vcan0 457#AA")
+        assert old_echo is not None
+        assert pending_echo is not None
+        assert await can.publish_observed_event(old_echo) is False
+        assert await can.publish_observed_event(pending_echo) is False
+        assert not can._last_frames
+        assert not can._pending_metadata
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_socketcan_emit_create_failure_removes_queued_metadata(monkeypatch) -> None:
+    """A failed process creation did not put a frame on the bus."""
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> object:
+        raise OSError("cansend unavailable")
+
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        with pytest.raises(OSError, match="cansend unavailable"):
+            await can.emit(
+                "0x456",
+                ["00", "01", "13", "B7"],
+                lab={"sessionId": "failed"},
+            )
+        assert not can._pending_metadata
+        assert not can._pending_metadata_sent_at_us
+        assert not can._cleared_echo_tombstones
+
+        unrelated = can.parse_candump("(1001.0) vcan0 456#000113B7")
+        assert unrelated is not None
+        resolved = can.attach_pending_metadata(unrelated)
+        assert resolved is not None
+        assert "lab" not in resolved
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_socketcan_emit_wait_cancellation_tombstones_uncertain_echo(monkeypatch) -> None:
+    """After cansend starts, cancellation must not leak or misattach metadata."""
+
+    wait_started = asyncio.Event()
+
+    class WaitingProcess:
+        returncode = None
+
+        async def wait(self) -> None:
+            wait_started.set()
+            await asyncio.Event().wait()
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> WaitingProcess:
+        return WaitingProcess()
+
+    original_frames = dict(can._last_frames)
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: 1_000.0)
+    can._last_frames.clear()
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        task = asyncio.create_task(
+            can.emit(
+                "0x456",
+                ["00", "01", "13", "B7"],
+                lab={"sessionId": "cancelled"},
+            )
+        )
+        await wait_started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        assert not can._pending_metadata
+        assert not can._pending_metadata_sent_at_us
+        assert len(can._cleared_echo_tombstones) == 1
+
+        uncertain_echo = can.parse_candump("(1000.001000) vcan0 456#000113B7")
+        assert uncertain_echo is not None
+        assert await can.publish_observed_event(uncertain_echo) is False
+        assert not can._last_frames
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_socketcan_emit_cancellation_keeps_known_successful_echo_metadata(monkeypatch) -> None:
+    """Cancellation delivery must not turn a known-successful send into stale traffic."""
+
+    class SuccessfulButCancelledProcess:
+        returncode: int | None = None
+
+        async def wait(self) -> None:
+            self.returncode = 0
+            current = asyncio.current_task()
+            assert current is not None
+            current.cancel()
+            await asyncio.sleep(0)
+
+    async def fake_subprocess_exec(
+        *_args: object,
+        **_kwargs: object,
+    ) -> SuccessfulButCancelledProcess:
+        return SuccessfulButCancelledProcess()
+
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: 1_000.0)
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        with pytest.raises(asyncio.CancelledError):
+            await can.emit(
+                "0x456",
+                ["00", "01", "13", "B7"],
+                lab={"sessionId": "known-success"},
+            )
+
+        assert can._pending_metadata
+        assert can._pending_metadata_sent_at_us
+        assert not can._cleared_echo_tombstones
+
+        successful_echo = can.parse_candump("(1000.001000) vcan0 456#000113B7")
+        next_identical = can.parse_candump("(1000.002000) vcan0 456#000113B7")
+        assert successful_echo is not None
+        assert next_identical is not None
+        resolved = can.attach_pending_metadata(successful_echo)
+        assert resolved is not None
+        assert resolved["lab"] == {"sessionId": "known-success"}
+        assert can.attach_pending_metadata(next_identical) is not None
+        assert "lab" not in next_identical
+        assert not can._pending_metadata
+        assert not can._pending_metadata_sent_at_us
+        assert not can._cleared_echo_tombstones
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_socketcan_emit_cancelled_during_creation_recovers_started_process(monkeypatch) -> None:
+    """Cancelling process creation must not discard a child that later succeeds."""
+
+    creation_started = asyncio.Event()
+    release_creation = asyncio.Event()
+    process_reaped = asyncio.Event()
+
+    class SuccessfulProcess:
+        returncode = 0
+
+        async def wait(self) -> None:
+            process_reaped.set()
+
+    async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> SuccessfulProcess:
+        creation_started.set()
+        await release_creation.wait()
+        return SuccessfulProcess()
+
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    original_sent_times = {
+        key: deque(value) for key, value in can._pending_metadata_sent_at_us.items()
+    }
+    original_tombstones = deque(can._cleared_echo_tombstones)
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
+    monkeypatch.setattr(can.time, "time", lambda: 1_000.0)
+    can._pending_metadata.clear()
+    can._pending_metadata_sent_at_us.clear()
+    can._cleared_echo_tombstones.clear()
+
+    async def scenario() -> None:
+        emit_task = asyncio.create_task(
+            can.emit(
+                "0x456",
+                ["00", "01", "13", "B7"],
+                lab={"sessionId": "creation-cancelled"},
+            )
+        )
+        await creation_started.wait()
+        emit_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await emit_task
+
+        # Until the shielded creation resolves, a possible child echo must
+        # retain this request's metadata instead of becoming unrelated traffic.
+        assert can._pending_metadata
+        possible_echo = can.parse_candump("(1000.001000) vcan0 456#000113B7")
+        assert possible_echo is not None
+        resolved = can.attach_pending_metadata(possible_echo)
+        assert resolved is not None
+        assert resolved["lab"] == {"sessionId": "creation-cancelled"}
+
+        release_creation.set()
+        await process_reaped.wait()
+        await asyncio.sleep(0)
+        assert not can._pending_metadata
+        assert not can._pending_metadata_sent_at_us
+        assert not can._cleared_echo_tombstones
+        assert not can._background_emit_tasks
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._pending_metadata_sent_at_us.clear()
+        can._pending_metadata_sent_at_us.update(original_sent_times)
+        can._cleared_echo_tombstones.clear()
+        can._cleared_echo_tombstones.extend(original_tombstones)

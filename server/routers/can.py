@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict, deque
-import contextlib
+from decimal import Decimal, InvalidOperation
 import json
 import os
 import shutil
@@ -66,9 +66,14 @@ _last_frames: dict[str, dict[str, Any]] = {}
 # SocketCAN emits are observed later by candump.  Keep metadata keyed by the
 # frame until that observation reaches the shared event stream.
 _pending_metadata: dict[tuple[str, tuple[str, ...]], deque[dict[str, Any]]] = defaultdict(deque)
+_pending_metadata_sent_at_us: dict[tuple[str, tuple[str, ...]], deque[int]] = defaultdict(deque)
+_background_emit_tasks: set[asyncio.Task[None]] = set()
+_OBSERVED_AT_US_KEY: Final = "_observedAtUs"
 _CLEARED_ECHO_TTL_SECONDS: Final = 5.0
 _MAX_CLEARED_ECHO_TOMBSTONES: Final = 128
-_cleared_echo_tombstones: deque[tuple[tuple[str, tuple[str, ...]], float]] = deque()
+_cleared_echo_tombstones: deque[
+    tuple[tuple[str, tuple[str, ...]], int | None, float]
+] = deque()
 
 
 # --------------------------------------------------------------- 프레임 표현
@@ -127,41 +132,208 @@ def parse_candump(line: str) -> dict[str, Any] | None:
     if not sep:
         return None
     try:
-        timestamp_ms = int(float(raw_ts.strip("()")) * 1000)
+        timestamp_us = int(Decimal(raw_ts.strip("()")) * 1_000_000)
         can_id = normalize_can_id(raw_id)
-    except ValueError:
+    except (InvalidOperation, ValueError):
         return None
-    return build_event(can_id, normalize_data(payload), timestamp_ms=timestamp_ms, channel=channel)
+    event = build_event(
+        can_id,
+        normalize_data(payload),
+        timestamp_ms=timestamp_us // 1000,
+        channel=channel,
+    )
+    # Public CanEvent timestamps stay in milliseconds.  Echo correlation keeps
+    # candump's microsecond ordering until attach_pending_metadata consumes it.
+    event[_OBSERVED_AT_US_KEY] = timestamp_us
+    return event
 
 
-def _remember_cleared_echo(key: tuple[str, tuple[str, ...]]) -> None:
+def _purge_expired_cleared_echoes() -> None:
+    now = time.monotonic()
+    while _cleared_echo_tombstones and _cleared_echo_tombstones[0][2] <= now:
+        _cleared_echo_tombstones.popleft()
+
+
+def _remember_cleared_echo(
+    key: tuple[str, tuple[str, ...]],
+    sent_at_us: int | None,
+) -> None:
+    _purge_expired_cleared_echoes()
     while len(_cleared_echo_tombstones) >= _MAX_CLEARED_ECHO_TOMBSTONES:
         _cleared_echo_tombstones.popleft()
-    _cleared_echo_tombstones.append((key, time.monotonic() + _CLEARED_ECHO_TTL_SECONDS))
+    _cleared_echo_tombstones.append(
+        (key, sent_at_us, time.monotonic() + _CLEARED_ECHO_TTL_SECONDS)
+    )
 
 
-def _consume_cleared_echo(key: tuple[str, tuple[str, ...]]) -> bool:
-    now = time.monotonic()
-    while _cleared_echo_tombstones and _cleared_echo_tombstones[0][1] <= now:
-        _cleared_echo_tombstones.popleft()
+def _has_cleared_echo(key: tuple[str, tuple[str, ...]]) -> bool:
+    _purge_expired_cleared_echoes()
+    return any(tombstone[0] == key for tombstone in _cleared_echo_tombstones)
+
+
+def _consume_cleared_echo(
+    key: tuple[str, tuple[str, ...]],
+    *,
+    observed_at_us: int,
+    before_sent_at_us: int | None,
+) -> bool:
+    _purge_expired_cleared_echoes()
     for tombstone in _cleared_echo_tombstones:
-        if tombstone[0] == key:
-            _cleared_echo_tombstones.remove(tombstone)
-            return True
+        tombstone_key, sent_at_us, _expires_at = tombstone
+        if tombstone_key != key:
+            continue
+        if sent_at_us is not None and observed_at_us < sent_at_us:
+            continue
+        if (
+            before_sent_at_us is not None
+            and sent_at_us is not None
+            and sent_at_us >= before_sent_at_us
+        ):
+            continue
+        _cleared_echo_tombstones.remove(tombstone)
+        return True
     return False
+
+
+def _forget_obsolete_cleared_echoes(
+    key: tuple[str, tuple[str, ...]],
+    *,
+    current_sent_at_us: int,
+) -> None:
+    """A matched current echo proves older same-key echoes were lost."""
+    _purge_expired_cleared_echoes()
+    for tombstone in list(_cleared_echo_tombstones):
+        tombstone_key, sent_at_us, _expires_at = tombstone
+        if tombstone_key == key and (sent_at_us is None or sent_at_us <= current_sent_at_us):
+            _cleared_echo_tombstones.remove(tombstone)
+
+
+def _pop_pending_metadata(
+    key: tuple[str, tuple[str, ...]],
+) -> tuple[dict[str, Any], int | None] | None:
+    pending = _pending_metadata.get(key)
+    if not pending:
+        return None
+    metadata = pending.popleft()
+    sent_times = _pending_metadata_sent_at_us.get(key)
+    sent_at_us = sent_times.popleft() if sent_times else None
+    if not pending:
+        _pending_metadata.pop(key, None)
+    if sent_times is not None and not sent_times:
+        _pending_metadata_sent_at_us.pop(key, None)
+    return metadata, sent_at_us
+
+
+def _remove_pending_metadata(
+    key: tuple[str, tuple[str, ...]],
+    metadata: dict[str, Any],
+) -> tuple[bool, int | None]:
+    """Remove this emit's paired metadata/time entry without touching peers."""
+    pending = _pending_metadata.get(key)
+    if not pending:
+        return False, None
+    pending_index = next(
+        (index for index, item in enumerate(pending) if item is metadata),
+        None,
+    )
+    if pending_index is None:
+        return False, None
+    del pending[pending_index]
+    sent_at_us = None
+    sent_times = _pending_metadata_sent_at_us.get(key)
+    if sent_times is not None and pending_index < len(sent_times):
+        sent_at_us = sent_times[pending_index]
+        del sent_times[pending_index]
+        if not sent_times:
+            _pending_metadata_sent_at_us.pop(key, None)
+    if not pending:
+        _pending_metadata.pop(key, None)
+    return True, sent_at_us
+
+
+def _invalidate_pending_metadata(key: tuple[str, tuple[str, ...]]) -> None:
+    """Turn unobserved SocketCAN emits into bounded, expiring tombstones."""
+    pending = _pending_metadata.pop(key, None)
+    sent_times = _pending_metadata_sent_at_us.pop(key, deque())
+    if MODE != "socketcan" or not pending:
+        return
+    for _ in pending:
+        sent_at_us = sent_times.popleft() if sent_times else None
+        _remember_cleared_echo(key, sent_at_us)
+
+
+async def _finish_cancelled_process_creation(
+    creation: asyncio.Task[Any],
+    key: tuple[str, tuple[str, ...]],
+    metadata: dict[str, Any],
+) -> None:
+    """Recover and reap a subprocess whose caller was cancelled mid-creation."""
+    try:
+        process = await creation
+    except asyncio.CancelledError:
+        if metadata:
+            removed, sent_at_us = _remove_pending_metadata(key, metadata)
+            if removed:
+                _remember_cleared_echo(key, sent_at_us)
+        return
+    except BaseException:
+        if metadata:
+            _remove_pending_metadata(key, metadata)
+        return
+
+    try:
+        await process.wait()
+    except BaseException:
+        returncode = process.returncode
+        if metadata and returncode != 0:
+            removed, sent_at_us = _remove_pending_metadata(key, metadata)
+            if returncode is None and removed:
+                _remember_cleared_echo(key, sent_at_us)
+        return
+
+    if metadata and process.returncode != 0:
+        _remove_pending_metadata(key, metadata)
+
+
+def _track_background_emit(task: asyncio.Task[None]) -> None:
+    """Keep cancellation cleanup alive until the child has been reaped."""
+    _background_emit_tasks.add(task)
+    task.add_done_callback(_background_emit_tasks.discard)
 
 
 def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any] | None:
     """Attach metadata recorded by ``emit`` when SocketCAN echoes a frame."""
     frame = event["frame"]
     key = (frame["canId"], tuple(frame["data"]))
-    if _consume_cleared_echo(key):
-        return None
+    observed_at_us = int(event.pop(_OBSERVED_AT_US_KEY, int(event["timestamp"]) * 1000))
     pending = _pending_metadata.get(key)
+    sent_times = _pending_metadata_sent_at_us.get(key)
+    current_sent_at_us = sent_times[0] if sent_times else None
+    # With a reset tombstone present, byte equality is insufficient.  Prefer a
+    # current pending emit only when the observed kernel timestamp is at/after
+    # that send; an older observation still consumes the stale tombstone.
     if pending:
-        event.update(pending.popleft())
-        if not pending:
-            _pending_metadata.pop(key, None)
+        if (
+            not _has_cleared_echo(key)
+            or current_sent_at_us is None
+            or observed_at_us >= current_sent_at_us
+        ):
+            resolved = _pop_pending_metadata(key)
+            assert resolved is not None
+            metadata, matched_sent_at_us = resolved
+            event.update(metadata)
+            if matched_sent_at_us is not None:
+                _forget_obsolete_cleared_echoes(
+                    key,
+                    current_sent_at_us=matched_sent_at_us,
+                )
+            return event
+    if _consume_cleared_echo(
+        key,
+        observed_at_us=observed_at_us,
+        before_sent_at_us=current_sent_at_us,
+    ):
+        return None
     return event
 
 
@@ -170,10 +342,7 @@ def clear_frame_snapshot(can_id: str) -> bool:
     normalized_id = normalize_can_id(can_id)
     removed = _last_frames.pop(normalized_id, None) is not None
     for key in [key for key in _pending_metadata if key[0] == normalized_id]:
-        pending = _pending_metadata.pop(key, None)
-        if MODE == "socketcan" and pending:
-            for _ in pending:
-                _remember_cleared_echo(key)
+        _invalidate_pending_metadata(key)
     return removed
 
 
@@ -242,25 +411,52 @@ async def emit(
     metadata_key = (normalize_can_id(can_id), tuple(normalize_data(data)))
     if metadata:
         _pending_metadata[metadata_key].append(metadata)
+        _pending_metadata_sent_at_us[metadata_key].append(int(time.time() * 1_000_000))
     payload = "".join(data)
-    # 셸을 거치지 않고 인자 배열로 실행합니다. 문자열을 그대로 넘기면 명령 주입이 됩니다.
-    process = await asyncio.create_subprocess_exec(
-        "cansend",
-        CHANNEL,
-        f"{int(can_id, 16):03X}#{payload}",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+    # Shield process creation because cancellation can arrive after the OS has
+    # started the child but before asyncio has returned its Process handle.
+    # Pass an argument vector directly; using a shell here would enable command
+    # injection through frame input.
+    creation = asyncio.create_task(
+        asyncio.create_subprocess_exec(
+            "cansend",
+            CHANNEL,
+            f"{int(can_id, 16):03X}#{payload}",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
     )
-    await process.wait()
+    try:
+        process = await asyncio.shield(creation)
+    except asyncio.CancelledError:
+        _track_background_emit(
+            asyncio.create_task(
+                _finish_cancelled_process_creation(creation, metadata_key, metadata)
+            )
+        )
+        raise
+    except BaseException:
+        if metadata:
+            _remove_pending_metadata(metadata_key, metadata)
+        raise
+
+    try:
+        await process.wait()
+    except BaseException:
+        returncode = process.returncode
+        if metadata and returncode != 0:
+            removed, sent_at_us = _remove_pending_metadata(metadata_key, metadata)
+            # Only an in-flight process has uncertain transmission.  A known
+            # success keeps its metadata for candump; a known failure needs no
+            # echo tombstone.  If candump already consumed an uncertain echo,
+            # removed=False avoids hiding later unrelated traffic.
+            if returncode is None and removed:
+                _remember_cleared_echo(metadata_key, sent_at_us)
+        raise
     if process.returncode == 0:
         return True
     if metadata:
-        pending = _pending_metadata.get(metadata_key)
-        if pending:
-            with contextlib.suppress(ValueError):
-                pending.remove(metadata)
-            if not pending:
-                _pending_metadata.pop(metadata_key, None)
+        _remove_pending_metadata(metadata_key, metadata)
     return False
 
 
@@ -399,7 +595,10 @@ async def clear_snapshot() -> dict[str, Any]:
     """
     cleared = len(_last_frames)
     _last_frames.clear()
-    _pending_metadata.clear()
+    for key in list(_pending_metadata):
+        _invalidate_pending_metadata(key)
+    _pending_metadata_sent_at_us.clear()
+    _purge_expired_cleared_echoes()
     return {"cleared": cleared}
 
 
