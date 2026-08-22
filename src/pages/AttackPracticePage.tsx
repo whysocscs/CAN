@@ -9,6 +9,7 @@ import {
   WaveSine,
 } from "@phosphor-icons/react"
 import { useApp, type Route } from "@/context/AppContext"
+import BeginnerCanAttackLabPage from "@/features/attack-lab/BeginnerCanAttackLabPage"
 import DoorAttackLabPage from "@/features/attack-lab/DoorAttackLabPage"
 
 export type AttackRoute = Extract<Route, `attacks/${string}`>
@@ -536,6 +537,16 @@ export default function AttackPracticePage({ route }: { route: AttackRoute }) {
       <main className="attack-preview attack-preview--door-lab">
         <ScenarioTabs current={route} />
         <DoorAttackLabPage />
+      </main>
+    )
+  }
+
+  if (route === "attacks/spoofing" || route === "attacks/replay") {
+    const scenario = route === "attacks/spoofing" ? "spoofing" : "replay"
+    return (
+      <main className="attack-preview attack-preview--door-lab">
+        <ScenarioTabs current={route} />
+        <BeginnerCanAttackLabPage key={route} scenario={scenario} />
       </main>
     )
   }

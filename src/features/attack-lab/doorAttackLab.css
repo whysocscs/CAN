@@ -429,6 +429,59 @@
 .door-attack-lab__spin { animation: door-attack-lab-spin .8s linear infinite; }
 @keyframes door-attack-lab-spin { to { transform: rotate(360deg); } }
 
+.beginner-can-attack-lab .door-attack-lab__target-summary {
+  min-width: 430px;
+  grid-template-columns: repeat(4, minmax(90px, 1fr));
+}
+
+.beginner-can-attack-lab__badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 9px;
+  border: 1px solid color-mix(in srgb, var(--dal-accent) 45%, #fff);
+  border-radius: 999px;
+  padding: 3px 7px;
+  background: color-mix(in srgb, var(--dal-accent) 7%, #fff);
+  color: var(--dal-accent);
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 9px;
+  letter-spacing: .02em;
+}
+
+.beginner-can-attack-lab__stages {
+  grid-template-columns: repeat(5, minmax(110px, 1fr));
+}
+
+.beginner-can-attack-lab__loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  padding: 9px 11px;
+  border: 1px solid var(--dal-line);
+  background: var(--dal-surface);
+  color: var(--dal-muted);
+  font-size: 10px;
+}
+
+.door-attack-lab__bytes > .door-attack-lab__empty {
+  grid-column: 1 / -1;
+  background: var(--dal-surface);
+}
+
+.door-attack-lab__terminal .beginner-can-attack-lab__terminal-form {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.door-attack-lab__terminal .beginner-can-attack-lab__terminal-form button {
+  display: inline-flex;
+  width: auto;
+  min-width: 62px;
+  padding-inline: 8px;
+  font-size: 9px;
+  font-weight: 700;
+}
+
 @media (max-width: 1120px) {
   .door-attack-lab { padding-inline: 20px; }
   .door-attack-lab__primary { grid-template-columns: minmax(0, 1.5fr) minmax(290px, .8fr); }
@@ -444,6 +497,7 @@
   .door-attack-lab { padding: 18px 14px 32px; }
   .door-attack-lab__header { display: grid; }
   .door-attack-lab__target-summary { width: 100%; min-width: 0; }
+  .beginner-can-attack-lab .door-attack-lab__target-summary { min-width: 0; }
   .door-attack-lab__primary {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "vehicle" "editor" "binary" "monitor";
@@ -464,6 +518,7 @@
   .door-attack-lab__header { gap: 10px; padding-bottom: 10px; }
   .door-attack-lab__header > div > span { margin-top: 4px; font-size: 10px; }
   .door-attack-lab__target-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .beginner-can-attack-lab .door-attack-lab__target-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .door-attack-lab__target-summary > div { padding: 7px 5px; }
   .door-attack-lab__target-summary dt { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
   .door-attack-lab__target-summary dd { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
