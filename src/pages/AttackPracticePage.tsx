@@ -9,6 +9,7 @@ import {
   WaveSine,
 } from "@phosphor-icons/react"
 import { useApp, type Route } from "@/context/AppContext"
+import DoorAttackLabPage from "@/features/attack-lab/DoorAttackLabPage"
 
 export type AttackRoute = Extract<Route, `attacks/${string}`>
 
@@ -530,6 +531,15 @@ function EvidenceLedger({ scenario }: { scenario: AttackScenario }) {
 }
 
 export default function AttackPracticePage({ route }: { route: AttackRoute }) {
+  if (route === "attacks/chain") {
+    return (
+      <main className="attack-preview attack-preview--door-lab">
+        <ScenarioTabs current={route} />
+        <DoorAttackLabPage />
+      </main>
+    )
+  }
+
   const scenario = scenarios[route]
 
   return (
