@@ -21,6 +21,7 @@ import contextlib
 import json
 import os
 import shutil
+import time
 from itertools import count
 from typing import Any, Final, Literal
 
@@ -92,6 +93,7 @@ def build_event(
     context: dict[str, Any] | None = None,
     processing: dict[str, Any] | None = None,
     monitoring: dict[str, Any] | None = None,
+    lab: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """프론트의 CanEvent(types.ts)와 같은 모양의 dict를 만듭니다."""
     event: dict[str, Any] = {
@@ -107,6 +109,8 @@ def build_event(
         event["processing"] = processing
     if monitoring is not None:
         event["monitoring"] = monitoring
+    if lab is not None:
+        event["lab"] = lab
     return event
 
 
@@ -177,10 +181,11 @@ async def emit(
     context: dict[str, Any] | None = None,
     processing: dict[str, Any] | None = None,
     monitoring: dict[str, Any] | None = None,
+    lab: dict[str, Any] | None = None,
 ) -> bool:
     """프레임 하나를 버스에 올립니다. 브라우저 전달은 구독 루프가 맡습니다."""
     if MODE == "loopback":
-        loop_ms = int(asyncio.get_running_loop().time() * 1000)
+        loop_ms = int(time.time() * 1000)
         await broadcast(
             build_event(
                 can_id,
@@ -190,13 +195,14 @@ async def emit(
                 context=context,
                 processing=processing,
                 monitoring=monitoring,
+                lab=lab,
             )
         )
         return True
 
     metadata = {
         name: value
-        for name, value in (("context", context), ("processing", processing), ("monitoring", monitoring))
+        for name, value in (("context", context), ("processing", processing), ("monitoring", monitoring), ("lab", lab))
         if value is not None
     }
     metadata_key = (normalize_can_id(can_id), tuple(normalize_data(data)))

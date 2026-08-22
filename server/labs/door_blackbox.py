@@ -6,12 +6,14 @@ starts a shell or evaluates learner supplied text.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import re
+import time
 from typing import Final
 
 
-_TARGET_CAN_ID: Final = "0x101"
+_TARGET_CAN_ID: Final = "0x456"
 _RESET_COUNTER: Final = 0x12
 _MAX_SCRIPT_CHARS: Final = 4096
 _MAX_SCRIPT_LINES: Final = 20
@@ -21,27 +23,29 @@ _BYTE_RE: Final = re.compile(r"^[0-9a-fA-F]{2}$")
 _BASELINE_LOG: Final = "\n".join(
     (
         "(1720000000.100000) vcan0 18F#3A7C",
-        "(1720000000.200000) vcan0 101#010110B5",
+        "(1720000000.200000) vcan0 456#010110B5",
         "(1720000000.300000) vcan0 321#FFE0",
-        "(1720000000.400000) vcan0 101#010111B4",
+        "(1720000000.400000) vcan0 456#010111B4",
         "(1720000000.500000) vcan0 2A0#10",
-        "(1720000000.600000) vcan0 101#010112B7",
+        "(1720000000.600000) vcan0 456#010112B7",
     )
 )
 _DOOR_OPEN_LOG: Final = "\n".join(
     (
         "(1720000100.100000) vcan0 18F#3A7C",
-        "(1720000100.200000) vcan0 101#00012084",
+        "(1720000100.200000) vcan0 456#00012084",
         "(1720000100.300000) vcan0 321#FFE0",
-        "(1720000100.400000) vcan0 101#00012185",
+        "(1720000100.400000) vcan0 456#00012185",
         "(1720000100.500000) vcan0 2A0#10",
-        "(1720000100.600000) vcan0 101#00012286",
+        "(1720000100.600000) vcan0 456#00012286",
     )
 )
 
 
 @dataclass(frozen=True)
 class FrameAttempt:
+    attempt_id: str
+    timestamp: int
     can_id: str
     data: tuple[str, ...]
     verdict: str
@@ -71,8 +75,11 @@ class ScriptResult:
 class DoorBlackboxSession:
     """Stateful session for a Toy ECU, with private protocol validation state."""
 
-    def __init__(self, *, session_id: str) -> None:
+    def __init__(self, *, session_id: str, clock_ms: Callable[[], int] | None = None) -> None:
         self.session_id = session_id
+        self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
+        self._attempt_sequence = 0
+        self._capture_sequence = 0
         self.reset()
 
     def reset(self) -> None:
@@ -169,36 +176,53 @@ class DoorBlackboxSession:
         if not commands:
             return self._script_error("SCRIPT_EMPTY")
 
-        attempts = tuple(self.process_frame(can_id, data) for can_id, data in commands)
+        start_timestamp = self._clock_ms()
+        attempts = tuple(
+            self.process_frame(can_id, data, timestamp=start_timestamp + index * interval_ms)
+            for index, (can_id, data) in enumerate(commands)
+        )
         ids_status = self._evaluate_ids(attempts, interval_ms)
         return ScriptResult(attempts, ids_status, self.public_state(), interval_ms)
 
-    def process_frame(self, can_id: str, data: list[str]) -> FrameAttempt:
+    def process_frame(self, can_id: str, data: list[str], *, timestamp: int | None = None) -> FrameAttempt:
         """Apply the explicit Toy ECU validation order to one decoded frame."""
         normalized_id = self._normalize_can_id(can_id)
         normalized_data = tuple(part.upper() for part in data)
         if normalized_id != _TARGET_CAN_ID:
-            return self._record_attempt(normalized_id, normalized_data, "TARGET_ID_MISMATCH")
+            return self._record_attempt(normalized_id, normalized_data, "TARGET_ID_MISMATCH", timestamp)
         if len(normalized_data) != 4:
-            return self._record_attempt(normalized_id, normalized_data, "LENGTH_INVALID")
+            return self._record_attempt(normalized_id, normalized_data, "LENGTH_INVALID", timestamp)
         if any(_BYTE_RE.fullmatch(part) is None for part in normalized_data):
-            return self._record_attempt(normalized_id, normalized_data, "DATA_INVALID")
+            return self._record_attempt(normalized_id, normalized_data, "DATA_INVALID", timestamp)
 
         left, right, counter, checksum = (int(part, 16) for part in normalized_data)
         if checksum != (left ^ right ^ counter ^ 0xA5):
-            return self._record_attempt(normalized_id, normalized_data, "CHECKSUM_INVALID")
+            return self._record_attempt(normalized_id, normalized_data, "CHECKSUM_INVALID", timestamp)
         if counter != ((self._expected_counter + 1) & 0xFF):
-            return self._record_attempt(normalized_id, normalized_data, "COUNTER_REJECTED")
+            return self._record_attempt(normalized_id, normalized_data, "COUNTER_REJECTED", timestamp)
 
         self._expected_counter = counter
         self._left_door = "open" if left == 0 else "closed"
         self._right_door = "open" if right == 0 else "closed"
-        return self._record_attempt(normalized_id, normalized_data, "EXECUTED")
+        return self._record_attempt(normalized_id, normalized_data, "EXECUTED", timestamp)
 
-    def _record_attempt(self, can_id: str, data: tuple[str, ...], verdict: str) -> FrameAttempt:
+    def _record_attempt(
+        self,
+        can_id: str,
+        data: tuple[str, ...],
+        verdict: str,
+        timestamp: int | None,
+    ) -> FrameAttempt:
         self._attempt_count += 1
         self._last_verdicts.append(verdict)
-        return FrameAttempt(can_id, data, verdict)
+        self._attempt_sequence += 1
+        return FrameAttempt(
+            f"{self.session_id}-attempt-{self._attempt_sequence:06d}",
+            self._clock_ms() if timestamp is None else timestamp,
+            can_id,
+            data,
+            verdict,
+        )
 
     def _evaluate_ids(self, attempts: tuple[FrameAttempt, ...], interval_ms: int) -> str:
         complete = (
@@ -221,11 +245,19 @@ class DoorBlackboxSession:
         except ValueError:
             return can_id.lower()
 
-    @staticmethod
-    def _capture_frames(log: str) -> tuple[FrameAttempt, ...]:
+    def _capture_frames(self, log: str) -> tuple[FrameAttempt, ...]:
         frames: list[FrameAttempt] = []
         for line in log.splitlines():
-            raw_frame = line.rsplit(" ", 1)[-1]
+            raw_timestamp, _, raw_frame = line.split()
             raw_id, _, payload = raw_frame.partition("#")
-            frames.append(FrameAttempt(f"0x{raw_id.lower()}", tuple(payload[i : i + 2] for i in range(0, len(payload), 2)), "OBSERVED"))
+            self._capture_sequence += 1
+            frames.append(
+                FrameAttempt(
+                    f"{self.session_id}-capture-{self._capture_sequence:06d}",
+                    int(float(raw_timestamp.strip("()")) * 1000),
+                    f"0x{raw_id.lower()}",
+                    tuple(payload[i : i + 2] for i in range(0, len(payload), 2)),
+                    "OBSERVED",
+                )
+            )
         return tuple(frames)

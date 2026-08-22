@@ -274,3 +274,94 @@ Relevant output:
 
 `compileall` and `git diff --check` exited 0 with no output. The sole warning
 remains the upstream FastAPI/Starlette `TestClient` deprecation warning.
+
+## Task 3 upstream correction
+
+### Scope and implementation
+
+- Moved the private Toy Body ECU target and its static captures to lab-only
+  `0x456`. The existing public `/can/door` and tutorial `0x101` mapping were
+  not changed. Accepted lab events still use `context.command: DOOR_LOCK`, so
+  the vehicle command binding, rather than a private lab raw-ID mapping,
+  drives the visualization.
+- A new session and a reset now clear only the `0x456` replay snapshot and its
+  pending SocketCAN metadata. They preserve unrelated CAN snapshots such as
+  public `0x101` door state.
+- Added optional `lab` metadata to CAN event construction/emission, retained
+  through both loopback and SocketCAN pending-metadata bridges. Accepted lab
+  events include `labId: door-blackbox-v1` and the opaque session ID.
+- Changed loopback event timestamps to epoch milliseconds. Script and terminal
+  attempts now return `attemptId`, epoch-millisecond `timestamp`, `canId`,
+  `data`, and `verdict`; script timestamps follow `interval_ms`, while capture
+  timestamps retain the candump source time.
+- Updated the lab specification to document the isolated ID, snapshot contract,
+  attempt response fields, epoch timestamps, and lab correlation metadata.
+
+### RED — domain target and attempt contract
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_door_blackbox.py -q
+```
+
+Relevant output before implementation:
+
+```text
+TARGET_ID_MISMATCH != COUNTER_REJECTED
+TypeError: DoorBlackboxSession.__init__() got an unexpected keyword argument 'clock_ms'
+10 failed, 3 passed
+```
+
+GREEN (same focused command):
+
+```text
+13 passed in 0.06s
+```
+
+An additional same-session reset uniqueness regression then passed with the
+focused domain suite at `14 passed in 0.07s`.
+
+### RED — API/CAN snapshot, metadata, and timestamp contract
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_labs_api.py -q
+```
+
+Relevant output before implementation:
+
+```text
+AttributeError: module 'server.routers.can' has no attribute 'time'
+TypeError: emit() got an unexpected keyword argument 'lab'
+assert {'canId', 'data', 'verdict'} == {'attemptId', 'timestamp', ...}
+assert '0x456' not in can._last_frames
+7 failed, 6 passed
+```
+
+The first implementation run also exposed a `NameError` in the script route:
+the session had been used for metadata after an inline lookup discarded it.
+The same route regression test reproduced it; assigning the looked-up session
+once at the boundary fixed that single cause.
+
+GREEN (same focused command):
+
+```text
+13 passed, 1 warning in 0.78s
+```
+
+### Final verification
+
+```powershell
+.venv\Scripts\python -m pytest server\tests -q
+.venv\Scripts\python -m compileall -q server
+git diff --check
+```
+
+Relevant output:
+
+```text
+...........................                                              [100%]
+27 passed, 1 warning in 0.78s
+```
+
+`compileall` and `git diff --check` exited 0 with no output. The sole warning
+is the existing FastAPI/Starlette `TestClient` deprecation warning. No frontend
+production file was changed in this correction.

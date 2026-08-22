@@ -16,7 +16,7 @@ CANLite의 `attacks/chain` 화면은 현재 정적 미리보기라서 학습자�
 4. 학습자는 처음에 CAN ID, payload 의미, checksum 공식을 받지 않는다.
 5. `ls`, `pwd`, `whoami`, `cat`, `ip ... vcan0`, `candump ... vcan0`, `cansend ...`의 교육용 제한 명령이 동작한다.
 6. 잘못된 DLC, checksum, counter 프레임은 `BLOCKED`이며 GLB 상태를 바꾸지 않는다.
-7. 승인된 `0x101` 상태 이벤트만 기존 `/ws/can → vehicleStore → useVehicleRig` 경로로 전달되어 왼쪽 문을 움직인다.
+7. 승인된 lab-only `0x456` 상태 이벤트만 기존 `/ws/can → vehicleStore → useVehicleRig` 경로로 전달되어 왼쪽 문을 움직인다. 이벤트의 `context.command: DOOR_LOCK`를 사용하므로 공개 tutorial의 `0x101` raw-ID mapping에 의존하지 않는다.
 8. 올바른 3프레임 시퀀스를 80–120 ms 간격으로 제출하면 왼쪽 문만 열리고 Toy IDS가 `NORMAL`을 반환하며 실습이 완료된다.
 9. 프론트 typecheck/build, backend pytest, frontend unit tests가 통과한다.
 10. Docker Compose가 non-root, read-only, loopback Toy bus 기본값으로 로컬에서 실행되도록 정의된다.
@@ -32,13 +32,13 @@ CANLite의 `attacks/chain` 화면은 현재 정적 미리보기라서 학습자�
 - Docker는 `privileged`, host network/PID namespace, host CAN 공유 없이 `CANLITE_CAN_MODE=loopback`으로 시작한다.
 - UI와 문서에는 “Toy ECU”, “Toy IDS”, “교육용 논리 ECU 위치”라는 표현을 유지한다.
 
-## Toy message contract (server private)
+## Toy message contract (server private, lab-only)
 
-기존 차량 rig 호환을 위해 앞 두 바이트 계약은 유지하고 freshness 바이트를 뒤에 추가한다.
+이 계약은 Black-box Toy lab에만 쓰는 교육용 ID다. 공개 차량 tutorial과 일반 `/can/door`의 `0x101` mapping은 별개이며 변경하지 않는다. 차량 rig 호환을 위해 앞 두 바이트 계약은 유지하고 freshness 바이트를 뒤에 추가한다.
 
 | Field | Meaning |
 |---|---|
-| CAN ID | `0x101` |
+| CAN ID | `0x456` |
 | DLC | `4` |
 | DATA[0] | left door: `00=open`, `01=closed` |
 | DATA[1] | right door: `00=open`, `01=closed` |
@@ -79,9 +79,9 @@ Toy IDS sequence rules:
 ```text
 # comments are allowed
 interval_ms=100
-cansend vcan0 101#000113B7
-cansend vcan0 101#000114B0
-cansend vcan0 101#000115B1
+cansend vcan0 456#000113B7
+cansend vcan0 456#000114B0
+cansend vcan0 456#000115B1
 ```
 
 - `interval_ms`는 정수 10–2000만 허용한다.
@@ -93,13 +93,15 @@ cansend vcan0 101#000115B1
 
 Base path: `/labs/door-blackbox`
 
-- `POST /sessions`: 새 in-memory session을 만들고 public state를 반환한다.
+- `POST /sessions`: 새 in-memory session을 만들고 public state를 반환한다. single-user lab에서는 생성 전에 lab-only `0x456` accepted replay snapshot과 보류 metadata를 정리하며, 다른 CAN ID snapshot은 보존한다.
 - `GET /sessions/{session_id}`: current public state를 반환한다.
-- `POST /sessions/{session_id}/reset`: session과 accepted vehicle state를 초기화한다.
+- `POST /sessions/{session_id}/reset`: session과 lab-only `0x456` accepted replay state를 초기화한다. 응답의 `vehicleState`는 연결된 UI가 로컬 rig를 reset하는 계약이며, 다른 CAN ID snapshot은 보존한다.
 - `POST /sessions/{session_id}/terminal` body `{ "command": string }`: virtual command 결과와 optional structured frames를 반환한다.
 - `POST /sessions/{session_id}/run` body `{ "script": string }`: parsed attempts, ECU/IDS verdict, state를 반환한다.
 
 Public state에는 `sessionId`, `stage`, `targetLabel`, `messageContractStatus`, `vehicleState`, `evidence`, `attemptCount`, `completed`만 포함한다. checksum seed/formula와 expected counter는 포함하지 않는다.
+
+`run`의 각 attempt와 terminal의 structured capture frame은 `attemptId`, epoch-millisecond `timestamp`, `canId`, `data`, `verdict`를 반환한다. 스크립트 attempt timestamp는 선언된 `interval_ms` 순서를 반영하고, capture timestamp는 candump 기록 원본을 보존한다.
 
 Accepted CAN event metadata:
 
@@ -120,11 +122,15 @@ Accepted CAN event metadata:
   "monitoring": {
     "idsObserved": true,
     "status": "NORMAL"
+  },
+  "lab": {
+    "labId": "door-blackbox-v1",
+    "sessionId": "<opaque-session-id>"
   }
 }
 ```
 
-Rejected attempts are returned to the attack page monitor but are not emitted as vehicle state events.
+Loopback event timestamp은 epoch milliseconds를 사용한다. Rejected attempts are returned to the attack page monitor but are not emitted as vehicle state events.
 
 ## Frontend behavior
 

@@ -4,19 +4,20 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, Final
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from server.labs.door_blackbox import DoorBlackboxSession, FrameAttempt, ScriptResult, TerminalResult
+from server.labs.door_blackbox import _TARGET_CAN_ID, DoorBlackboxSession, FrameAttempt, ScriptResult, TerminalResult
 
 
 router = APIRouter(prefix="/labs/door-blackbox", tags=["labs"])
 _sessions: dict[str, DoorBlackboxSession] = {}
 
 FrameEmitter = Callable[..., Awaitable[bool]]
+_LAB_TARGET_CAN_ID: Final = _TARGET_CAN_ID
 
 
 def get_frame_emitter() -> FrameEmitter:
@@ -42,7 +43,13 @@ def _session_or_404(session_id: str) -> DoorBlackboxSession:
 
 
 def _attempt_response(attempt: FrameAttempt) -> dict[str, object]:
-    return {"canId": attempt.can_id, "data": list(attempt.data), "verdict": attempt.verdict}
+    return {
+        "attemptId": attempt.attempt_id,
+        "timestamp": attempt.timestamp,
+        "canId": attempt.can_id,
+        "data": list(attempt.data),
+        "verdict": attempt.verdict,
+    }
 
 
 def _terminal_response(result: TerminalResult) -> dict[str, object]:
@@ -63,7 +70,7 @@ def _script_response(result: ScriptResult) -> dict[str, object]:
     }
 
 
-def _metadata_for(attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
+def _metadata_for(session: DoorBlackboxSession, attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
     return {
         "context": {
             "command": "DOOR_LOCK",
@@ -75,11 +82,19 @@ def _metadata_for(attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str,
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
         "monitoring": {"idsObserved": True, "status": ids_status},
+        "lab": {"labId": "door-blackbox-v1", "sessionId": session.session_id},
     }
+
+
+def _clear_lab_replay_state() -> None:
+    from server.routers.can import clear_frame_snapshot
+
+    clear_frame_snapshot(_LAB_TARGET_CAN_ID)
 
 
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 async def create_session() -> dict[str, object]:
+    _clear_lab_replay_state()
     session_id = str(uuid4())
     session = DoorBlackboxSession(session_id=session_id)
     _sessions[session_id] = session
@@ -98,9 +113,7 @@ async def reset_session(session_id: str) -> dict[str, object]:
     # The reset response is the frontend state-reset contract.  Clearing only
     # the Toy door's replay state prevents a reconnect from reapplying an old
     # accepted frame without touching unrelated vehicle CAN snapshots.
-    from server.routers.can import clear_frame_snapshot
-
-    clear_frame_snapshot("0x101")
+    _clear_lab_replay_state()
     return session.public_state()
 
 
@@ -116,7 +129,7 @@ async def terminal_command(
     # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
     for attempt in result.frames:
         if attempt.accepted:
-            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(attempt, "ALERT"))
+            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session, attempt, "ALERT"))
     return _terminal_response(result)
 
 
@@ -126,13 +139,14 @@ async def run_script(
     request: ScriptRequest,
     emit_frame: FrameEmitter = Depends(get_frame_emitter),
 ) -> dict[str, object]:
-    result = _session_or_404(session_id).run_script(request.script)
+    session = _session_or_404(session_id)
+    result = session.run_script(request.script)
     emitted = False
     for attempt in result.attempts:
         if not attempt.accepted:
             continue
         if emitted and result.interval_ms is not None:
             await asyncio.sleep(result.interval_ms / 1000)
-        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(attempt, result.ids_status))
+        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session, attempt, result.ids_status))
         emitted = True
     return _script_response(result)
