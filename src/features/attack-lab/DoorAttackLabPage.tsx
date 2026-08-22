@@ -585,7 +585,9 @@ export default function DoorAttackLabPage() {
                 <small>Toy Body ECU → Left Door</small>
               </span>
             </div>
-            <span>교육용 논리 ECU 위치</span>
+            <span className="door-attack-lab__truth-qualifier">
+              교육용 논리 위치 · 실제 OEM 배치 아님
+            </span>
           </header>
           <DoorAttackVehicle currentStage={session?.stage} />
         </section>

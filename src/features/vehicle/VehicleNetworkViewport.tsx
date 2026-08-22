@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react"
 import { Canvas, useFrame, useThree } from "@react-three/fiber"
-import { Bounds, Html, Line, OrbitControls, useGLTF } from "@react-three/drei"
+import { Html, Line, OrbitControls, useGLTF } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
   CircleNotch,
@@ -28,6 +28,7 @@ import {
 
 const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 const MODEL_ROTATION: [number, number, number] = [0, -0.22, 0]
+const MODEL_EULER = new THREE.Euler(...MODEL_ROTATION)
 const OVERVIEW_CAMERA: [number, number, number] = [-5.6, 3.1, 7.2]
 const CAMERA_TARGET: [number, number, number] = [0, 0.72, 0]
 
@@ -49,6 +50,18 @@ interface CameraPreset {
   target: THREE.Vector3
 }
 
+interface NamedCameraFocus {
+  view: VehicleCameraView
+  nodeId?: undefined
+}
+
+interface NodeCameraFocus {
+  view: "node"
+  nodeId: VehicleTopologyNodeId
+}
+
+type CameraFocus = NamedCameraFocus | NodeCameraFocus
+
 interface OrbitControlsState {
   target: THREE.Vector3
   update: () => void
@@ -60,16 +73,36 @@ function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
   return node
 }
 
-function cameraViewForNode(
+function cameraFocusForNode(
   nodeId: VehicleTopologyNodeId | undefined,
   route: readonly VehicleTopologyNodeId[],
   targetId: VehicleLogicalNodeId,
   effectId: VehicleEffectTargetId,
-): VehicleCameraView {
-  if (nodeId === route[0]) return "source"
-  if (nodeId === targetId) return "target"
-  if (nodeId === effectId) return "effect"
-  return "overview"
+): CameraFocus {
+  if (nodeId === route[0]) return { view: "source" }
+  if (nodeId === targetId) return { view: "target" }
+  if (nodeId === effectId) return { view: "effect" }
+  if (nodeId) return { view: "node", nodeId }
+  return { view: "overview" }
+}
+
+function rotatedAnchor(node: VehicleTopologyNode): THREE.Vector3 {
+  return new THREE.Vector3(...node.anchor).applyEuler(MODEL_EULER)
+}
+
+function createNodeCameraPreset(
+  node: VehicleTopologyNode,
+  offset = new THREE.Vector3(3.4, 1.8, 3.4),
+): CameraPreset {
+  const target = rotatedAnchor(node)
+  const position =
+    node.id === "tailgate"
+      ? target.clone().add(new THREE.Vector3(0, 1.9, -4.6))
+      : node.id === "leftDoor"
+        ? target.clone().add(new THREE.Vector3(-4.2, 1.7, 2.2))
+        : target.clone().add(offset)
+
+  return { position, target }
 }
 
 function createCameraPresets(
@@ -77,28 +110,14 @@ function createCameraPresets(
   target: VehicleTopologyNode,
   effect: VehicleTopologyNode,
 ): Record<VehicleCameraView, CameraPreset> {
-  const sourceTarget = new THREE.Vector3(...source.anchor)
-  const targetTarget = new THREE.Vector3(...target.anchor)
-  const effectTarget = new THREE.Vector3(...effect.anchor)
-  const effectPosition =
-    effect.id === "tailgate"
-      ? effectTarget.clone().add(new THREE.Vector3(0, 1.9, -4.6))
-      : effectTarget.clone().add(new THREE.Vector3(-4.2, 1.7, 2.2))
-
   return {
     overview: {
       position: new THREE.Vector3(...OVERVIEW_CAMERA),
       target: new THREE.Vector3(...CAMERA_TARGET),
     },
-    source: {
-      position: sourceTarget.clone().add(new THREE.Vector3(3.4, 1.7, 3.4)),
-      target: sourceTarget,
-    },
-    target: {
-      position: targetTarget.clone().add(new THREE.Vector3(3.8, 1.9, 3.1)),
-      target: targetTarget,
-    },
-    effect: { position: effectPosition, target: effectTarget },
+    source: createNodeCameraPreset(source, new THREE.Vector3(3.4, 1.7, 3.4)),
+    target: createNodeCameraPreset(target, new THREE.Vector3(3.8, 1.9, 3.1)),
+    effect: createNodeCameraPreset(effect),
   }
 }
 
@@ -297,10 +316,10 @@ export default function VehicleNetworkViewport({
   const sourceNode = routeNodes[0]
   const targetNode = getTopologyNode(targetId)
   const effectNode = getTopologyNode(effectId)
-  const [cameraView, setCameraView] = useState<VehicleCameraView>(() =>
+  const [cameraFocus, setCameraFocus] = useState<CameraFocus>(() =>
     focusedNodeId
-      ? cameraViewForNode(focusedNodeId, route, targetId, effectId)
-      : initialView,
+      ? cameraFocusForNode(focusedNodeId, route, targetId, effectId)
+      : { view: initialView },
   )
   const cameraPresets = useMemo(
     () => createCameraPresets(sourceNode, targetNode, effectNode),
@@ -309,18 +328,31 @@ export default function VehicleNetworkViewport({
 
   useEffect(() => {
     if (!focusedNodeId) return
-    setCameraView(cameraViewForNode(focusedNodeId, route, targetId, effectId))
+    setCameraFocus(cameraFocusForNode(focusedNodeId, route, targetId, effectId))
   }, [effectId, focusedNodeId, route, targetId])
 
   const focusedId =
-    cameraView === "source"
-      ? sourceNode.id
-      : cameraView === "target"
-        ? targetId
-        : cameraView === "effect"
-          ? effectId
-          : undefined
+    cameraFocus.view === "node"
+      ? cameraFocus.nodeId
+      : cameraFocus.view === "source"
+        ? sourceNode.id
+        : cameraFocus.view === "target"
+          ? targetId
+          : cameraFocus.view === "effect"
+            ? effectId
+            : undefined
   const activeNodeId = focusedId ?? currentNodeId
+  const cameraPreset = useMemo(
+    () =>
+      cameraFocus.view === "node"
+        ? createNodeCameraPreset(getTopologyNode(cameraFocus.nodeId))
+        : cameraPresets[cameraFocus.view],
+    [cameraFocus, cameraPresets],
+  )
+  const cameraPresetName =
+    cameraFocus.view === "node"
+      ? `node:${cameraFocus.nodeId}`
+      : cameraFocus.view
   const rootStyle = { "--vehicle-route-accent": accent } as CSSProperties
 
   return (
@@ -328,7 +360,7 @@ export default function VehicleNetworkViewport({
       className="vehicle-network-viewport"
       role="region"
       aria-label={`${scenarioTitle} vehicle network`}
-      data-camera-preset={cameraView}
+      data-camera-preset={cameraPresetName}
       style={rootStyle}
     >
       <div className="vehicle-network-viewport__toolbar">
@@ -336,36 +368,36 @@ export default function VehicleNetworkViewport({
         <div role="group" aria-label="차량 카메라 초점">
           <button
             type="button"
-            aria-pressed={cameraView === "overview"}
-            onClick={() => setCameraView("overview")}
+            aria-pressed={cameraFocus.view === "overview"}
+            onClick={() => setCameraFocus({ view: "overview" })}
           >
             전체
           </button>
           <button
             type="button"
-            aria-pressed={cameraView === "source"}
-            onClick={() => setCameraView("source")}
+            aria-pressed={cameraFocus.view === "source"}
+            onClick={() => setCameraFocus({ view: "source" })}
           >
             진입점
           </button>
           <button
             type="button"
-            aria-pressed={cameraView === "target"}
-            onClick={() => setCameraView("target")}
+            aria-pressed={cameraFocus.view === "target"}
+            onClick={() => setCameraFocus({ view: "target" })}
           >
             Target ECU
           </button>
           <button
             type="button"
-            aria-pressed={cameraView === "effect"}
-            onClick={() => setCameraView("effect")}
+            aria-pressed={cameraFocus.view === "effect"}
+            onClick={() => setCameraFocus({ view: "effect" })}
           >
             영향 부위
           </button>
           <button
             type="button"
             className="vehicle-network-viewport__reset"
-            onClick={() => setCameraView("overview")}
+            onClick={() => setCameraFocus({ view: "overview" })}
           >
             <ArrowCounterClockwise size={13} aria-hidden="true" />
             카메라 초기화
@@ -446,11 +478,9 @@ export default function VehicleNetworkViewport({
                 </Html>
               }
             >
-              <Bounds fit clip observe margin={0.64}>
-                <group rotation={MODEL_ROTATION}>
-                  <VehicleModel immediate={reducedMotion} />
-                </group>
-              </Bounds>
+              <group rotation={MODEL_ROTATION}>
+                <VehicleModel immediate={reducedMotion} />
+              </group>
               <TopologyOverlay
                 nodes={routeNodes}
                 accent={accent}
@@ -469,7 +499,7 @@ export default function VehicleNetworkViewport({
             maxPolarAngle={Math.PI / 2.02}
           />
           <CameraPresetController
-            preset={cameraPresets[cameraView]}
+            preset={cameraPreset}
             immediate={reducedMotion}
           />
         </Canvas>

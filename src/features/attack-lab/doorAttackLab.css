@@ -233,6 +233,7 @@
 .door-attack-lab__panel-heading strong { font-size: 11px; letter-spacing: -0.01em; }
 .door-attack-lab__panel-heading small { overflow: hidden; color: var(--dal-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .door-attack-lab__panel-heading > span { color: var(--dal-muted); font-family: "JetBrains Mono Variable", monospace; font-size: 9px; }
+.door-attack-lab__panel-heading > .door-attack-lab__truth-qualifier { max-width: 260px; line-height: 1.35; text-align: right; white-space: normal; }
 
 .vehicle-network-viewport {
   position: relative;
@@ -480,7 +481,8 @@
   .vehicle-network-viewport__target-map li { border-right: 1px solid var(--dal-line, var(--border-default, #d7dde5)); }
   .door-attack-lab__learning { grid-template-columns: 1fr; }
   .door-attack-lab__monitor-scroll { overflow-x: auto; }
-  .door-attack-lab__panel-heading > span { display: none; }
+  .door-attack-lab__panel-heading > span:not(.door-attack-lab__truth-qualifier) { display: none; }
+  .door-attack-lab__panel-heading > .door-attack-lab__truth-qualifier { display: block; max-width: 150px; font-size: 8px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

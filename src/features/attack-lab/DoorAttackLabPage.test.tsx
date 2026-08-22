@@ -255,6 +255,11 @@ describe("DoorAttackLabPage", () => {
       "data-current-stage",
       "정찰",
     )
+    const truthQualifier = screen.getByText(
+      "교육용 논리 위치 · 실제 OEM 배치 아님",
+    )
+    expect(truthQualifier).toHaveClass("door-attack-lab__truth-qualifier")
+    expect(truthQualifier).toBeVisible()
     expect(stream.connect).toHaveBeenCalledTimes(1)
   })
 

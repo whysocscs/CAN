@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest"
 import { useEffect, type ReactNode } from "react"
 import {
+  act,
   cleanup,
   render,
   screen,
@@ -23,6 +24,7 @@ const canvasState = vi.hoisted(() => ({
   } | undefined,
   frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
   orbitProps: undefined as Record<string, unknown> | undefined,
+  boundsRefit: undefined as (() => void) | undefined,
 }))
 const gltf = vi.hoisted(() => ({ useGLTF: vi.fn() }))
 
@@ -52,8 +54,20 @@ vi.mock("@react-three/drei", async () => {
   const React = await import("react")
   const Wrapper = ({ children }: { children?: ReactNode }) =>
     React.createElement("div", null, children)
+  const Bounds = ({ children }: { children?: ReactNode }) => {
+    useEffect(() => {
+      canvasState.boundsRefit = () => {
+        canvasState.camera?.position.set(9, 9, 9)
+        canvasState.controls?.target.set(9, 9, 9)
+      }
+      return () => {
+        canvasState.boundsRefit = undefined
+      }
+    }, [])
+    return React.createElement("div", null, children)
+  }
   return {
-    Bounds: Wrapper,
+    Bounds,
     Html: Wrapper,
     Line: () => null,
     OrbitControls: (props: Record<string, unknown>) => {
@@ -66,18 +80,20 @@ vi.mock("@react-three/drei", async () => {
 
 vi.mock("./useVehicleRig", () => ({ useVehicleRig: vi.fn() }))
 
-import VehicleNetworkViewport from "./VehicleNetworkViewport"
+import VehicleNetworkViewport, {
+  type VehicleNetworkViewportProps,
+} from "./VehicleNetworkViewport"
 
-function renderDoorViewport() {
-  return render(
-    <VehicleNetworkViewport
-      route={["obd", "ids", "gateway", "body", "leftDoor"]}
-      targetId="body"
-      effectId="leftDoor"
-      scenarioTitle="Door spoofing route"
-      accent="#d94b4b"
-    />,
-  )
+function renderDoorViewport(props: Partial<VehicleNetworkViewportProps> = {}) {
+  const defaultProps = {
+    route: ["obd", "ids", "gateway", "body", "leftDoor"],
+    targetId: "body",
+    effectId: "leftDoor",
+    scenarioTitle: "Door spoofing route",
+    accent: "#d94b4b",
+  } satisfies VehicleNetworkViewportProps
+
+  return render(<VehicleNetworkViewport {...defaultProps} {...props} />)
 }
 
 describe("VehicleNetworkViewport", () => {
@@ -91,6 +107,7 @@ describe("VehicleNetworkViewport", () => {
     canvasState.controls = { target: new THREE.Vector3(), update: vi.fn() }
     canvasState.frameCallbacks = []
     canvasState.orbitProps = undefined
+    canvasState.boundsRefit = undefined
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: false,
         addEventListener: vi.fn(),
@@ -177,6 +194,58 @@ describe("VehicleNetworkViewport", () => {
     expect(canvasState.camera!.position.equals(overviewPosition)).toBe(false)
     expect(canvasState.orbitProps?.enableDamping).toBe(false)
   })
+
+  it("keeps the selected camera target when the viewport is refit", async () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    const user = userEvent.setup()
+    renderDoorViewport()
+
+    await user.click(screen.getByRole("button", { name: "Target ECU" }))
+    const selectedTarget = canvasState.controls!.target.clone()
+    expect(selectedTarget.equals(new THREE.Vector3(9, 9, 9))).toBe(false)
+
+    act(() => canvasState.boundsRefit?.())
+
+    expect(canvasState.controls!.target.equals(selectedTarget)).toBe(true)
+  })
+
+  it.each([
+    ["ids", [0.447, 0.55, -0.761]],
+    ["gateway", [0.165, 0.72, 0.18]],
+  ] as const)(
+    "focuses and highlights the intermediate %s node at its rotated anchor",
+    async (nodeId, expectedTarget) => {
+      vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+          matches: true,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+        }))
+      renderDoorViewport({ focusedNodeId: nodeId })
+
+      await waitFor(() =>
+        expect(canvasState.controls!.target.x).toBeCloseTo(
+          expectedTarget[0],
+          3,
+        ),
+      )
+      expect(canvasState.controls!.target.y).toBeCloseTo(expectedTarget[1], 3)
+      expect(canvasState.controls!.target.z).toBeCloseTo(expectedTarget[2], 3)
+      expect(
+        screen.getByRole("region", {
+          name: "Door spoofing route vehicle network",
+        }),
+      ).toHaveAttribute("data-camera-preset", `node:${nodeId}`)
+      expect(
+        screen
+          .getByText(nodeId === "ids" ? "Toy IDS" : "Toy Gateway")
+          .closest("li"),
+      ).toHaveAttribute("data-active", "true")
+    },
+  )
 
   it("retains accessible loading and GLB error fallbacks", async () => {
     const never = new Promise<never>(() => undefined)
