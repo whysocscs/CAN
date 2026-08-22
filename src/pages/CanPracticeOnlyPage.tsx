@@ -41,6 +41,7 @@ import {
 } from "@/features/can/events/catalog"
 import { mockEventProvider } from "@/features/can/events/mockProvider"
 import type { CanCommand, CanEvent, CanNodeId } from "@/features/can/events/types"
+import { REAL_TERMINAL_ENABLED } from "@/features/terminal/realTerminalConfig"
 
 const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 
@@ -953,7 +954,9 @@ export default function CanPracticeOnlyPage() {
   const [autoRotate, setAutoRotate] = useState(false)
   const [viewKey, setViewKey] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
-  const [terminalStatus, setTerminalStatus] = useState<TerminalConnectionStatus>("connecting")
+  const [terminalStatus, setTerminalStatus] = useState<TerminalConnectionStatus>(
+    REAL_TERMINAL_ENABLED ? "connecting" : "offline",
+  )
   const [terminalClearSignal, setTerminalClearSignal] = useState(0)
   const [hintOpen, setHintOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
@@ -1243,10 +1246,24 @@ export default function CanPracticeOnlyPage() {
                     </button>
                   </div>
 
-                  <LocalShellTerminal
-                    clearSignal={terminalClearSignal}
-                    onConnectionChange={setTerminalStatus}
-                  />
+                  {REAL_TERMINAL_ENABLED ? (
+                    <LocalShellTerminal
+                      clearSignal={terminalClearSignal}
+                      onConnectionChange={setTerminalStatus}
+                    />
+                  ) : (
+                    <div
+                      className="canlab__shell-terminal"
+                      aria-label="로컬 Linux 터미널 비활성화됨"
+                    >
+                      <p>
+                        보안상 real terminal은 기본 비활성화됩니다. frontend의
+                        <code>VITE_ENABLE_REAL_TERMINAL=true</code>와 backend의
+                        <code>CANLITE_ENABLE_REAL_TERMINAL=true</code>를 모두 명시한
+                        로컬 개발 환경에서만 사용하세요.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="canlab__mock-commands">
                     <div className="canlab__mock-commands-head">

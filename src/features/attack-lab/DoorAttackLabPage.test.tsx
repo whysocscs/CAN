@@ -454,6 +454,28 @@ describe("DoorAttackLabPage", () => {
     expect(vehicle.isOpen("doorR")).toBe(false)
   })
 
+  it("clears the restricted terminal input and command history on reset", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(input, "pwd")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledWith(
+      "session-1",
+      "pwd",
+      expect.any(AbortSignal),
+    ))
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalled())
+    await user.click(input)
+    await user.keyboard("{ArrowUp}")
+
+    expect(input).toHaveValue("")
+  })
+
   it("creates one session in StrictMode, applies its closed state, and cleans up every stream", async () => {
     const createRequest = deferred<DoorLabSessionState>()
     api.createDoorLabSession.mockReturnValueOnce(createRequest.promise)

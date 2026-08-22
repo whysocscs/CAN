@@ -78,7 +78,7 @@ code 입력창은 주석, `interval_ms=10..2000`, `cansend vcan0 ...`만 처리�
 - **GLB 시각화**: 문 애니메이션은 승인된 상태 이벤트의 화면 표현이다. 물리 차량 문을 열었다는 증거가 아니다.
 - **단일 사용자/메모리 상태**: 세션과 진행 상태는 한 Uvicorn process의 메모리에만 있다. 재시작하면 사라지며 다중 사용자 격리를 제공하지 않는다.
 - **로컬 HTTP 전용 MVP**: nginx와 FastAPI는 TLS를 종료하지 않는다. `http://127.0.0.1` 밖으로 공개하지 않는다.
-- Docker image나 source를 볼 수 있는 사용자는 아래의 private contract도 읽을 수 있다. 여기서 “black-box”는 분석 순서를 가르치는 장치이지 강한 비밀성 또는 멀티테넌트 보안 경계가 아니다.
+- Docker image나 repository source를 볼 수 있는 사용자는 server 구현과 별도 교사용 자료에서 private contract를 읽을 수 있다. 여기서 “black-box”는 분석 순서를 가르치는 장치이지 강한 source/image secrecy 또는 멀티테넌트 보안 경계가 아니다.
 
 ### 문제 해결
 
@@ -88,38 +88,8 @@ code 입력창은 주석, `interval_ms=10..2000`, `cansend vcan0 ...`만 처리�
 - GLB가 보이지 않음: 브라우저 WebGL 지원을 확인하고 강력 새로고침한다. 모델 파일은 frontend image에 포함된다.
 - 실습이 완료되지 않음: 각 프레임의 ECU verdict와 interval을 먼저 확인한다. 단일 승인 프레임은 상태를 바꿀 수 있어도 IDS 완료 조건은 아니다.
 
----
+## 교사용 정답 문서
 
-## 교사용 해설 — 학습자 수행 후 공개
+정확한 Toy message contract, 정답 script, 기대 verdict와 reset 검증은 [교사용 CAN Attack Lab 검증 가이드](../instructors/can-attack-lab-validation.md)에 분리했다.
 
-이 절은 실습 정답을 포함한다. 수업 전에는 위 학습자 가이드까지만 제공한다.
-
-### Toy 메시지 계약
-
-| 필드 | 실습 전용 의미 |
-| --- | --- |
-| CAN ID | `0x456` |
-| DLC | `4` |
-| `DATA[0]` | 왼쪽 문: `00=open`, `01=closed` |
-| `DATA[1]` | 오른쪽 문: `00=open`, `01=closed` |
-| `DATA[2]` | 8-bit rolling counter |
-| `DATA[3]` | `DATA[0] XOR DATA[1] XOR DATA[2] XOR 0xA5` |
-
-Reset 직전 counter는 `0x12`이므로 첫 승인 후보는 `0x13`이다. 캡처의 연속 프레임에서 `DATA[2]`가 1씩 증가하고 `DATA[3]`가 함께 변하는 관계를 비교하게 한다.
-
-### 정답 script
-
-```text
-interval_ms=100
-cansend vcan0 456#000113B7
-cansend vcan0 456#000114B0
-cansend vcan0 456#000115B1
-```
-
-기대 결과는 세 attempt 모두 `EXECUTED`, IDS status `NORMAL`, `completed=true`, 왼쪽 문 `open`·오른쪽 문 `closed`다. 간격이 80–120 ms 밖이면 ECU가 프레임을 승인하더라도 IDS status는 `ALERT`이며, 원인은 80–120 ms 빈도 조건 위반이다.
-
-### 설명 포인트
-
-- 과거 캡처를 그대로 보내면 checksum은 맞을 수 있지만 현재 expected counter와 달라 `COUNTER_REJECTED`가 된다.
-- checksum만 맞추는 것은 충분하지 않다. DLC, 데이터 형식, freshness, 시퀀스 길이, 빈도 조건이 모두 독립적인 검증 지점이다.
-- 이 결과는 취약한 Toy 계약에서 가능한 상태 주입이다. 실제 ECU 공격 가능성은 차량별 접근 경로, OEM DBC/진단 규격, 인증·freshness·gateway 정책을 별도로 검증해야 판단할 수 있다.
+> **경고:** 연결된 교사용 문서는 Door·Spoofing·Replay 정답을 포함하므로 학습자에게 배포하지 않는다.
