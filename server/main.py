@@ -24,6 +24,7 @@ app = FastAPI(title="CANLite Local Terminal", docs_url=None, redoc_url=None, lif
 app.add_middleware(
     CORSMiddleware,
     allow_origins=sorted(ALLOWED_ORIGINS),
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
