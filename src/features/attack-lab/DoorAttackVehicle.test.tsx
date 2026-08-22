@@ -5,16 +5,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const canvasState = vi.hoisted(() => ({
   shadows: undefined as unknown,
+  camera: undefined as Record<string, unknown> | undefined,
   orbitProps: undefined as Record<string, unknown> | undefined,
 }))
 
 interface CanvasMockProps {
   children: unknown
   shadows: unknown
+  camera: Record<string, unknown>
 }
 
 vi.mock("@react-three/fiber", () => ({
-  Canvas: ({ children, shadows }: CanvasMockProps) => {
+  Canvas: ({ children, shadows, camera }: CanvasMockProps) => {
     const findOrbitControls = (
       node: unknown,
     ): Record<string, unknown> | undefined => {
@@ -41,6 +43,7 @@ vi.mock("@react-three/fiber", () => ({
       return undefined
     }
     canvasState.shadows = shadows
+    canvasState.camera = camera
     canvasState.orbitProps = findOrbitControls(children)
     return <div data-testid="canvas-boundary" />
   },
@@ -60,6 +63,7 @@ import DoorAttackVehicle from "./DoorAttackVehicle"
 describe("DoorAttackVehicle rendering preferences", () => {
   beforeEach(() => {
     canvasState.shadows = undefined
+    canvasState.camera = undefined
     canvasState.orbitProps = undefined
   })
 
@@ -81,5 +85,22 @@ describe("DoorAttackVehicle rendering preferences", () => {
       expect(canvasState.orbitProps?.enableDamping).toBe(false),
     )
     expect(canvasState.shadows).toBe("basic")
+  })
+
+  it("places the default camera on the left-door side of the vehicle", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    )
+
+    render(<DoorAttackVehicle />)
+
+    const position = canvasState.camera?.position as number[] | undefined
+    expect(position).toHaveLength(3)
+    expect(position?.[0]).toBeLessThan(0)
   })
 })

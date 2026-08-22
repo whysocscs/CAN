@@ -152,7 +152,7 @@ export default function DoorAttackVehicle() {
       <Canvas
         shadows="basic"
         dpr={[1, 1.5]}
-        camera={{ position: [5.6, 3.1, 7.2], fov: 34, near: 0.05, far: 100 }}
+        camera={{ position: [-5.6, 3.1, 7.2], fov: 34, near: 0.05, far: 100 }}
         gl={{
           alpha: false,
           antialias: true,

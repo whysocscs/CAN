@@ -86,6 +86,7 @@ interface ActionRequest {
   controller: AbortController
   generation: number
   sessionId: string
+  sessionGeneration: number
 }
 
 interface CreateFlight {
@@ -242,6 +243,7 @@ export default function DoorAttackLabPage() {
   const lifecycleGenerationRef = useRef(0)
   const actionGenerationRef = useRef(0)
   const sessionIdRef = useRef<string | null>(null)
+  const sessionGenerationRef = useRef<number | null>(null)
   const createFlightRef = useRef<CreateFlight | null>(null)
   const actionControllerRef = useRef<AbortController | null>(null)
   const busyRef = useRef<typeof busy>(null)
@@ -268,11 +270,13 @@ export default function DoorAttackLabPage() {
         const next = await createDoorLabSession(controller.signal)
         if (!isCurrent()) return
         sessionIdRef.current = next.sessionId
+        sessionGenerationRef.current = next.generation
         applyVehicleState(next.vehicleState)
         setSession(next)
       } catch (error) {
         if (!isCurrent()) return
         sessionIdRef.current = null
+        sessionGenerationRef.current = null
         setOfflineError(errorMessage(error))
         setSession(null)
       } finally {
@@ -297,29 +301,36 @@ export default function DoorAttackLabPage() {
         lifecycleGenerationRef.current += 1
         actionGenerationRef.current += 1
         sessionIdRef.current = null
+        sessionGenerationRef.current = null
         createFlightRef.current?.controller.abort()
         actionControllerRef.current?.abort()
       })
     }
   }, [loadSession])
 
-  const handleCanEvents = useCallback((events: CanEvent[]) => {
-    const incoming = events.map(eventToMonitorFrame)
-    dispatchMonitor({ type: "append", frames: incoming })
-  }, [])
-
-  const vehicleEventPredicate = useCallback(
+  const currentAcceptedEventPredicate = useCallback(
     (event: CanEvent) =>
       event.lab?.labId === DOOR_LAB_ID &&
       event.lab.sessionId === sessionIdRef.current &&
+      event.lab.generation === sessionGenerationRef.current &&
       event.processing?.filterResult === "ACCEPT" &&
       event.processing?.executionResult === "EXECUTED",
     [],
   )
 
+  const handleCanEvents = useCallback(
+    (events: CanEvent[]) => {
+      const incoming = events
+        .filter(currentAcceptedEventPredicate)
+        .map(eventToMonitorFrame)
+      dispatchMonitor({ type: "append", frames: incoming })
+    },
+    [currentAcceptedEventPredicate],
+  )
+
   const streamStatus = useCanVehicleStream({
     onEvent: handleCanEvents,
-    vehicleEventPredicate,
+    vehicleEventPredicate: currentAcceptedEventPredicate,
   })
 
   const appendMonitorFrames = useCallback((incoming: MonitorFrame[]) => {
@@ -330,24 +341,32 @@ export default function DoorAttackLabPage() {
     kind: NonNullable<typeof busy>,
   ): ActionRequest | null => {
     const sessionId = sessionIdRef.current
-    if (!sessionId || busyRef.current) return null
+    const sessionGeneration = sessionGenerationRef.current
+    if (!sessionId || sessionGeneration === null || busyRef.current) return null
     const controller = new AbortController()
     const generation = ++actionGenerationRef.current
     actionControllerRef.current = controller
     busyRef.current = kind
     setBusy(kind)
     setActionError(null)
-    return { controller, generation, sessionId }
+    return { controller, generation, sessionId, sessionGeneration }
   }
 
   const isActionCurrent = (request: ActionRequest) =>
     mountedRef.current &&
     !request.controller.signal.aborted &&
     actionGenerationRef.current === request.generation &&
-    sessionIdRef.current === request.sessionId
+    sessionIdRef.current === request.sessionId &&
+    sessionGenerationRef.current === request.sessionGeneration
 
   const finishAction = (request: ActionRequest) => {
-    if (!isActionCurrent(request)) return
+    if (
+      !mountedRef.current ||
+      request.controller.signal.aborted ||
+      actionGenerationRef.current !== request.generation ||
+      sessionIdRef.current !== request.sessionId
+    )
+      return
     if (actionControllerRef.current === request.controller) {
       actionControllerRef.current = null
     }
@@ -366,7 +385,8 @@ export default function DoorAttackLabPage() {
       )
       if (
         !isActionCurrent(request) ||
-        result.state.sessionId !== request.sessionId
+        result.state.sessionId !== request.sessionId ||
+        result.state.generation !== request.sessionGeneration
       )
         return
       setSession(result.state)
@@ -389,8 +409,13 @@ export default function DoorAttackLabPage() {
         request.sessionId,
         request.controller.signal,
       )
-      if (!isActionCurrent(request) || next.sessionId !== request.sessionId)
+      if (
+        !isActionCurrent(request) ||
+        next.sessionId !== request.sessionId ||
+        next.generation !== request.sessionGeneration + 1
+      )
         return
+      sessionGenerationRef.current = next.generation
       applyVehicleState(next.vehicleState)
       setSession(next)
       dispatchMonitor({ type: "clear" })

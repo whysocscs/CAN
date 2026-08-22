@@ -53,6 +53,7 @@ import DoorAttackLabPage from "./DoorAttackLabPage"
 
 const initialSession: DoorLabSessionState = {
   sessionId: "session-1",
+  generation: 0,
   stage: "정찰",
   targetLabel: "Toy Body ECU",
   messageContractStatus: "UNKNOWN",
@@ -60,6 +61,11 @@ const initialSession: DoorLabSessionState = {
   evidence: [],
   attemptCount: 0,
   completed: false,
+}
+
+const resetSession: DoorLabSessionState = {
+  ...initialSession,
+  generation: 1,
 }
 
 const captureResult: DoorLabTerminalResult = {
@@ -114,15 +120,16 @@ function deferred<T>() {
 
 function acceptedDoorEvent(
   sessionId: string,
+  generation: number,
   overrides: Partial<CanEvent> = {},
 ): CanEvent {
   return {
-    eventId: `event-${sessionId}`,
+    eventId: `event-${sessionId}-${generation}`,
     timestamp: MONITOR_TIMESTAMP,
     channel: "vcan0",
     origin: "backend",
     frame: { canId: "0x555", dlc: 2, data: ["00", "01"] },
-    lab: { labId: "door-blackbox-v1", sessionId },
+    lab: { labId: "door-blackbox-v1", sessionId, generation },
     context: { command: "DOOR_LOCK", source: "obd", target: "body" },
     processing: { filterResult: "ACCEPT", executionResult: "EXECUTED" },
     monitoring: { idsObserved: true, status: "NORMAL" },
@@ -157,7 +164,7 @@ describe("DoorAttackLabPage", () => {
     vi.clearAllMocks()
     vehicle.reset()
     api.createDoorLabSession.mockResolvedValue(initialSession)
-    api.resetDoorLabSession.mockResolvedValue(initialSession)
+    api.resetDoorLabSession.mockResolvedValue(resetSession)
     api.runDoorLabCommand.mockResolvedValue(captureResult)
     api.runDoorLabScript.mockResolvedValue(blockedRun)
     stream.connections = []
@@ -195,7 +202,9 @@ describe("DoorAttackLabPage", () => {
     const editor = screen.getByRole("textbox", { name: "공격 스크립트" })
     const initialScript = (editor as HTMLTextAreaElement).value
     expect(initialScript).toContain("interval_ms=")
-    expect(initialScript).not.toMatch(/101#|000113|0x101|checksum|counter/i)
+    expect(initialScript).not.toMatch(
+      /(?:0x)?456|456#|000113b7|000114b0|000115b1|checksum|counter|seed/i,
+    )
 
     expect(
       screen.getByRole("region", { name: "Code editor" }),
@@ -403,7 +412,7 @@ describe("DoorAttackLabPage", () => {
     expect(within(monitor).queryByText("EXECUTED")).not.toBeInTheDocument()
 
     act(() =>
-      latestConnection().options.onEvent(acceptedDoorEvent("session-1")),
+      latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
     )
     await flushCanEvents()
 
@@ -522,8 +531,12 @@ describe("DoorAttackLabPage", () => {
     ).toHaveTextContent("11111110")
   })
 
-  it("does not let stale-session events or replay reopen a newly closed session", async () => {
-    const secondSession = { ...initialSession, sessionId: "session-2" }
+  it("rejects a non-replay old-session event from both monitor and vehicle", async () => {
+    const secondSession = {
+      ...initialSession,
+      sessionId: "session-2",
+      generation: 0,
+    }
     api.createDoorLabSession
       .mockResolvedValueOnce(initialSession)
       .mockResolvedValueOnce(secondSession)
@@ -533,7 +546,7 @@ describe("DoorAttackLabPage", () => {
       expect(api.createDoorLabSession).toHaveBeenCalledTimes(1),
     )
     act(() =>
-      latestConnection().options.onEvent(acceptedDoorEvent("session-1")),
+      latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
     )
     expect(vehicle.isOpen("doorL")).toBe(true)
     firstView.unmount()
@@ -545,15 +558,60 @@ describe("DoorAttackLabPage", () => {
     )
     await waitFor(() => expect(vehicle.isOpen("doorL")).toBe(false))
 
+    const monitor = screen.getByRole("region", { name: "Network monitor" })
     act(() =>
       latestConnection().options.onEvent(
-        acceptedDoorEvent("session-1", { replay: true }),
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "old-session-delayed",
+        }),
       ),
     )
+    await flushCanEvents()
     expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(within(monitor).queryByText("EXECUTED")).not.toBeInTheDocument()
+
     act(() =>
-      latestConnection().options.onEvent(acceptedDoorEvent("session-2")),
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-2", 0, {
+          eventId: "current-session-event",
+        }),
+      ),
     )
+    await flushCanEvents()
     expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
+  })
+
+  it("rejects a delayed pre-reset generation and accepts the current generation", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    vehicle.openDoor("L")
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(vehicle.isOpen("doorL")).toBe(false))
+
+    const monitor = screen.getByRole("region", { name: "Network monitor" })
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "pre-reset-delayed",
+        }),
+      ),
+    )
+    await flushCanEvents()
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(within(monitor).queryByText("EXECUTED")).not.toBeInTheDocument()
+
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 1, {
+          eventId: "current-generation",
+        }),
+      ),
+    )
+    await flushCanEvents()
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
   })
 })

@@ -21,6 +21,7 @@ export type CanMonitoringStatus = "NORMAL" | "SUSPICIOUS" | "ALERT"
 export interface CanLabMetadata {
   labId?: string
   sessionId?: string
+  generation?: number
   stage?: string
 }
 

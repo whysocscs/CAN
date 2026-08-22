@@ -75,6 +75,31 @@ describe("door lab API client", () => {
     )
   })
 
+  it("preserves the public session generation returned by the API", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            sessionId: "session-7",
+            generation: 7,
+            stage: "정찰",
+            targetLabel: "Toy Body ECU",
+            messageContractStatus: "UNKNOWN",
+            vehicleState: { leftDoor: "closed", rightDoor: "closed" },
+            evidence: [],
+            attemptCount: 0,
+            completed: false,
+          }),
+        ),
+      ),
+    )
+
+    const session = await createDoorLabSession()
+
+    expect(session.generation).toBe(7)
+  })
+
   it("sends the documented reset, terminal, and script request payloads", async () => {
     const fetchMock = vi
       .fn()

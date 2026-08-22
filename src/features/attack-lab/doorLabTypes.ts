@@ -16,6 +16,7 @@ export interface DoorLabEvidence {
 /** Public state returned by POST /sessions, GET /sessions/{id}, and reset. */
 export interface DoorLabSessionState {
   sessionId: string
+  generation: number
   stage: DoorLabStage
   targetLabel: "Toy Body ECU"
   messageContractStatus: DoorLabMessageContractStatus
