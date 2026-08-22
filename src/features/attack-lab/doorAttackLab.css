@@ -7,7 +7,9 @@
   --dal-text: var(--text-primary, #172033);
   --dal-muted: var(--text-secondary, #647083);
   height: 100%;
-  overflow: auto;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 24px 28px 40px;
   background-color: var(--dal-muted-surface);
   background-image: linear-gradient(rgba(244, 247, 250, 0.91), rgba(244, 247, 250, 0.91)),
@@ -330,9 +332,18 @@
 }
 
 @media (max-width: 520px) {
-  .door-attack-lab__target-summary { grid-template-columns: 1fr; }
-  .door-attack-lab__target-summary > div { border-right: 0; border-bottom: 1px solid var(--dal-line); }
-  .door-attack-lab__target-summary > div:last-child { border-bottom: 0; }
+  .door-attack-lab { padding: 12px 10px 28px; }
+  .door-attack-lab__header { gap: 10px; padding-bottom: 10px; }
+  .door-attack-lab__header > div > span { margin-top: 4px; font-size: 10px; }
+  .door-attack-lab__target-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .door-attack-lab__target-summary > div { padding: 7px 5px; }
+  .door-attack-lab__target-summary dt { overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+  .door-attack-lab__target-summary dd { overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+  .door-attack-lab__stages { padding-block: 11px; }
+  .door-attack-lab__stages::before { top: 23px; }
+  .door-attack-vehicle__marker { min-width: 96px; max-width: 108px; padding: 5px 6px; }
+  .door-attack-vehicle__marker--door { transform: translateX(34px); }
+  .door-attack-vehicle__marker--body { transform: translateX(-24px); }
   .door-attack-lab__learning { grid-template-columns: 1fr; }
   .door-attack-lab__monitor-scroll { overflow-x: auto; }
   .door-attack-lab__panel-heading > span { display: none; }

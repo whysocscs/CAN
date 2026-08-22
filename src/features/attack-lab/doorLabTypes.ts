@@ -27,6 +27,8 @@ export interface DoorLabSessionState {
 
 /** One CAN frame observed or attempted by the restricted Toy ECU lab. */
 export interface DoorLabFrameAttempt {
+  attemptId: string
+  timestamp: number
   canId: string
   data: string[]
   verdict: string

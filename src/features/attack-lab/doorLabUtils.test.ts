@@ -16,7 +16,11 @@ import {
 
 describe("door lab frame utilities", () => {
   it("parses literal candump records and ignores non-frame terminal output", () => {
-    expect(parseTerminalFrames("(1720000000.200000) vcan0 101#010110B5\nrestricted lab shell\n(1720000000.300000) vcan0 18F#3A7C")).toEqual([
+    expect(
+      parseTerminalFrames(
+        "(1720000000.200000) vcan0 101#010110B5\nrestricted lab shell\n(1720000000.300000) vcan0 18F#3A7C",
+      ),
+    ).toEqual([
       {
         timestamp: 1720000000.2,
         channel: "vcan0",
@@ -49,13 +53,22 @@ describe("door lab API client", () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it("uses the browser hostname with the local lab port", () => {
-    expect(resolveDoorLabApiBase({ protocol: "http:", hostname: "lab-host" })).toBe(
-      "http://lab-host:8010/labs/door-blackbox",
-    )
+    expect(
+      resolveDoorLabApiBase({ protocol: "http:", hostname: "lab-host" }),
+    ).toBe("http://lab-host:8010/labs/door-blackbox")
   })
 
   it("normalizes failed API responses into a request error", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ detail: "lab session not found" }), { status: 404 })))
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ detail: "lab session not found" }), {
+            status: 404,
+          }),
+        ),
+    )
 
     await expect(createDoorLabSession()).rejects.toEqual(
       new DoorLabApiError("lab session not found", 404),
@@ -63,7 +76,9 @@ describe("door lab API client", () => {
   })
 
   it("sends the documented reset, terminal, and script request payloads", async () => {
-    const fetchMock = vi.fn().mockImplementation(() => new Response(JSON.stringify({ ok: true })))
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => new Response(JSON.stringify({ ok: true })))
     vi.stubGlobal("fetch", fetchMock)
 
     await resetDoorLabSession("session/1")
@@ -71,15 +86,48 @@ describe("door lab API client", () => {
     await runDoorLabScript("session/1", "cansend vcan0 101#000113B7")
 
     expect(fetchMock.mock.calls).toEqual([
-      ["http://127.0.0.1:8010/labs/door-blackbox/sessions/session%2F1/reset", { method: "POST" }],
+      [
+        "http://127.0.0.1:8010/labs/door-blackbox/sessions/session%2F1/reset",
+        { method: "POST" },
+      ],
       [
         "http://127.0.0.1:8010/labs/door-blackbox/sessions/session%2F1/terminal",
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{\"command\":\"pwd\"}" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: '{"command":"pwd"}',
+        },
       ],
       [
         "http://127.0.0.1:8010/labs/door-blackbox/sessions/session%2F1/run",
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{\"script\":\"cansend vcan0 101#000113B7\"}" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: '{"script":"cansend vcan0 101#000113B7"}',
+        },
       ],
+    ])
+  })
+
+  it("forwards AbortSignal through every session and action request", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() => new Response(JSON.stringify({ ok: true })))
+    vi.stubGlobal("fetch", fetchMock)
+    const controller = new AbortController()
+
+    await createDoorLabSession(controller.signal)
+    await resetDoorLabSession("session-1", controller.signal)
+    await runDoorLabCommand("session-1", "pwd", controller.signal)
+    await runDoorLabScript("session-1", "interval_ms=", controller.signal)
+
+    expect(
+      fetchMock.mock.calls.map((call) => (call[1] as RequestInit).signal),
+    ).toEqual([
+      controller.signal,
+      controller.signal,
+      controller.signal,
+      controller.signal,
     ])
   })
 })

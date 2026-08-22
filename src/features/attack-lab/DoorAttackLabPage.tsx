@@ -1,6 +1,8 @@
 import {
   useCallback,
   useEffect,
+  useReducer,
+  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent,
@@ -33,12 +35,7 @@ import type {
   DoorLabSessionState,
   DoorLabVehicleState,
 } from "./doorLabTypes"
-import {
-  appendBoundedEvents,
-  formatFrameData,
-  frameBits,
-  parseTerminalFrames,
-} from "./doorLabUtils"
+import { formatFrameData, frameBits, parseTerminalFrames } from "./doorLabUtils"
 import DoorAttackVehicle from "./DoorAttackVehicle"
 import "./doorAttackLab.css"
 
@@ -59,6 +56,14 @@ const HINTS = [
   "연속 프레임에서 한 바이트가 어떻게 변하고 다른 바이트가 함께 변하는지 표로 적어 보세요.",
   "한 번에 하나의 가설만 시험하고 BLOCKED reason을 다음 입력의 근거로 사용하세요.",
 ] as const
+const DOOR_LAB_ID = "door-blackbox-v1"
+const MONITOR_LIMIT = 300
+const MONITOR_TIME_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hour12: false,
+})
 
 interface MonitorFrame {
   key: string
@@ -77,6 +82,64 @@ interface TerminalEntry {
   ok: boolean
 }
 
+interface ActionRequest {
+  controller: AbortController
+  generation: number
+  sessionId: string
+}
+
+interface CreateFlight {
+  controller: AbortController
+  promise: Promise<void>
+}
+
+interface MonitorState {
+  frames: MonitorFrame[]
+  selectedKey: string | null
+}
+
+interface AppendMonitorAction {
+  type: "append"
+  frames: MonitorFrame[]
+}
+
+interface SelectMonitorAction {
+  type: "select"
+  key: string
+}
+
+type MonitorAction =
+  | AppendMonitorAction
+  | SelectMonitorAction
+  | { type: "clear" }
+
+const EMPTY_MONITOR: MonitorState = { frames: [], selectedKey: null }
+
+function monitorReducer(
+  state: MonitorState,
+  action: MonitorAction,
+): MonitorState {
+  if (action.type === "clear") return EMPTY_MONITOR
+  if (action.type === "select") {
+    return state.frames.some((frame) => frame.key === action.key)
+      ? { ...state, selectedKey: action.key }
+      : state
+  }
+  if (action.frames.length === 0) return state
+
+  const byKey = new Map(state.frames.map((frame) => [frame.key, frame]))
+  for (const frame of action.frames) byKey.set(frame.key, frame)
+  const frames = [...byKey.values()]
+    .sort((left, right) => left.timestamp - right.timestamp)
+    .slice(-MONITOR_LIMIT)
+  const selectedKey =
+    state.selectedKey && frames.some((frame) => frame.key === state.selectedKey)
+      ? state.selectedKey
+      : (frames.at(-1)?.key ?? null)
+
+  return { frames, selectedKey }
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error
     ? error.message
@@ -90,7 +153,7 @@ function applyVehicleState(state: DoorLabVehicleState) {
 
 function eventToMonitorFrame(event: CanEvent): MonitorFrame {
   return {
-    key: event.eventId,
+    key: `event:${event.eventId}`,
     timestamp: event.timestamp,
     channel: event.channel,
     canId: event.frame.canId,
@@ -108,16 +171,25 @@ function attemptsToMonitorFrames(
   attempts: readonly DoorLabFrameAttempt[],
   source: "terminal" | "run",
 ): MonitorFrame[] {
-  const now = Date.now()
-  return attempts.map((attempt, index) => ({
-    key: `${source}-${now}-${index}-${attempt.canId}`,
-    timestamp: now + index,
-    channel: "vcan0",
-    canId: attempt.canId,
-    data: attempt.data,
-    verdict: attempt.verdict,
-    source,
-  }))
+  return attempts.flatMap((attempt) =>
+    attempt.verdict === "EXECUTED"
+      ? []
+      : [
+          {
+            key: `attempt:${attempt.attemptId}`,
+            timestamp: attempt.timestamp,
+            channel: "vcan0",
+            canId: attempt.canId,
+            data: attempt.data,
+            verdict: attempt.verdict,
+            source,
+          },
+        ],
+  )
+}
+
+function formatMonitorTime(timestamp: number): string {
+  return MONITOR_TIME_FORMATTER.format(new Date(timestamp))
 }
 
 function StageRail({ current }: { current?: string }) {
@@ -156,8 +228,7 @@ export default function DoorAttackLabPage() {
   const [offlineError, setOfflineError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [script, setScript] = useState(INITIAL_SCRIPT)
-  const [frames, setFrames] = useState<MonitorFrame[]>([])
-  const [selectedFrame, setSelectedFrame] = useState<MonitorFrame | null>(null)
+  const [monitor, dispatchMonitor] = useReducer(monitorReducer, EMPTY_MONITOR)
   const [terminalCommand, setTerminalCommand] = useState("")
   const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([])
   const [commandHistory, setCommandHistory] = useState<string[]>([])
@@ -167,91 +238,196 @@ export default function DoorAttackLabPage() {
   const [lastRunAttempts, setLastRunAttempts] = useState<DoorLabFrameAttempt[]>(
     [],
   )
+  const mountedRef = useRef(false)
+  const lifecycleGenerationRef = useRef(0)
+  const actionGenerationRef = useRef(0)
+  const sessionIdRef = useRef<string | null>(null)
+  const createFlightRef = useRef<CreateFlight | null>(null)
+  const actionControllerRef = useRef<AbortController | null>(null)
+  const busyRef = useRef<typeof busy>(null)
+  const terminalEntryIdRef = useRef(0)
 
-  const loadSession = useCallback(async () => {
-    setLoading(true)
-    setOfflineError(null)
-    setActionError(null)
-    try {
-      const next = await createDoorLabSession()
-      setSession(next)
-    } catch (error) {
-      setOfflineError(errorMessage(error))
-      setSession(null)
-    } finally {
-      setLoading(false)
+  const loadSession = useCallback(() => {
+    if (createFlightRef.current) return createFlightRef.current.promise
+
+    const controller = new AbortController()
+    const generation = lifecycleGenerationRef.current
+    if (mountedRef.current) {
+      setLoading(true)
+      setOfflineError(null)
+      setActionError(null)
     }
+
+    const isCurrent = () =>
+      mountedRef.current &&
+      !controller.signal.aborted &&
+      lifecycleGenerationRef.current === generation
+
+    const promise = (async () => {
+      try {
+        const next = await createDoorLabSession(controller.signal)
+        if (!isCurrent()) return
+        sessionIdRef.current = next.sessionId
+        applyVehicleState(next.vehicleState)
+        setSession(next)
+      } catch (error) {
+        if (!isCurrent()) return
+        sessionIdRef.current = null
+        setOfflineError(errorMessage(error))
+        setSession(null)
+      } finally {
+        if (createFlightRef.current?.controller === controller) {
+          createFlightRef.current = null
+        }
+        if (isCurrent()) setLoading(false)
+      }
+    })()
+
+    createFlightRef.current = { controller, promise }
+    return promise
   }, [])
 
   useEffect(() => {
+    mountedRef.current = true
     void loadSession()
+    return () => {
+      mountedRef.current = false
+      queueMicrotask(() => {
+        if (mountedRef.current) return
+        lifecycleGenerationRef.current += 1
+        actionGenerationRef.current += 1
+        sessionIdRef.current = null
+        createFlightRef.current?.controller.abort()
+        actionControllerRef.current?.abort()
+      })
+    }
   }, [loadSession])
 
   const handleCanEvents = useCallback((events: CanEvent[]) => {
     const incoming = events.map(eventToMonitorFrame)
-    setFrames((existing) => appendBoundedEvents(existing, incoming))
-    setSelectedFrame((current) => current ?? incoming.at(-1) ?? null)
+    dispatchMonitor({ type: "append", frames: incoming })
   }, [])
 
-  const streamStatus = useCanVehicleStream({ onEvent: handleCanEvents })
+  const vehicleEventPredicate = useCallback(
+    (event: CanEvent) =>
+      event.lab?.labId === DOOR_LAB_ID &&
+      event.lab.sessionId === sessionIdRef.current &&
+      event.processing?.filterResult === "ACCEPT" &&
+      event.processing?.executionResult === "EXECUTED",
+    [],
+  )
+
+  const streamStatus = useCanVehicleStream({
+    onEvent: handleCanEvents,
+    vehicleEventPredicate,
+  })
 
   const appendMonitorFrames = useCallback((incoming: MonitorFrame[]) => {
-    setFrames((existing) => appendBoundedEvents(existing, incoming))
-    setSelectedFrame((current) => current ?? incoming[0] ?? null)
+    dispatchMonitor({ type: "append", frames: incoming })
   }, [])
 
-  const handleRun = async () => {
-    if (!session || busy) return
-    setBusy("run")
+  const beginAction = (
+    kind: NonNullable<typeof busy>,
+  ): ActionRequest | null => {
+    const sessionId = sessionIdRef.current
+    if (!sessionId || busyRef.current) return null
+    const controller = new AbortController()
+    const generation = ++actionGenerationRef.current
+    actionControllerRef.current = controller
+    busyRef.current = kind
+    setBusy(kind)
     setActionError(null)
+    return { controller, generation, sessionId }
+  }
+
+  const isActionCurrent = (request: ActionRequest) =>
+    mountedRef.current &&
+    !request.controller.signal.aborted &&
+    actionGenerationRef.current === request.generation &&
+    sessionIdRef.current === request.sessionId
+
+  const finishAction = (request: ActionRequest) => {
+    if (!isActionCurrent(request)) return
+    if (actionControllerRef.current === request.controller) {
+      actionControllerRef.current = null
+    }
+    busyRef.current = null
+    setBusy(null)
+  }
+
+  const handleRun = async () => {
+    const request = beginAction("run")
+    if (!request) return
     try {
-      const result = await runDoorLabScript(session.sessionId, script)
+      const result = await runDoorLabScript(
+        request.sessionId,
+        script,
+        request.controller.signal,
+      )
+      if (
+        !isActionCurrent(request) ||
+        result.state.sessionId !== request.sessionId
+      )
+        return
       setSession(result.state)
       setIdsStatus(result.idsStatus)
       setLastRunAttempts(result.attempts)
       appendMonitorFrames(attemptsToMonitorFrames(result.attempts, "run"))
       if (result.error) setActionError(result.error)
     } catch (error) {
-      setActionError(errorMessage(error))
+      if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
-      setBusy(null)
+      finishAction(request)
     }
   }
 
   const handleReset = async () => {
-    if (!session || busy) return
-    setBusy("reset")
-    setActionError(null)
+    const request = beginAction("reset")
+    if (!request) return
     try {
-      const next = await resetDoorLabSession(session.sessionId)
+      const next = await resetDoorLabSession(
+        request.sessionId,
+        request.controller.signal,
+      )
+      if (!isActionCurrent(request) || next.sessionId !== request.sessionId)
+        return
       applyVehicleState(next.vehicleState)
       setSession(next)
-      setFrames([])
-      setSelectedFrame(null)
+      dispatchMonitor({ type: "clear" })
       setTerminalEntries([])
       setIdsStatus(null)
       setLastRunAttempts([])
       setScript(INITIAL_SCRIPT)
       setHintIndex(-1)
     } catch (error) {
-      setActionError(errorMessage(error))
+      if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
-      setBusy(null)
+      finishAction(request)
     }
   }
 
   const handleTerminalSubmit = async (event: FormEvent) => {
     event.preventDefault()
     const command = terminalCommand.trim()
-    if (!session || !command || busy) return
-    setBusy("terminal")
-    setActionError(null)
+    if (!command) return
+    const request = beginAction("terminal")
+    if (!request) return
     try {
-      const result = await runDoorLabCommand(session.sessionId, command)
+      const result = await runDoorLabCommand(
+        request.sessionId,
+        command,
+        request.controller.signal,
+      )
+      if (!isActionCurrent(request)) return
       setTerminalEntries((existing) =>
         [
           ...existing,
-          { id: Date.now(), command, output: result.output, ok: result.ok },
+          {
+            id: ++terminalEntryIdRef.current,
+            command,
+            output: result.output,
+            ok: result.ok,
+          },
         ].slice(-30),
       )
       setCommandHistory((existing) => [...existing, command].slice(-50))
@@ -262,7 +438,7 @@ export default function DoorAttackLabPage() {
       if (incoming.length === 0) {
         incoming = parseTerminalFrames(result.output).map(
           (captured, index) => ({
-            key: `terminal-capture-${captured.timestamp}-${index}`,
+            key: `capture:${captured.timestamp}:${captured.channel}:${captured.frame.canId}:${formatFrameData(captured.frame.data)}:${index}`,
             timestamp: captured.timestamp * 1000,
             channel: captured.channel,
             canId: captured.frame.canId,
@@ -274,9 +450,9 @@ export default function DoorAttackLabPage() {
       }
       appendMonitorFrames(incoming)
     } catch (error) {
-      setActionError(errorMessage(error))
+      if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
-      setBusy(null)
+      finishAction(request)
     }
   }
 
@@ -296,6 +472,9 @@ export default function DoorAttackLabPage() {
     })
   }
 
+  const frames = monitor.frames
+  const selectedFrame =
+    frames.find((frame) => frame.key === monitor.selectedKey) ?? null
   const selectedBits = selectedFrame
     ? frameBits(selectedFrame.data).split(" ")
     : []
@@ -472,7 +651,7 @@ export default function DoorAttackLabPage() {
               <Radio size={18} aria-hidden="true" />
               <span>
                 <strong>Network monitor</strong>
-                <small>accepted stream + 모든 lab attempt</small>
+                <small>accepted stream + rejected / observed attempt</small>
               </span>
             </div>
             <span>{frames.length} / 300</span>
@@ -502,16 +681,14 @@ export default function DoorAttackLabPage() {
                         selectedFrame?.key === frame.key ? "true" : "false"
                       }
                     >
-                      <td>
-                        {new Date(frame.timestamp).toLocaleTimeString("ko-KR", {
-                          hour12: false,
-                        })}
-                      </td>
+                      <td>{formatMonitorTime(frame.timestamp)}</td>
                       <td>
                         <button
                           type="button"
                           aria-label={`${frame.canId} ${formatFrameData(frame.data)} frame 선택`}
-                          onClick={() => setSelectedFrame(frame)}
+                          onClick={() =>
+                            dispatchMonitor({ type: "select", key: frame.key })
+                          }
                         >
                           {frame.canId}
                         </button>
@@ -634,8 +811,8 @@ export default function DoorAttackLabPage() {
             )}
             {lastRunAttempts.length ? (
               <ul aria-label="최근 실행 판정">
-                {lastRunAttempts.map((attempt, index) => (
-                  <li key={`${attempt.canId}-${index}`}>
+                {lastRunAttempts.map((attempt) => (
+                  <li key={attempt.attemptId}>
                     {attempt.canId}: {attempt.verdict}
                   </li>
                 ))}

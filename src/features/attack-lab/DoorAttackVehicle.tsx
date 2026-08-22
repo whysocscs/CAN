@@ -3,6 +3,7 @@ import {
   Suspense,
   useEffect,
   useMemo,
+  useState,
   type ErrorInfo,
   type ReactNode,
 } from "react"
@@ -23,11 +24,11 @@ const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 const BODY_ECU_POSITION: [number, number, number] = [0.67, 0.73, -0.54]
 const LEFT_DOOR_POSITION: [number, number, number] = [-0.9, 0.78, 0.69]
 
-function VehicleModel() {
+function VehicleModel({ immediate }: { immediate: boolean }) {
   const gltf = useGLTF(MODEL_PATH)
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
 
-  useVehicleRig(scene)
+  useVehicleRig(scene, { immediate })
 
   useEffect(() => {
     scene.traverse((object) => {
@@ -47,11 +48,13 @@ function TargetMarker({
   label,
   detail,
   tone,
+  kind,
 }: {
   position: [number, number, number]
   label: string
   detail: string
   tone: string
+  kind: "body" | "door"
 }) {
   return (
     <group position={position}>
@@ -65,7 +68,7 @@ function TargetMarker({
       </mesh>
       <Html position={[0, 0.34, 0]} center distanceFactor={7.2} sprite>
         <div
-          className="door-attack-vehicle__marker"
+          className={`door-attack-vehicle__marker door-attack-vehicle__marker--${kind}`}
           style={{ "--marker-tone": tone } as React.CSSProperties}
         >
           <strong>{label}</strong>
@@ -76,12 +79,12 @@ function TargetMarker({
   )
 }
 
-function VehicleScene() {
+function VehicleScene({ immediate }: { immediate: boolean }) {
   return (
     <Bounds fit clip observe margin={0.72}>
       <Center>
         <group rotation={[0, -0.22, 0]}>
-          <VehicleModel />
+          <VehicleModel immediate={immediate} />
           <Line
             points={[BODY_ECU_POSITION, LEFT_DOOR_POSITION]}
             color="#dc4f4f"
@@ -94,12 +97,14 @@ function VehicleScene() {
             label="Toy Body ECU"
             detail="교육용 논리 ECU 위치"
             tone="#d94b4b"
+            kind="body"
           />
           <TargetMarker
             position={LEFT_DOOR_POSITION}
             label="Left Door"
             detail="차량 시각화 대상"
             tone="#2563eb"
+            kind="door"
           />
         </group>
       </Center>
@@ -136,6 +141,8 @@ class VehicleErrorBoundary extends Component<{ children: ReactNode }, {
 }
 
 export default function DoorAttackVehicle() {
+  const reducedMotion = useReducedMotion()
+
   return (
     <div
       className="door-attack-vehicle"
@@ -143,7 +150,7 @@ export default function DoorAttackVehicle() {
       aria-label="Toy Vehicle 3D view"
     >
       <Canvas
-        shadows
+        shadows="basic"
         dpr={[1, 1.5]}
         camera={{ position: [5.6, 3.1, 7.2], fov: 34, near: 0.05, far: 100 }}
         gl={{
@@ -183,11 +190,11 @@ export default function DoorAttackVehicle() {
               </Html>
             }
           >
-            <VehicleScene />
+            <VehicleScene immediate={reducedMotion} />
           </Suspense>
         </VehicleErrorBoundary>
         <OrbitControls
-          enableDamping
+          enableDamping={!reducedMotion}
           dampingFactor={0.075}
           enablePan={false}
           minDistance={2.8}
@@ -199,4 +206,24 @@ export default function DoorAttackVehicle() {
       <p>드래그: 회전 · 스크롤: 확대/축소</p>
     </div>
   )
+}
+
+function useReducedMotion() {
+  const [reducedMotion, setReducedMotion] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  )
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    const update = () => setReducedMotion(media.matches)
+    update()
+    media.addEventListener("change", update)
+    return () => media.removeEventListener("change", update)
+  }, [])
+
+  return reducedMotion
 }

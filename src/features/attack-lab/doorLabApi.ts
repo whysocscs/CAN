@@ -10,14 +10,19 @@ const DEFAULT_HOSTNAME = "127.0.0.1"
 const DOOR_LAB_PATH = "/labs/door-blackbox"
 
 export class DoorLabApiError extends Error {
-  constructor(message: string, readonly status?: number) {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
     super(message)
     this.name = "DoorLabApiError"
   }
 }
 
 /** Resolve the local API without hard-coding the browser's hostname. */
-export function resolveDoorLabApiBase(location: BrowserLocation | undefined = globalThis.location): string {
+export function resolveDoorLabApiBase(
+  location: BrowserLocation | undefined = globalThis.location,
+): string {
   const protocol = location?.protocol === "https:" ? "https:" : "http:"
   const hostname = location?.hostname || DEFAULT_HOSTNAME
   return `${protocol}//${hostname}:8010${DOOR_LAB_PATH}`
@@ -36,10 +41,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     try {
       const payload: unknown = await response.json()
       if (
-        typeof payload === "object"
-        && payload !== null
-        && "detail" in payload
-        && typeof payload.detail === "string"
+        typeof payload === "object" &&
+        payload !== null &&
+        "detail" in payload &&
+        typeof payload.detail === "string"
       ) {
         message = payload.detail
       }
@@ -50,32 +55,65 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
 
   try {
-    return await response.json() as T
+    return (await response.json()) as T
   } catch {
-    throw new DoorLabApiError("Door lab API returned an invalid response.", response.status)
+    throw new DoorLabApiError(
+      "Door lab API returned an invalid response.",
+      response.status,
+    )
   }
 }
 
-export function createDoorLabSession(): Promise<DoorLabSessionState> {
-  return request<DoorLabSessionState>("/sessions", { method: "POST" })
-}
-
-export function resetDoorLabSession(sessionId: string): Promise<DoorLabSessionState> {
-  return request<DoorLabSessionState>(`/sessions/${encodeURIComponent(sessionId)}/reset`, { method: "POST" })
-}
-
-export function runDoorLabCommand(sessionId: string, command: string): Promise<DoorLabTerminalResult> {
-  return request<DoorLabTerminalResult>(`/sessions/${encodeURIComponent(sessionId)}/terminal`, {
+export function createDoorLabSession(
+  signal?: AbortSignal,
+): Promise<DoorLabSessionState> {
+  return request<DoorLabSessionState>("/sessions", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ command }),
+    ...(signal ? { signal } : {}),
   })
 }
 
-export function runDoorLabScript(sessionId: string, script: string): Promise<DoorLabScriptResult> {
-  return request<DoorLabScriptResult>(`/sessions/${encodeURIComponent(sessionId)}/run`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ script }),
-  })
+export function resetDoorLabSession(
+  sessionId: string,
+  signal?: AbortSignal,
+): Promise<DoorLabSessionState> {
+  return request<DoorLabSessionState>(
+    `/sessions/${encodeURIComponent(sessionId)}/reset`,
+    {
+      method: "POST",
+      ...(signal ? { signal } : {}),
+    },
+  )
+}
+
+export function runDoorLabCommand(
+  sessionId: string,
+  command: string,
+  signal?: AbortSignal,
+): Promise<DoorLabTerminalResult> {
+  return request<DoorLabTerminalResult>(
+    `/sessions/${encodeURIComponent(sessionId)}/terminal`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ command }),
+      ...(signal ? { signal } : {}),
+    },
+  )
+}
+
+export function runDoorLabScript(
+  sessionId: string,
+  script: string,
+  signal?: AbortSignal,
+): Promise<DoorLabScriptResult> {
+  return request<DoorLabScriptResult>(
+    `/sessions/${encodeURIComponent(sessionId)}/run`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script }),
+      ...(signal ? { signal } : {}),
+    },
+  )
 }
