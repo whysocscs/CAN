@@ -91,6 +91,7 @@ class DoorBlackboxSession:
         self._right_door = "closed"
         self._attempt_count = 0
         self._capture_seen = False
+        self._contract_inferred = False
         self._last_verdicts: list[str] = []
         self._completed = False
 
@@ -120,7 +121,9 @@ class DoorBlackboxSession:
             "generation": self._generation,
             "stage": stage,
             "targetLabel": "Toy Body ECU",
-            "messageContractStatus": "INFERRED" if self._attempt_count else ("OBSERVED" if self._capture_seen else "UNKNOWN"),
+            "messageContractStatus": "INFERRED"
+            if self._contract_inferred
+            else ("OBSERVED" if self._capture_seen else "UNKNOWN"),
             "vehicleState": {"leftDoor": self._left_door, "rightDoor": self._right_door},
             "evidence": evidence,
             "attemptCount": self._attempt_count,
@@ -200,6 +203,10 @@ class DoorBlackboxSession:
             return self._record_attempt(normalized_id, normalized_data, "DATA_INVALID", timestamp)
 
         left, right, counter, checksum = (int(part, 16) for part in normalized_data)
+        if left not in (0, 1) or right not in (0, 1):
+            return self._unrecorded_attempt(normalized_id, normalized_data, "DOOR_STATE_INVALID", timestamp)
+
+        self._contract_inferred = True
         if checksum != (left ^ right ^ counter ^ 0xA5):
             return self._record_attempt(normalized_id, normalized_data, "CHECKSUM_INVALID", timestamp)
         if counter != ((self._expected_counter + 1) & 0xFF):
@@ -229,7 +236,27 @@ class DoorBlackboxSession:
             verdict,
         )
 
+    def _unrecorded_attempt(
+        self,
+        can_id: str,
+        data: tuple[str, ...],
+        verdict: str,
+        timestamp: int | None,
+    ) -> FrameAttempt:
+        """Return a safety-rejected frame without advancing ECU/evidence state."""
+        self._attempt_sequence += 1
+        return FrameAttempt(
+            f"{self.session_id}-attempt-{self._attempt_sequence:06d}",
+            self._clock_ms() if timestamp is None else timestamp,
+            self._generation,
+            can_id,
+            data,
+            verdict,
+        )
+
     def _evaluate_ids(self, attempts: tuple[FrameAttempt, ...], interval_ms: int) -> str:
+        if attempts and all(attempt.verdict == "DOOR_STATE_INVALID" for attempt in attempts):
+            return "ALERT"
         complete = (
             len(attempts) == 3
             and all(attempt.accepted for attempt in attempts)

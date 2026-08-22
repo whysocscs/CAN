@@ -173,6 +173,39 @@ def test_lab_target_isolated_from_public_tutorial_door_id() -> None:
     assert lab_frame.attempts[0].verdict == "EXECUTED"
 
 
+def test_non_target_frame_does_not_infer_the_private_message_contract() -> None:
+    session = DoorBlackboxSession(session_id="test")
+
+    result = session.run_script("cansend vcan0 101#000113B7")
+
+    assert result.attempts[0].verdict == "TARGET_ID_MISMATCH"
+    assert result.state["messageContractStatus"] == "UNKNOWN"
+
+
+def test_invalid_door_state_bytes_are_blocked_before_ecu_or_evidence_mutation() -> None:
+    session = DoorBlackboxSession(session_id="test")
+    before = session.public_state()
+
+    result = session.run_script("cansend vcan0 456#020113B5")
+
+    assert result.attempts[0].verdict == "DOOR_STATE_INVALID"
+    assert result.state == before
+
+    valid_afterward = session.run_script("cansend vcan0 456#000113B7")
+    assert valid_afterward.attempts[0].verdict == "EXECUTED"
+
+
+def test_invalid_door_state_does_not_erase_existing_completion_evidence() -> None:
+    session = DoorBlackboxSession(session_id="test")
+    session.run_script(valid_open_script())
+    before = session.public_state()
+
+    result = session.run_script("cansend vcan0 456#020116B0")
+
+    assert result.attempts[0].verdict == "DOOR_STATE_INVALID"
+    assert result.state == before
+
+
 def test_script_attempt_metadata_is_unique_and_tracks_declared_interval() -> None:
     session = DoorBlackboxSession(session_id="test", clock_ms=lambda: 1_700_000_000_000)
 

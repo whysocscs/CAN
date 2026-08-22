@@ -66,6 +66,9 @@ _last_frames: dict[str, dict[str, Any]] = {}
 # SocketCAN emits are observed later by candump.  Keep metadata keyed by the
 # frame until that observation reaches the shared event stream.
 _pending_metadata: dict[tuple[str, tuple[str, ...]], deque[dict[str, Any]]] = defaultdict(deque)
+_CLEARED_ECHO_TTL_SECONDS: Final = 5.0
+_MAX_CLEARED_ECHO_TOMBSTONES: Final = 128
+_cleared_echo_tombstones: deque[tuple[tuple[str, tuple[str, ...]], float]] = deque()
 
 
 # --------------------------------------------------------------- 프레임 표현
@@ -131,10 +134,29 @@ def parse_candump(line: str) -> dict[str, Any] | None:
     return build_event(can_id, normalize_data(payload), timestamp_ms=timestamp_ms, channel=channel)
 
 
-def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any]:
+def _remember_cleared_echo(key: tuple[str, tuple[str, ...]]) -> None:
+    while len(_cleared_echo_tombstones) >= _MAX_CLEARED_ECHO_TOMBSTONES:
+        _cleared_echo_tombstones.popleft()
+    _cleared_echo_tombstones.append((key, time.monotonic() + _CLEARED_ECHO_TTL_SECONDS))
+
+
+def _consume_cleared_echo(key: tuple[str, tuple[str, ...]]) -> bool:
+    now = time.monotonic()
+    while _cleared_echo_tombstones and _cleared_echo_tombstones[0][1] <= now:
+        _cleared_echo_tombstones.popleft()
+    for tombstone in _cleared_echo_tombstones:
+        if tombstone[0] == key:
+            _cleared_echo_tombstones.remove(tombstone)
+            return True
+    return False
+
+
+def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any] | None:
     """Attach metadata recorded by ``emit`` when SocketCAN echoes a frame."""
     frame = event["frame"]
     key = (frame["canId"], tuple(frame["data"]))
+    if _consume_cleared_echo(key):
+        return None
     pending = _pending_metadata.get(key)
     if pending:
         event.update(pending.popleft())
@@ -148,7 +170,10 @@ def clear_frame_snapshot(can_id: str) -> bool:
     normalized_id = normalize_can_id(can_id)
     removed = _last_frames.pop(normalized_id, None) is not None
     for key in [key for key in _pending_metadata if key[0] == normalized_id]:
-        _pending_metadata.pop(key, None)
+        pending = _pending_metadata.pop(key, None)
+        if MODE == "socketcan" and pending:
+            for _ in pending:
+                _remember_cleared_echo(key)
     return removed
 
 
@@ -162,6 +187,15 @@ async def broadcast(event: dict[str, Any]) -> None:
             await client.send_text(payload)
         except Exception:
             _clients.discard(client)  # 끊긴 클라이언트는 조용히 정리합니다.
+
+
+async def publish_observed_event(event: dict[str, Any]) -> bool:
+    """Publish one candump event unless it is an echo invalidated by reset."""
+    resolved = attach_pending_metadata(event)
+    if resolved is None:
+        return False
+    await broadcast(resolved)
+    return True
 
 
 async def send_snapshot(websocket: WebSocket) -> None:
@@ -246,7 +280,7 @@ async def pump() -> None:
         async for raw in process.stdout:
             event = parse_candump(raw.decode(errors="ignore"))
             if event is not None:
-                await broadcast(attach_pending_metadata(event))
+                await publish_observed_event(event)
         # candump이 죽으면(인터페이스 down 등) 잠깐 쉬었다 다시 붙습니다.
         await asyncio.sleep(2)
 

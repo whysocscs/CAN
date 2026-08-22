@@ -432,3 +432,171 @@ def test_terminal_capture_response_has_stable_id_and_candump_timestamp() -> None
     assert set(first) == {"attemptId", "timestamp", "canId", "data", "verdict"}
     assert first["attemptId"] == f"{session_id}-capture-000001"
     assert first["timestamp"] == 1_720_000_000_100
+
+
+def test_reset_waits_for_inflight_emit_then_clears_snapshot_and_rejects_remaining_generation() -> None:
+    original_frames = dict(can._last_frames)
+    can._last_frames.clear()
+
+    async def scenario() -> None:
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        emit_started = asyncio.Event()
+        release_emit = asyncio.Event()
+        emitted: list[list[str]] = []
+
+        async def delayed_snapshot_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+            emit_started.set()
+            await release_emit.wait()
+            emitted.append(data)
+            can._last_frames[can_id] = can.build_event(
+                can_id,
+                data,
+                timestamp_ms=1,
+                channel="vcan0",
+                **metadata,
+            )
+            return True
+
+        run_task = asyncio.create_task(
+            labs.run_script(
+                session_id,
+                labs.ScriptRequest(
+                    script="interval_ms=10\n"
+                    "cansend vcan0 456#000113B7\n"
+                    "cansend vcan0 456#000114B0\n"
+                    "cansend vcan0 456#000115B1"
+                ),
+                delayed_snapshot_emit,
+            )
+        )
+        await emit_started.wait()
+        reset_task = asyncio.create_task(labs.reset_session(session_id))
+        await asyncio.sleep(0)
+        release_emit.set()
+        await asyncio.gather(run_task, reset_task)
+
+        assert emitted == [["00", "01", "13", "B7"]]
+        assert "0x456" not in can._last_frames
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+
+
+def test_new_session_waits_for_inflight_emit_then_invalidates_the_old_session() -> None:
+    original_frames = dict(can._last_frames)
+    can._last_frames.clear()
+
+    async def scenario() -> None:
+        old = await labs.create_session()
+        old_session_id = str(old["sessionId"])
+        emit_started = asyncio.Event()
+        release_emit = asyncio.Event()
+
+        async def delayed_snapshot_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+            emit_started.set()
+            await release_emit.wait()
+            can._last_frames[can_id] = can.build_event(
+                can_id,
+                data,
+                timestamp_ms=1,
+                channel="vcan0",
+                **metadata,
+            )
+            return True
+
+        old_run = asyncio.create_task(
+            labs.run_script(
+                old_session_id,
+                labs.ScriptRequest(
+                    script="interval_ms=10\n"
+                    "cansend vcan0 456#000113B7\n"
+                    "cansend vcan0 456#000114B0"
+                ),
+                delayed_snapshot_emit,
+            )
+        )
+        await emit_started.wait()
+        create_task = asyncio.create_task(labs.create_session())
+        await asyncio.sleep(0)
+        release_emit.set()
+        new = await create_task
+        await old_run
+
+        assert new["sessionId"] != old_session_id
+        assert "0x456" not in can._last_frames
+
+        stale_emits: list[list[str]] = []
+
+        async def record_stale(_can_id: str, data: list[str], **_metadata: object) -> bool:
+            stale_emits.append(data)
+            return True
+
+        stale_run = await labs.run_script(
+            old_session_id,
+            labs.ScriptRequest(script="cansend vcan0 456#000115B1"),
+            record_stale,
+        )
+        stale_terminal = await labs.terminal_command(
+            old_session_id,
+            labs.TerminalRequest(command="cansend vcan0 456#000116B2"),
+            record_stale,
+        )
+        assert stale_run["attempts"][0]["verdict"] == "EXECUTED"
+        assert stale_terminal["code"] == "EXECUTED"
+        assert stale_emits == []
+
+        current_emits: list[list[str]] = []
+
+        async def record_current(_can_id: str, data: list[str], **_metadata: object) -> bool:
+            current_emits.append(data)
+            return True
+
+        current = await labs.run_script(
+            str(new["sessionId"]),
+            labs.ScriptRequest(script="cansend vcan0 456#000113B7"),
+            record_current,
+        )
+        assert current["attempts"][0]["verdict"] == "EXECUTED"
+        assert current_emits == [["00", "01", "13", "B7"]]
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+
+
+def test_socketcan_echo_cleared_during_reset_is_dropped_once_not_forever(monkeypatch) -> None:
+    original_frames = dict(can._last_frames)
+    original_pending = {key: deque(value) for key, value in can._pending_metadata.items()}
+    can._last_frames.clear()
+    can._pending_metadata.clear()
+    can._cleared_echo_tombstones.clear()
+    monkeypatch.setattr(can, "MODE", "socketcan")
+    key = ("0x456", ("00", "01", "13", "B7"))
+    can._pending_metadata[key] = deque([{"lab": {"sessionId": "stale", "generation": 0}}])
+
+    async def scenario() -> None:
+        can.clear_frame_snapshot("0x456")
+        stale_echo = can.parse_candump("(1.0) vcan0 456#000113B7")
+        next_identical_frame = can.parse_candump("(2.0) vcan0 456#000113B7")
+        assert stale_echo is not None
+        assert next_identical_frame is not None
+
+        assert await can.publish_observed_event(stale_echo) is False
+        assert "0x456" not in can._last_frames
+        assert await can.publish_observed_event(next_identical_frame) is True
+        assert can._last_frames["0x456"]["timestamp"] == 2000
+
+    try:
+        asyncio.run(scenario())
+    finally:
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+        can._pending_metadata.clear()
+        can._pending_metadata.update(original_pending)
+        can._cleared_echo_tombstones.clear()

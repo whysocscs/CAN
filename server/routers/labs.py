@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+import threading
 from typing import Any, Final
 from uuid import uuid4
 
@@ -15,9 +16,35 @@ from server.labs.door_blackbox import _TARGET_CAN_ID, DoorBlackboxSession, Frame
 
 router = APIRouter(prefix="/labs/door-blackbox", tags=["labs"])
 _sessions: dict[str, DoorBlackboxSession] = {}
+_active_correlation: tuple[str, int] | None = None
 
 FrameEmitter = Callable[..., Awaitable[bool]]
 _LAB_TARGET_CAN_ID: Final = _TARGET_CAN_ID
+
+
+class _AsyncThreadLock:
+    """A process-wide async lock that is safe across ASGI/TestClient loops."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+
+    async def __aenter__(self) -> _AsyncThreadLock:
+        acquire = asyncio.get_running_loop().run_in_executor(None, self._lock.acquire)
+        try:
+            await asyncio.shield(acquire)
+        except asyncio.CancelledError:
+            # ``shield`` lets the worker finish.  If its waiter is cancelled,
+            # release the acquired lock before propagating cancellation.
+            await acquire
+            self._lock.release()
+            raise
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        self._lock.release()
+
+
+_lifecycle_lock = _AsyncThreadLock()
 
 
 def get_frame_emitter() -> FrameEmitter:
@@ -96,13 +123,21 @@ def _clear_lab_replay_state() -> None:
     clear_frame_snapshot(_LAB_TARGET_CAN_ID)
 
 
+def _is_active_attempt(session_id: str, attempt: FrameAttempt) -> bool:
+    return _active_correlation == (session_id, attempt.generation)
+
+
 @router.post("/sessions", status_code=status.HTTP_201_CREATED)
 async def create_session() -> dict[str, object]:
-    _clear_lab_replay_state()
-    session_id = str(uuid4())
-    session = DoorBlackboxSession(session_id=session_id)
-    _sessions[session_id] = session
-    return session.public_state()
+    global _active_correlation
+    async with _lifecycle_lock:
+        _clear_lab_replay_state()
+        session_id = str(uuid4())
+        session = DoorBlackboxSession(session_id=session_id)
+        _sessions[session_id] = session
+        state = session.public_state()
+        _active_correlation = (session_id, int(state["generation"]))
+        return state
 
 
 @router.get("/sessions/{session_id}")
@@ -112,13 +147,20 @@ async def get_session(session_id: str) -> dict[str, object]:
 
 @router.post("/sessions/{session_id}/reset")
 async def reset_session(session_id: str) -> dict[str, object]:
+    global _active_correlation
     session = _session_or_404(session_id)
-    session.reset()
-    # The reset response is the frontend state-reset contract.  Clearing only
-    # the Toy door's replay state prevents a reconnect from reapplying an old
-    # accepted frame without touching unrelated vehicle CAN snapshots.
-    _clear_lab_replay_state()
-    return session.public_state()
+    async with _lifecycle_lock:
+        session.reset()
+        state = session.public_state()
+        # An old browser tab may still call reset, but it must not reactivate
+        # its session or clear the current learner's replay state.
+        if _active_correlation is not None and _active_correlation[0] == session_id:
+            _active_correlation = (session_id, int(state["generation"]))
+            # The reset response is the frontend state-reset contract.  Clearing only
+            # the Toy door's replay state prevents a reconnect from reapplying an old
+            # accepted frame without touching unrelated vehicle CAN snapshots.
+            _clear_lab_replay_state()
+        return state
 
 
 @router.post("/sessions/{session_id}/terminal")
@@ -133,7 +175,13 @@ async def terminal_command(
     # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
     for attempt in result.frames:
         if attempt.accepted:
-            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session.session_id, attempt, "ALERT"))
+            async with _lifecycle_lock:
+                if _is_active_attempt(session.session_id, attempt):
+                    await emit_frame(
+                        attempt.can_id,
+                        list(attempt.data),
+                        **_metadata_for(session.session_id, attempt, "ALERT"),
+                    )
     return _terminal_response(result)
 
 
@@ -151,6 +199,13 @@ async def run_script(
             continue
         if emitted and result.interval_ms is not None:
             await asyncio.sleep(result.interval_ms / 1000)
-        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(session.session_id, attempt, result.ids_status))
-        emitted = True
+        async with _lifecycle_lock:
+            if not _is_active_attempt(session.session_id, attempt):
+                continue
+            await emit_frame(
+                attempt.can_id,
+                list(attempt.data),
+                **_metadata_for(session.session_id, attempt, result.ids_status),
+            )
+            emitted = True
     return _script_response(result)
