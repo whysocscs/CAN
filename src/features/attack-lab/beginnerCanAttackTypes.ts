@@ -2,6 +2,53 @@ import type { VehicleRouteId } from "../vehicle/vehicleTopology"
 
 export type BeginnerCanAttackScenario = "spoofing" | "replay"
 export type BeginnerCanAttackDoorState = "open" | "closed"
+export type BeginnerCanAttackStage =
+  | "RECON"
+  | "OBSERVE"
+  | "CRAFT"
+  | "CAPTURE"
+  | "EXECUTE"
+  | "EVIDENCE"
+export type BeginnerCanAttackAttemptVerdict =
+  | "EXECUTED"
+  | "TARGET_ID_MISMATCH"
+  | "LENGTH_INVALID"
+  | "STATE_INVALID"
+  | "STATE_NOT_ALTERED"
+  | "CAPTURE_REQUIRED"
+  | "CAPTURE_FILE_UNKNOWN"
+  | "REPEAT_COUNT_INVALID"
+  | "CAPTURE_SESSION_MISMATCH"
+  | "CAPTURE_GENERATION_MISMATCH"
+  | "CAPTURE_CONTENT_MISMATCH"
+export type BeginnerCanAttackCaptureVerdict = "CAPTURED"
+export type BeginnerCanAttackResultCode =
+  | "OK"
+  | "OBSERVED"
+  | "CAPTURED"
+  | "EXECUTED"
+  | "COMMAND_TOO_LARGE"
+  | "COMMAND_REJECTED"
+  | "SCENARIO_COMMAND_UNSUPPORTED"
+  | "UNSAFE_SYNTAX"
+  | "HOST_PATH_REJECTED"
+  | "FILE_NOT_FOUND"
+  | "TARGET_ID_MISMATCH"
+  | "LENGTH_INVALID"
+  | "STATE_INVALID"
+  | "STATE_NOT_ALTERED"
+  | "CAPTURE_REQUIRED"
+  | "CAPTURE_FILE_UNKNOWN"
+  | "REPEAT_COUNT_INVALID"
+  | "CAPTURE_SESSION_MISMATCH"
+  | "CAPTURE_GENERATION_MISMATCH"
+  | "CAPTURE_CONTENT_MISMATCH"
+  | "SCRIPT_TOO_LARGE"
+  | "SCRIPT_TOO_MANY_LINES"
+  | "SCRIPT_COMMAND_INVALID"
+  | "SCRIPT_EMPTY"
+  | "SCRIPT_ACTION_COUNT_INVALID"
+export type BeginnerCanAttackIdsStatus = "NORMAL" | "ALERT"
 
 export interface BeginnerCanAttackVehicleState {
   leftDoor: BeginnerCanAttackDoorState
@@ -9,10 +56,9 @@ export interface BeginnerCanAttackVehicleState {
   tailgate: BeginnerCanAttackDoorState
 }
 
-export interface BeginnerCanAttackEvidence {
-  kind: string
-  status: string
-}
+export type BeginnerCanAttackEvidence =
+  | { kind: "capture"; status: "recorded" }
+  | { kind: "attempt"; status: BeginnerCanAttackAttemptVerdict }
 
 /** Public Task 1 state returned by create, get, reset, terminal, and run. */
 export interface BeginnerCanAttackState {
@@ -20,14 +66,17 @@ export interface BeginnerCanAttackState {
   scenario: BeginnerCanAttackScenario
   sessionId: string
   generation: number
-  stage: string
+  stage: BeginnerCanAttackStage
   targetLabel: string
   targetNode: "rear" | "body"
   effectTarget: "tailgate" | "leftDoor"
   vehicleState: BeginnerCanAttackVehicleState
   evidence: BeginnerCanAttackEvidence[]
   attemptCount: number
-  lastVerdict: string | null
+  lastVerdict:
+    | BeginnerCanAttackAttemptVerdict
+    | BeginnerCanAttackCaptureVerdict
+    | null
   completed: boolean
 }
 
@@ -38,7 +87,7 @@ export interface BeginnerCanAttackAttempt {
   generation: number
   canId: string
   data: string[]
-  verdict: string
+  verdict: BeginnerCanAttackAttemptVerdict
 }
 
 export interface BeginnerCanAttackCapture {
@@ -49,17 +98,17 @@ export interface BeginnerCanAttackCapture {
   fileName: string
   canId: string
   data: string[]
-  verdict: string
+  verdict: BeginnerCanAttackCaptureVerdict
 }
 
 export interface BeginnerCanAttackResult {
   ok: boolean
-  code: string
+  code: BeginnerCanAttackResultCode
   output: string
   attempts: BeginnerCanAttackAttempt[]
   captures: BeginnerCanAttackCapture[]
   state: BeginnerCanAttackState
-  idsStatus: string | null
+  idsStatus: BeginnerCanAttackIdsStatus | null
 }
 
 export interface BeginnerCanAttackMonitorFrame {

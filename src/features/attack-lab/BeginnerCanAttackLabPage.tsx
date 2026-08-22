@@ -26,6 +26,7 @@ import { VEHICLE_ROUTES } from "../vehicle/vehicleTopology"
 import { vehicle } from "../vehicle/vehicleStore"
 import {
   createBeginnerCanAttackSession,
+  resolveBeginnerCanAttackStreamUrl,
   resetBeginnerCanAttackSession,
   runBeginnerCanAttackScript,
   runBeginnerCanAttackTerminal,
@@ -35,6 +36,7 @@ import type {
   BeginnerCanAttackMonitorState,
   BeginnerCanAttackResult,
   BeginnerCanAttackScenario,
+  BeginnerCanAttackStage,
   BeginnerCanAttackState,
   BeginnerCanAttackTerminalEntry,
   BeginnerCanAttackUiConfig,
@@ -155,12 +157,19 @@ function applyVehicleState(state: BeginnerCanAttackState["vehicleState"]) {
   vehicle.set("tailgate", ratios.tailgate)
 }
 
-function stageIndex(scenario: BeginnerCanAttackScenario, stage?: string) {
-  const mapping = scenario === "spoofing"
-    ? ["RECON", "OBSERVE", "CRAFT", "IMPACT", "EVIDENCE"]
-    : ["RECON", "CAPTURE", "EXECUTE", "IMPACT", "EVIDENCE"]
-  const index = mapping.indexOf(stage ?? "RECON")
-  return index < 0 ? 0 : index
+const STAGE_INDEX_BY_SCENARIO: Record<
+  BeginnerCanAttackScenario,
+  Partial<Record<BeginnerCanAttackStage, number>>
+> = {
+  spoofing: { RECON: 0, OBSERVE: 1, CRAFT: 2, EVIDENCE: 4 },
+  replay: { RECON: 0, CAPTURE: 1, EXECUTE: 2, EVIDENCE: 4 },
+}
+
+function stageIndex(
+  scenario: BeginnerCanAttackScenario,
+  stage: BeginnerCanAttackStage = "RECON",
+) {
+  return STAGE_INDEX_BY_SCENARIO[scenario][stage] ?? 0
 }
 
 function currentTopologyNode(
@@ -311,6 +320,7 @@ export default function BeginnerCanAttackLabPage({
   }, [currentAcceptedEventPredicate, nextMonitorSequence])
 
   const streamStatus = useCanVehicleStream({
+    url: resolveBeginnerCanAttackStreamUrl(),
     onEvent: handleCanEvents,
     vehicleEventPredicate: currentAcceptedEventPredicate,
   })

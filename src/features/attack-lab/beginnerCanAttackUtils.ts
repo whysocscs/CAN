@@ -123,7 +123,13 @@ export function appendBeginnerMonitorFrames(
 ): BeginnerCanAttackMonitorState {
   if (incoming.length === 0) return state
   const byKey = new Map(state.frames.map((frame) => [frame.key, frame]))
-  for (const frame of incoming) byKey.set(frame.key, frame)
+  for (const frame of incoming) {
+    const existing = byKey.get(frame.key)
+    byKey.set(
+      frame.key,
+      existing ? { ...frame, sequence: existing.sequence } : frame,
+    )
+  }
   const frames = [...byKey.values()]
     .sort((left, right) =>
       left.timestamp - right.timestamp || left.sequence - right.sequence ||

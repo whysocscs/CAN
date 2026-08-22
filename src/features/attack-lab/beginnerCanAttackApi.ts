@@ -24,6 +24,16 @@ export function resolveBeginnerCanAttackApiBase(
   return `${protocol}//${hostname}:8010/labs/can-attacks/${scenario}`
 }
 
+export function resolveBeginnerCanAttackStreamUrl(
+  location: BrowserLocation | undefined = globalThis.location,
+  configuredUrl: string | undefined = import.meta.env.VITE_CAN_STREAM_URL,
+): string {
+  if (configuredUrl?.trim()) return configuredUrl.trim()
+  const protocol = location?.protocol === "https:" ? "wss:" : "ws:"
+  const hostname = location?.hostname || DEFAULT_HOSTNAME
+  return `${protocol}//${hostname}:8010/ws/can`
+}
+
 async function request<T>(
   scenario: BeginnerCanAttackScenario,
   path: string,

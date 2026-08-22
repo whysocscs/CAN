@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
+import * as beginnerApi from "./beginnerCanAttackApi"
 import {
   BeginnerCanAttackApiError,
   createBeginnerCanAttackSession,
@@ -11,7 +12,11 @@ import {
   runBeginnerCanAttackTerminal,
 } from "./beginnerCanAttackApi"
 import type {
+  BeginnerCanAttackAttempt,
+  BeginnerCanAttackCapture,
+  BeginnerCanAttackEvidence,
   BeginnerCanAttackMonitorFrame,
+  BeginnerCanAttackResult,
   BeginnerCanAttackState,
 } from "./beginnerCanAttackTypes"
 import {
@@ -19,6 +24,21 @@ import {
   beginnerEventMatchesSession,
   parseBeginnerTerminalFrames,
 } from "./beginnerCanAttackUtils"
+
+// These assertions intentionally fail compilation while the public API fields
+// are broad strings. Each value is absent from the finite Task 1 contract.
+// @ts-expect-error "IMPACT" is event metadata, not a public session stage.
+const invalidPublicStage: BeginnerCanAttackState["stage"] = "IMPACT"
+// @ts-expect-error Backend results never return an arbitrary code.
+const invalidResultCode: BeginnerCanAttackResult["code"] = "MADE_UP_CODE"
+// @ts-expect-error Frame attempts have a finite verdict set.
+const invalidAttemptVerdict: BeginnerCanAttackAttempt["verdict"] = "OBSERVED"
+// @ts-expect-error Capture records only use CAPTURED.
+const invalidCaptureVerdict: BeginnerCanAttackCapture["verdict"] = "EXECUTED"
+// @ts-expect-error Public evidence has only capture and attempt variants.
+const invalidEvidence: BeginnerCanAttackEvidence = { kind: "invented", status: "invented" }
+// @ts-expect-error IDS status is NORMAL, ALERT, or null.
+const invalidIdsStatus: BeginnerCanAttackResult["idsStatus"] = "SUSPICIOUS"
 
 const state: BeginnerCanAttackState = {
   labId: "can-spoofing-basic-v1",
@@ -110,6 +130,32 @@ describe("beginner CAN attack API", () => {
     expect(fetchMock.mock.calls.flat().join(" ")).not.toContain("/can/send")
   })
 
+  it("resolves the CAN stream from browser origin while honoring an explicit override", () => {
+    const resolver = (
+      beginnerApi as typeof beginnerApi & {
+        resolveBeginnerCanAttackStreamUrl?: (
+          location: { protocol: string; hostname: string },
+          configuredUrl?: string,
+        ) => string
+      }
+    ).resolveBeginnerCanAttackStreamUrl
+
+    expect(resolver).toBeTypeOf("function")
+    if (!resolver) return
+    expect(resolver({ protocol: "http:", hostname: "192.168.10.24" }))
+      .toBe("ws://192.168.10.24:8010/ws/can")
+    expect(resolver({ protocol: "https:", hostname: "lab.example" }))
+      .toBe("wss://lab.example:8010/ws/can")
+    expect(resolver({ protocol: "http:", hostname: "127.0.0.1" }))
+      .toBe("ws://127.0.0.1:8010/ws/can")
+    expect(
+      resolver(
+        { protocol: "https:", hostname: "ignored.example" },
+        "wss://configured.example/custom-can",
+      ),
+    ).toBe("wss://configured.example/custom-can")
+  })
+
   it("normalizes offline, backend detail, and invalid JSON failures", async () => {
     const fetchMock = vi.fn()
       .mockRejectedValueOnce(new TypeError("network"))
@@ -139,6 +185,80 @@ describe("beginner CAN attack API", () => {
 })
 
 describe("beginner CAN attack utilities", () => {
+  it("accepts every finite Task 1 public contract value", () => {
+    const stages: BeginnerCanAttackState["stage"][] = [
+      "RECON",
+      "OBSERVE",
+      "CRAFT",
+      "CAPTURE",
+      "EXECUTE",
+      "EVIDENCE",
+    ]
+    const resultCodes: BeginnerCanAttackResult["code"][] = [
+      "OK",
+      "OBSERVED",
+      "CAPTURED",
+      "EXECUTED",
+      "COMMAND_TOO_LARGE",
+      "COMMAND_REJECTED",
+      "SCENARIO_COMMAND_UNSUPPORTED",
+      "UNSAFE_SYNTAX",
+      "HOST_PATH_REJECTED",
+      "FILE_NOT_FOUND",
+      "TARGET_ID_MISMATCH",
+      "LENGTH_INVALID",
+      "STATE_INVALID",
+      "STATE_NOT_ALTERED",
+      "CAPTURE_REQUIRED",
+      "CAPTURE_FILE_UNKNOWN",
+      "REPEAT_COUNT_INVALID",
+      "CAPTURE_SESSION_MISMATCH",
+      "CAPTURE_GENERATION_MISMATCH",
+      "CAPTURE_CONTENT_MISMATCH",
+      "SCRIPT_TOO_LARGE",
+      "SCRIPT_TOO_MANY_LINES",
+      "SCRIPT_COMMAND_INVALID",
+      "SCRIPT_EMPTY",
+      "SCRIPT_ACTION_COUNT_INVALID",
+    ]
+    const attemptVerdicts: BeginnerCanAttackAttempt["verdict"][] = [
+      "EXECUTED",
+      "TARGET_ID_MISMATCH",
+      "LENGTH_INVALID",
+      "STATE_INVALID",
+      "STATE_NOT_ALTERED",
+      "CAPTURE_REQUIRED",
+      "CAPTURE_FILE_UNKNOWN",
+      "REPEAT_COUNT_INVALID",
+      "CAPTURE_SESSION_MISMATCH",
+      "CAPTURE_GENERATION_MISMATCH",
+      "CAPTURE_CONTENT_MISMATCH",
+    ]
+    const evidence: BeginnerCanAttackEvidence[] = [
+      { kind: "capture", status: "recorded" },
+      { kind: "attempt", status: "EXECUTED" },
+    ]
+    const idsStatuses: BeginnerCanAttackResult["idsStatus"][] = [
+      "NORMAL",
+      "ALERT",
+      null,
+    ]
+
+    expect({
+      stages: stages.length,
+      resultCodes: resultCodes.length,
+      attemptVerdicts: attemptVerdicts.length,
+      evidence: evidence.length,
+      idsStatuses: idsStatuses.length,
+    }).toEqual({
+      stages: 6,
+      resultCodes: 25,
+      attemptVerdicts: 11,
+      evidence: 2,
+      idsStatuses: 3,
+    })
+  })
+
   it("requires every current-session event dimension", () => {
     expect(beginnerEventMatchesSession(currentEvent(), state)).toBe(true)
 
@@ -205,5 +325,37 @@ describe("beginner CAN attack utilities", () => {
       { ...initial[0], key: "newer", timestamp: 401, sequence: 401 },
     ])
     expect(evictedSelected.selectedKey).toBe("newer")
+  })
+
+  it("keeps the original stable sequence and selection when a duplicate key updates", () => {
+    const first: BeginnerCanAttackMonitorFrame = {
+      key: "event:first",
+      timestamp: 100,
+      channel: "vcan0",
+      canId: "0x700",
+      data: ["00"],
+      verdict: "OBSERVED",
+      source: "CAN stream",
+      sequence: 1,
+    }
+    const second: BeginnerCanAttackMonitorFrame = {
+      ...first,
+      key: "event:second",
+      data: ["01"],
+      sequence: 2,
+    }
+
+    const updated = appendBeginnerMonitorFrames(
+      { frames: [first, second], selectedKey: first.key },
+      [{ ...first, verdict: "EXECUTED", sequence: 99 }],
+    )
+
+    expect(updated.frames.map((frame) => frame.key)).toEqual([
+      "event:first",
+      "event:second",
+    ])
+    expect(updated.frames[0].sequence).toBe(1)
+    expect(updated.frames[0].verdict).toBe("EXECUTED")
+    expect(updated.selectedKey).toBe("event:first")
   })
 })

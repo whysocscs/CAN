@@ -19,8 +19,10 @@ const api = vi.hoisted(() => ({
   resetBeginnerCanAttackSession: vi.fn(),
   runBeginnerCanAttackTerminal: vi.fn(),
   runBeginnerCanAttackScript: vi.fn(),
+  resolveBeginnerCanAttackStreamUrl: vi.fn(),
 }))
 const stream = vi.hoisted(() => ({ connect: vi.fn(), options: null as null | {
+  url?: string
   onEvent: (event: CanEvent) => void
   onStatus?: (status: "connecting" | "open" | "closed") => void
 } }))
@@ -91,6 +93,9 @@ describe("BeginnerCanAttackLabPage", () => {
     api.resetBeginnerCanAttackSession.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(session(scenario, 1)))
     api.runBeginnerCanAttackTerminal.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(result(session(scenario))))
     api.runBeginnerCanAttackScript.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(result(session(scenario))))
+    api.resolveBeginnerCanAttackStreamUrl.mockReturnValue(
+      "ws://192.168.10.24:8010/ws/can",
+    )
     stream.connect.mockImplementation((options) => {
       stream.options = options
       options.onStatus?.("open")
@@ -121,6 +126,7 @@ describe("BeginnerCanAttackLabPage", () => {
     expect(screen.getByRole("region", { name: "Binary inspector" })).toBeInTheDocument()
     expect(screen.getByRole("region", { name: "Network monitor" })).toBeInTheDocument()
     expect(screen.getByRole("region", { name: "Virtual terminal" })).toBeInTheDocument()
+    expect(stream.options?.url).toBe("ws://192.168.10.24:8010/ws/can")
     const body = document.body.textContent ?? ""
     expect(body).not.toMatch(/5a1#01|5a2#0001|capture\.log/i)
     expect(body).not.toContain("정적 UI 미리보기")
@@ -198,14 +204,14 @@ describe("BeginnerCanAttackLabPage", () => {
     const current = session("replay")
     api.runBeginnerCanAttackScript.mockResolvedValueOnce(result(current, {
       ok: false,
-      code: "REPLAY_CONTENT_MISMATCH",
-      attempts: [{ attemptId: "rejected", timestamp: 10, sessionId: current.sessionId, generation: 0, canId: "0x702", data: ["FF"], verdict: "REPLAY_CONTENT_MISMATCH" }],
+      code: "CAPTURE_CONTENT_MISMATCH",
+      attempts: [{ attemptId: "rejected", timestamp: 10, sessionId: current.sessionId, generation: 0, canId: "0x702", data: ["FF"], verdict: "CAPTURE_CONTENT_MISMATCH" }],
     }))
     const user = userEvent.setup()
     render(<BeginnerCanAttackLabPage scenario="replay" />)
     await screen.findByText("BODY ECU")
     await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
-    expect((await screen.findAllByText("REPLAY_CONTENT_MISMATCH")).length).toBeGreaterThan(0)
+    expect((await screen.findAllByText("CAPTURE_CONTENT_MISMATCH")).length).toBeGreaterThan(0)
     expect(vehicle.getState()).toEqual({ doorL: 0, doorR: 0, tailgate: 0 })
   })
 
