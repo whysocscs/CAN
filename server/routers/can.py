@@ -63,15 +63,18 @@ class _ClientConnection:
 
     websocket: WebSocket
     loop: asyncio.AbstractEventLoop
-    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     evicted_event: asyncio.Event = field(default_factory=asyncio.Event)
     backlog: deque[str] = field(default_factory=deque)
+    writer_task: asyncio.Task[None] | None = None
     replaying: bool = True
     evicted: bool = False
 
 
 _clients: set[_ClientConnection] = set()
 _CLIENT_SEND_TIMEOUT_SECONDS: Final = 0.25
+_CLIENT_HANDOFF_TIMEOUT_SECONDS: Final = 1.0
+_CLIENT_DRAIN_TIMEOUT_SECONDS: Final = 0.5
+_CLIENT_BACKLOG_MAX_MESSAGES: Final = 256
 _sequence = count(1)
 
 # CAN ID별 마지막 프레임. 새로 접속한 브라우저에게 현재 상태를 알려주는 데 씁니다.
@@ -373,27 +376,62 @@ def clear_frame_snapshot(can_id: str) -> bool:
 
 def _signal_client_evicted(client: _ClientConnection) -> None:
     """Wake the connection handler, including a handler on another test loop."""
-    if client.evicted_event.is_set() or client.loop.is_closed():
-        return
+    def signal() -> None:
+        if not client.evicted_event.is_set():
+            client.evicted_event.set()
+
     try:
         running_loop = asyncio.get_running_loop()
     except RuntimeError:
         running_loop = None
     if running_loop is client.loop:
-        client.evicted_event.set()
+        signal()
     else:
-        client.loop.call_soon_threadsafe(client.evicted_event.set)
+        try:
+            client.loop.call_soon_threadsafe(signal)
+        except RuntimeError:
+            pass
 
 
-def _evict_client(client: _ClientConnection) -> None:
+def _cancel_client_writer(
+    client: _ClientConnection,
+    writer: asyncio.Task[None] | None,
+) -> None:
+    """Cancel an owner-loop task without touching it from a foreign loop."""
+    if writer is None:
+        return
+
+    def cancel() -> None:
+        if writer.done() or writer is asyncio.current_task():
+            return
+        writer.cancel()
+
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is client.loop:
+        cancel()
+    else:
+        try:
+            client.loop.call_soon_threadsafe(cancel)
+        except RuntimeError:
+            pass
+
+
+def _evict_client(client: _ClientConnection) -> asyncio.Task[None] | None:
     """Atomically stop routing events to a failed or disconnected client."""
     with _echo_state_lock:
         if client.evicted:
-            return
-        client.evicted = True
-        client.backlog.clear()
-        _clients.discard(client)
-        _signal_client_evicted(client)
+            writer = client.writer_task
+        else:
+            client.evicted = True
+            client.backlog.clear()
+            _clients.discard(client)
+            writer = client.writer_task
+            _signal_client_evicted(client)
+    _cancel_client_writer(client, writer)
+    return writer
 
 
 def _route_event_locked(
@@ -409,6 +447,8 @@ def _route_event_locked(
     for client in list(_clients):
         if client.evicted:
             _clients.discard(client)
+        elif len(client.backlog) >= _CLIENT_BACKLOG_MAX_MESSAGES:
+            _evict_client(client)
         else:
             client.backlog.append(payload)
             if not client.replaying:
@@ -417,22 +457,92 @@ def _route_event_locked(
 
 
 async def _drain_live_backlog(client: _ClientConnection) -> None:
+    """Drain one client only on its owner loop and within one total budget."""
     try:
-        async with client.send_lock:
-            with _echo_state_lock:
-                if client.evicted or client not in _clients:
-                    return
-                pending = tuple(client.backlog)
-                client.backlog.clear()
-            for payload in pending:
+        async with asyncio.timeout(_CLIENT_DRAIN_TIMEOUT_SECONDS):
+            while True:
+                with _echo_state_lock:
+                    if client.evicted or client not in _clients:
+                        return
+                    if not client.backlog:
+                        return
+                    payload = client.backlog.popleft()
                 await asyncio.wait_for(
                     client.websocket.send_text(payload),
                     timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
                 )
     except asyncio.CancelledError:
-        _evict_client(client)
         raise
     except Exception:
+        _evict_client(client)
+
+
+def _writer_finished(
+    client: _ClientConnection,
+    writer: asyncio.Task[None],
+) -> None:
+    """Consume task errors and close the empty-queue/reschedule race."""
+    try:
+        writer.result()
+    except asyncio.CancelledError:
+        pass
+    except BaseException:
+        _evict_client(client)
+
+    with _echo_state_lock:
+        if client.writer_task is writer:
+            client.writer_task = None
+        should_reschedule = (
+            not client.evicted
+            and client in _clients
+            and not client.replaying
+            and bool(client.backlog)
+            and client.writer_task is None
+        )
+    if should_reschedule:
+        _schedule_client_drain(client)
+
+
+def _ensure_client_writer(client: _ClientConnection) -> None:
+    """Start at most one writer; this callback always runs on ``client.loop``."""
+    with _echo_state_lock:
+        if (
+            client.evicted
+            or client not in _clients
+            or client.replaying
+            or not client.backlog
+        ):
+            return
+        existing = client.writer_task
+        if existing is not None and not existing.done():
+            return
+        writer = client.loop.create_task(_drain_live_backlog(client))
+        client.writer_task = writer
+        writer.add_done_callback(
+            lambda done, connection=client: _writer_finished(connection, done)
+        )
+
+
+def _schedule_client_drain(client: _ClientConnection) -> None:
+    """Thread-safely enqueue writer startup onto the client's owner loop."""
+    with _echo_state_lock:
+        if (
+            client.evicted
+            or client not in _clients
+            or client.replaying
+            or not client.backlog
+        ):
+            return
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    try:
+        if running_loop is client.loop:
+            _ensure_client_writer(client)
+        else:
+            client.loop.call_soon_threadsafe(_ensure_client_writer, client)
+    except RuntimeError:
         _evict_client(client)
 
 
@@ -440,10 +550,9 @@ async def _deliver_to_clients(
     clients: tuple[_ClientConnection, ...],
     _payload: str,
 ) -> None:
-    """Send concurrently; every coroutine finishes or is cancelled before return."""
-    if not clients:
-        return
-    await asyncio.gather(*(_drain_live_backlog(client) for client in clients))
+    """Schedule owner-loop writers without awaiting WebSocket network I/O."""
+    for client in clients:
+        _schedule_client_drain(client)
 
 
 async def broadcast(
@@ -744,28 +853,35 @@ async def _send_snapshot_and_backlog(
     client: _ClientConnection,
     snapshot: tuple[str, ...],
 ) -> bool:
-    """Run with ``send_lock`` held so live sends cannot overtake replay."""
+    """Complete replay and its live handoff within one operation deadline."""
     try:
-        for payload in snapshot:
-            await asyncio.wait_for(
-                client.websocket.send_text(payload),
-                timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
-            )
-
-        while True:
-            with _echo_state_lock:
-                if client.evicted:
-                    return False
-                pending = tuple(client.backlog)
-                client.backlog.clear()
-                if not pending:
-                    client.replaying = False
-                    return True
-            for payload in pending:
+        async with asyncio.timeout(_CLIENT_HANDOFF_TIMEOUT_SECONDS):
+            for payload in snapshot:
+                with _echo_state_lock:
+                    if client.evicted:
+                        return False
                 await asyncio.wait_for(
                     client.websocket.send_text(payload),
                     timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
                 )
+
+            while True:
+                with _echo_state_lock:
+                    if client.evicted:
+                        return False
+                    pending = tuple(client.backlog)
+                    client.backlog.clear()
+                    if not pending:
+                        client.replaying = False
+                        return True
+                for payload in pending:
+                    with _echo_state_lock:
+                        if client.evicted:
+                            return False
+                    await asyncio.wait_for(
+                        client.websocket.send_text(payload),
+                        timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                    )
     except asyncio.CancelledError:
         raise
     except Exception:
@@ -815,18 +931,18 @@ async def can_socket(websocket: WebSocket) -> None:
     )
     registered = False
     try:
-        # Acquire before registration.  A live sender that sees this client
-        # therefore cannot overtake its snapshot/backlog handoff.
-        await client.send_lock.acquire()
-        try:
-            snapshot = _register_client_and_capture_snapshot(client)
-            registered = True
-            ready = await _send_snapshot_and_backlog(client, snapshot)
-        finally:
-            client.send_lock.release()
+        snapshot = _register_client_and_capture_snapshot(client)
+        registered = True
+        ready = await _send_snapshot_and_backlog(client, snapshot)
         if not ready:
             return
         await _wait_for_disconnect_or_eviction(client)
     finally:
         if registered:
-            _evict_client(client)
+            writer = _evict_client(client)
+            if (
+                writer is not None
+                and writer is not asyncio.current_task()
+                and writer.get_loop() is asyncio.get_running_loop()
+            ):
+                await asyncio.gather(writer, return_exceptions=True)

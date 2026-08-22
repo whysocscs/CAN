@@ -47,7 +47,13 @@ class _OrderedClientRegistry:
 class _ControlledCanSocket:
     """ASGI WebSocket boundary double with real asynchronous backpressure."""
 
-    def __init__(self, *, block_first_send: bool = False, block_all_sends: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        block_first_send: bool = False,
+        block_all_sends: bool = False,
+        send_delay_seconds: float = 0.0,
+    ) -> None:
         self.headers: dict[str, str] = {}
         self.messages: list[str] = []
         self.accepted = asyncio.Event()
@@ -58,6 +64,7 @@ class _ControlledCanSocket:
         self.send_cancelled = asyncio.Event()
         self._block_first_send = block_first_send
         self._block_all_sends = block_all_sends
+        self._send_delay_seconds = send_delay_seconds
         self._send_count = 0
 
     async def accept(self) -> None:
@@ -75,6 +82,8 @@ class _ControlledCanSocket:
             except asyncio.CancelledError:
                 self.send_cancelled.set()
                 raise
+        if self._send_delay_seconds:
+            await asyncio.sleep(self._send_delay_seconds)
         self.messages.append(message)
 
     async def receive_text(self) -> str:
@@ -1730,8 +1739,8 @@ def test_stalled_websocket_is_bounded_and_cannot_block_terminal_reset(
             assert terminal_task.result()["code"] == "EXECUTED"
             assert reset_task.result()["generation"] == 1
             assert websocket.release_send.is_set() is False
-            assert websocket.send_cancelled.is_set() is True
             await asyncio.wait_for(socket_task, 0.5)
+            assert websocket.send_cancelled.is_set() is True
             assert len(registry) == 0
         finally:
             websocket.release_send.set()
@@ -1881,30 +1890,27 @@ def test_concurrent_broadcasts_preserve_route_order_for_each_websocket(
     asyncio.run(scenario())
 
 
-def test_cancelled_broadcast_waiting_for_client_send_evicts_without_stranding(
+def test_broadcast_returns_while_client_send_is_stalled_without_stranding(
     monkeypatch,
 ) -> None:
-    """Cancellation behind a client lock cannot strand a routed live frame."""
+    """A caller only enqueues; the owner-loop writer retains ordered delivery."""
 
     async def scenario() -> None:
         registry = _OrderedClientRegistry()
         monkeypatch.setattr(can, "_clients", registry)
         monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(can, "_CLIENT_DRAIN_TIMEOUT_SECONDS", 1.0)
         original_frames = dict(can._last_frames)
-        original_drain = can._drain_live_backlog
         can._last_frames.clear()
-        second_drain_started = asyncio.Event()
         websocket = _ControlledCanSocket(block_first_send=True)
         socket_task = asyncio.create_task(can.can_socket(websocket))
         first_task: asyncio.Task[None] | None = None
         second_task: asyncio.Task[None] | None = None
 
-        async def observe_second_drain(client: object) -> None:
-            if can._last_frames.get("0x200", {}).get("timestamp") == 21:
-                second_drain_started.set()
-            await original_drain(client)
+        async def wait_for_two_messages() -> None:
+            while len(websocket.messages) < 2:
+                await asyncio.sleep(0)
 
-        monkeypatch.setattr(can, "_drain_live_backlog", observe_second_drain)
         try:
             await asyncio.wait_for(websocket.receive_started.wait(), 1)
             first_task = asyncio.create_task(
@@ -1926,20 +1932,19 @@ def test_cancelled_broadcast_waiting_for_client_send_evicts_without_stranding(
                         timestamp_ms=21,
                         channel="vcan0",
                     )
+                    )
                 )
-            )
-            await asyncio.wait_for(second_drain_started.wait(), 1)
+            await asyncio.wait_for(second_task, 0.2)
             assert can._last_frames["0x200"]["timestamp"] == 21
-
-            second_task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await second_task
             websocket.release_send.set()
             await asyncio.wait_for(first_task, 1)
+            await asyncio.wait_for(wait_for_two_messages(), 1)
 
-            assert [json.loads(message)["timestamp"] for message in websocket.messages] == [20]
-            assert len(registry) == 0
+            assert [json.loads(message)["timestamp"] for message in websocket.messages] == [20, 21]
+            assert len(registry) == 1
+            websocket.disconnect_requested.set()
             await asyncio.wait_for(socket_task, 0.5)
+            assert len(registry) == 0
             assert socket_task.done() and first_task.done() and second_task.done()
         finally:
             websocket.release_send.set()
@@ -1949,6 +1954,590 @@ def test_cancelled_broadcast_waiting_for_client_send_evicts_without_stranding(
                 if not task.done():
                     task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_replaying_websocket_backlog_cap_evicts_and_clears_client(
+    monkeypatch,
+) -> None:
+    """Live traffic cannot grow an in-progress replay queue without bound."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "_CLIENT_BACKLOG_MAX_MESSAGES", 3, raising=False)
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(can, "_CLIENT_HANDOFF_TIMEOUT_SECONDS", 1.0, raising=False)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        can._last_frames["0x101"] = can.build_event(
+            "0x101",
+            ["01", "01"],
+            timestamp_ms=30,
+            channel="vcan0",
+        )
+        websocket = _ControlledCanSocket(block_first_send=True)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        connection: object | None = None
+        try:
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            assert len(registry) == 1
+            connection = next(iter(registry))
+            assert connection.replaying is True
+
+            for timestamp in range(31, 35):
+                await can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        [f"{timestamp:02X}"],
+                        timestamp_ms=timestamp,
+                        channel="vcan0",
+                    )
+                )
+
+            assert len(registry) == 0
+            assert connection.evicted is True
+            assert list(connection.backlog) == []
+            assert websocket.release_send.is_set() is False
+        finally:
+            websocket.release_send.set()
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_snapshot_and_handoff_share_one_whole_operation_deadline(
+    monkeypatch,
+) -> None:
+    """Many individually-fast replay sends cannot retain a client for N timeouts."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 0.2)
+        monkeypatch.setattr(can, "_CLIENT_HANDOFF_TIMEOUT_SECONDS", 0.1, raising=False)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        for index in range(5):
+            can_id = f"0x{0x300 + index:03x}"
+            can._last_frames[can_id] = can.build_event(
+                can_id,
+                [f"{index:02X}"],
+                timestamp_ms=40 + index,
+                channel="vcan0",
+            )
+        websocket = _ControlledCanSocket(send_delay_seconds=0.04)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        connection: object | None = None
+        started_at = asyncio.get_running_loop().time()
+        try:
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            connection = next(iter(registry))
+            await can.broadcast(
+                can.build_event(
+                    "0x200",
+                    ["01"],
+                    timestamp_ms=50,
+                    channel="vcan0",
+                )
+            )
+            done, pending = await asyncio.wait({socket_task}, timeout=0.25)
+            elapsed = asyncio.get_running_loop().time() - started_at
+
+            assert pending == set()
+            assert done == {socket_task}
+            assert elapsed < 0.25
+            assert len(websocket.messages) < 6
+            assert len(registry) == 0
+            assert connection.evicted is True
+            assert list(connection.backlog) == []
+        finally:
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_ready_websocket_drain_deadline_bounds_terminal_and_reset_delay(
+    monkeypatch,
+) -> None:
+    """A batch of sub-timeout sends gets one bounded drain budget."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "MODE", "loopback")
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 0.2)
+        monkeypatch.setattr(can, "_CLIENT_DRAIN_TIMEOUT_SECONDS", 0.1, raising=False)
+        original_frames = dict(can._last_frames)
+        original_sessions = dict(labs._sessions)
+        original_active = labs._active_correlation
+        original_delivery = can._deliver_to_clients
+        can._last_frames.clear()
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        websocket = _ControlledCanSocket(send_delay_seconds=0.04)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        terminal_task: asyncio.Task[dict[str, object]] | None = None
+        reset_task: asyncio.Task[dict[str, object]] | None = None
+
+        async def queue_without_draining(
+            _clients: tuple[object, ...],
+            _payload: str,
+        ) -> None:
+            return None
+
+        try:
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            monkeypatch.setattr(can, "_deliver_to_clients", queue_without_draining)
+            for timestamp in range(60, 69):
+                await can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        [f"{timestamp:02X}"],
+                        timestamp_ms=timestamp,
+                        channel="vcan0",
+                    )
+                )
+            monkeypatch.setattr(can, "_deliver_to_clients", original_delivery)
+
+            started_at = asyncio.get_running_loop().time()
+            terminal_task = asyncio.create_task(
+                labs.terminal_command(
+                    session_id,
+                    labs.TerminalRequest(command="cansend vcan0 456#000113B7"),
+                    can.emit,
+                )
+            )
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            reset_task = asyncio.create_task(labs.reset_session(session_id))
+            done, pending = await asyncio.wait(
+                {terminal_task, reset_task},
+                timeout=0.25,
+            )
+            elapsed = asyncio.get_running_loop().time() - started_at
+
+            assert pending == set()
+            assert done == {terminal_task, reset_task}
+            assert elapsed < 0.25
+            assert terminal_task.result()["code"] == "EXECUTED"
+            assert reset_task.result()["generation"] == 1
+            await asyncio.wait_for(socket_task, 0.5)
+            assert len(websocket.messages) < 10
+            assert len(registry) == 0
+        finally:
+            monkeypatch.setattr(can, "_deliver_to_clients", original_delivery)
+            websocket.disconnect_requested.set()
+            tasks = [task for task in (terminal_task, reset_task, socket_task) if task]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+            labs._sessions.clear()
+            labs._sessions.update(original_sessions)
+            labs._active_correlation = original_active
+
+    asyncio.run(scenario())
+
+
+def test_cross_loop_broadcast_enqueues_on_the_client_owner_loop(
+    monkeypatch,
+) -> None:
+    """A broadcaster loop never waits on a foreign-loop writer or network send."""
+
+    class CrossLoopSocket:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+            self.messages: list[str] = []
+            self.receive_started = threading.Event()
+            self.first_send_started = threading.Event()
+            self.release_first_send = threading.Event()
+            self.disconnect_requested = threading.Event()
+            self.all_sent = threading.Event()
+            self._send_count = 0
+            self._count_lock = threading.Lock()
+
+        async def accept(self) -> None:
+            return None
+
+        async def send_text(self, message: str) -> None:
+            with self._count_lock:
+                self._send_count += 1
+                send_count = self._send_count
+            if send_count == 1:
+                self.first_send_started.set()
+                await asyncio.to_thread(self.release_first_send.wait)
+            self.messages.append(message)
+            if len(self.messages) == 2:
+                self.all_sent.set()
+
+        async def receive_text(self) -> str:
+            self.receive_started.set()
+            await asyncio.to_thread(self.disconnect_requested.wait)
+            raise can.WebSocketDisconnect()
+
+    registry = _OrderedClientRegistry()
+    monkeypatch.setattr(can, "_clients", registry)
+    monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 1.0)
+    monkeypatch.setattr(can, "_CLIENT_DRAIN_TIMEOUT_SECONDS", 1.0, raising=False)
+    original_frames = dict(can._last_frames)
+    can._last_frames.clear()
+    websocket = CrossLoopSocket()
+    owner_errors: list[BaseException] = []
+    owner_connections: list[object] = []
+    broadcaster_errors: list[BaseException] = []
+    broadcaster_done = threading.Event()
+    broadcaster_loop_ready = threading.Event()
+    broadcaster_loops: list[asyncio.AbstractEventLoop] = []
+
+    def owner_worker() -> None:
+        async def scenario() -> None:
+            socket_task = asyncio.create_task(can.can_socket(websocket))
+            await asyncio.to_thread(websocket.receive_started.wait)
+            owner_connections.append(next(iter(registry)))
+            await can.broadcast(
+                can.build_event(
+                    "0x200",
+                    ["01"],
+                    timestamp_ms=70,
+                    channel="vcan0",
+                )
+            )
+            await socket_task
+
+        try:
+            asyncio.run(scenario())
+        except BaseException as error:
+            owner_errors.append(error)
+
+    def broadcaster_worker() -> None:
+        loop = asyncio.new_event_loop()
+        broadcaster_loops.append(loop)
+        broadcaster_loop_ready.set()
+        try:
+            loop.run_until_complete(
+                can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        ["00"],
+                        timestamp_ms=71,
+                        channel="vcan0",
+                    )
+                )
+            )
+        except BaseException as error:
+            broadcaster_errors.append(error)
+        finally:
+            broadcaster_done.set()
+            loop.close()
+
+    owner_thread = threading.Thread(target=owner_worker)
+    broadcaster_thread = threading.Thread(target=broadcaster_worker)
+    completed_while_owner_send_stalled = False
+    try:
+        owner_thread.start()
+        assert websocket.receive_started.wait(2)
+        assert websocket.first_send_started.wait(2)
+        broadcaster_thread.start()
+        assert broadcaster_loop_ready.wait(2)
+
+        completed_while_owner_send_stalled = broadcaster_done.wait(0.2)
+    finally:
+        websocket.release_first_send.set()
+        for loop in broadcaster_loops:
+            if not loop.is_closed():
+                loop.call_soon_threadsafe(lambda: None)
+        broadcaster_thread.join(2)
+        websocket.disconnect_requested.set()
+        owner_thread.join(2)
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+
+    assert completed_while_owner_send_stalled is True
+    assert not owner_thread.is_alive()
+    assert not broadcaster_thread.is_alive()
+    assert owner_errors == []
+    assert broadcaster_errors == []
+    delivered = [json.loads(message) for message in websocket.messages]
+    assert [event["timestamp"] for event in delivered] == [70, 71]
+    assert len(registry) == 0
+    assert len(owner_connections) == 1
+    connection = owner_connections[0]
+    assert connection.evicted is True
+    assert list(connection.backlog) == []
+    assert connection.writer_task is None
+
+
+def test_foreign_thread_only_schedules_asyncio_access_on_client_owner_loop(
+    monkeypatch,
+) -> None:
+    """Foreign publishers may call only the loop's thread-safe scheduling API."""
+
+    registry = _OrderedClientRegistry()
+    monkeypatch.setattr(can, "_clients", registry)
+    owner_ready = threading.Event()
+    signal_seen = threading.Event()
+    cancel_seen = threading.Event()
+    send_seen = threading.Event()
+    owner_errors: list[BaseException] = []
+    state: dict[str, object] = {}
+
+    class OwnerOnlyEvent:
+        def __init__(self, event: asyncio.Event, owner_ident: int) -> None:
+            self._event = event
+            self._owner_ident = owner_ident
+
+        def _assert_owner(self) -> None:
+            assert threading.get_ident() == self._owner_ident
+
+        def is_set(self) -> bool:
+            self._assert_owner()
+            return self._event.is_set()
+
+        def set(self) -> None:
+            self._assert_owner()
+            self._event.set()
+            signal_seen.set()
+
+        async def wait(self) -> bool:
+            self._assert_owner()
+            return await self._event.wait()
+
+    class OwnerOnlyTask:
+        def __init__(self, task: asyncio.Task[None], owner_ident: int) -> None:
+            self._task = task
+            self._owner_ident = owner_ident
+
+        def _assert_owner(self) -> None:
+            assert threading.get_ident() == self._owner_ident
+
+        def done(self) -> bool:
+            self._assert_owner()
+            return self._task.done()
+
+        def cancel(self) -> bool:
+            self._assert_owner()
+            cancel_seen.set()
+            return self._task.cancel()
+
+    class OwnerOnlyLoop:
+        def __init__(
+            self,
+            loop: asyncio.AbstractEventLoop,
+            owner_ident: int,
+        ) -> None:
+            self._loop = loop
+            self._owner_ident = owner_ident
+
+        def _assert_owner(self) -> None:
+            assert threading.get_ident() == self._owner_ident
+
+        def is_closed(self) -> bool:
+            self._assert_owner()
+            return self._loop.is_closed()
+
+        def create_task(self, coroutine: object) -> asyncio.Task[None]:
+            self._assert_owner()
+            return self._loop.create_task(coroutine)
+
+        def call_soon_threadsafe(self, callback: object, *args: object) -> object:
+            return self._loop.call_soon_threadsafe(callback, *args)
+
+    class FastSocket:
+        async def send_text(self, _message: str) -> None:
+            send_seen.set()
+
+    def owner_worker() -> None:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        owner_ident = threading.get_ident()
+        guarded_loop = OwnerOnlyLoop(loop, owner_ident)
+        try:
+            signal_client = can._ClientConnection(
+                websocket=FastSocket(),
+                loop=guarded_loop,
+                evicted_event=OwnerOnlyEvent(asyncio.Event(), owner_ident),
+                replaying=False,
+            )
+            never_set = asyncio.Event()
+            actual_task = loop.create_task(never_set.wait())
+            cancel_client = can._ClientConnection(
+                websocket=FastSocket(),
+                loop=guarded_loop,
+                evicted_event=OwnerOnlyEvent(asyncio.Event(), owner_ident),
+                writer_task=OwnerOnlyTask(actual_task, owner_ident),
+                replaying=False,
+            )
+            schedule_client = can._ClientConnection(
+                websocket=FastSocket(),
+                loop=guarded_loop,
+                evicted_event=OwnerOnlyEvent(asyncio.Event(), owner_ident),
+                replaying=False,
+            )
+            with can._echo_state_lock:
+                registry.add(schedule_client)
+                schedule_client.backlog.append("{}")
+            state.update(
+                loop=loop,
+                signal_client=signal_client,
+                cancel_client=cancel_client,
+                cancel_task=cancel_client.writer_task,
+                schedule_client=schedule_client,
+            )
+            owner_ready.set()
+            loop.run_forever()
+        except BaseException as error:
+            owner_errors.append(error)
+            owner_ready.set()
+        finally:
+            with can._echo_state_lock:
+                registry.clear()
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+
+    owner_thread = threading.Thread(target=owner_worker)
+    foreign_errors: list[BaseException] = []
+    owner_thread.start()
+    try:
+        assert owner_ready.wait(2)
+        assert owner_errors == []
+        for operation in (
+            lambda: can._signal_client_evicted(state["signal_client"]),
+            lambda: can._cancel_client_writer(
+                state["cancel_client"],
+                state["cancel_task"],
+            ),
+            lambda: can._schedule_client_drain(state["schedule_client"]),
+        ):
+            try:
+                operation()
+            except BaseException as error:
+                foreign_errors.append(error)
+
+        assert foreign_errors == []
+        assert signal_seen.wait(1)
+        assert cancel_seen.wait(1)
+        assert send_seen.wait(1)
+    finally:
+        loop = state.get("loop")
+        if loop is not None:
+            loop.call_soon_threadsafe(loop.stop)
+        owner_thread.join(2)
+
+    assert not owner_thread.is_alive()
+    assert owner_errors == []
+
+
+def test_replay_overflow_stops_already_captured_backlog_after_eviction(
+    monkeypatch,
+) -> None:
+    """Eviction prevents a replay handoff from sending its remaining local batch."""
+
+    class ReplayOverflowSocket:
+        def __init__(self) -> None:
+            self.headers: dict[str, str] = {}
+            self.messages: list[str] = []
+            self.snapshot_send_started = asyncio.Event()
+            self.release_snapshot = asyncio.Event()
+            self.pending_send_started = asyncio.Event()
+            self.release_pending = asyncio.Event()
+            self.disconnect_requested = asyncio.Event()
+            self._send_count = 0
+
+        async def accept(self) -> None:
+            return None
+
+        async def send_text(self, message: str) -> None:
+            self._send_count += 1
+            if self._send_count == 1:
+                self.snapshot_send_started.set()
+                await self.release_snapshot.wait()
+            elif self._send_count == 2:
+                self.pending_send_started.set()
+                await self.release_pending.wait()
+            self.messages.append(message)
+
+        async def receive_text(self) -> str:
+            await self.disconnect_requested.wait()
+            raise can.WebSocketDisconnect()
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "_CLIENT_BACKLOG_MAX_MESSAGES", 2)
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 1.0)
+        monkeypatch.setattr(can, "_CLIENT_HANDOFF_TIMEOUT_SECONDS", 1.0)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        can._last_frames["0x200"] = can.build_event(
+            "0x200",
+            ["00"],
+            timestamp_ms=0,
+            channel="vcan0",
+        )
+        websocket = ReplayOverflowSocket()
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        connection: object | None = None
+        try:
+            await asyncio.wait_for(websocket.snapshot_send_started.wait(), 1)
+            connection = next(iter(registry))
+            for timestamp in (1, 2):
+                await can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        [f"{timestamp:02X}"],
+                        timestamp_ms=timestamp,
+                        channel="vcan0",
+                    )
+                )
+
+            websocket.release_snapshot.set()
+            await asyncio.wait_for(websocket.pending_send_started.wait(), 1)
+            for timestamp in (3, 4, 5):
+                await can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        [f"{timestamp:02X}"],
+                        timestamp_ms=timestamp,
+                        channel="vcan0",
+                    )
+                )
+
+            assert connection.evicted is True
+            assert len(registry) == 0
+            assert list(connection.backlog) == []
+            websocket.release_pending.set()
+            done, pending = await asyncio.wait({socket_task}, timeout=0.5)
+            assert pending == set()
+            assert done == {socket_task}
+
+            delivered = [json.loads(message)["timestamp"] for message in websocket.messages]
+            assert delivered == [0, 1]
+        finally:
+            websocket.release_snapshot.set()
+            websocket.release_pending.set()
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
             can._last_frames.clear()
             can._last_frames.update(original_frames)
 
