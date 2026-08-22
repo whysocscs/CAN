@@ -87,9 +87,9 @@ class DoorBlackboxSession:
     def public_state(self) -> dict[str, object]:
         if self._completed:
             stage = "증거"
-        elif "COUNTER_REJECTED" in self._last_verdicts:
+        elif self._last_verdicts and self._last_verdicts[-1] == "COUNTER_REJECTED":
             stage = "Replay 실패"
-        elif "EXECUTED" in self._last_verdicts:
+        elif self._last_verdicts and self._last_verdicts[-1] == "EXECUTED":
             stage = "IDS 검증"
         elif self._attempt_count:
             stage = "프레임 제작"

@@ -95,12 +95,29 @@ async def get_session(session_id: str) -> dict[str, object]:
 async def reset_session(session_id: str) -> dict[str, object]:
     session = _session_or_404(session_id)
     session.reset()
+    # The reset response is the frontend state-reset contract.  Clearing only
+    # the Toy door's replay state prevents a reconnect from reapplying an old
+    # accepted frame without touching unrelated vehicle CAN snapshots.
+    from server.routers.can import clear_frame_snapshot
+
+    clear_frame_snapshot("0x101")
     return session.public_state()
 
 
 @router.post("/sessions/{session_id}/terminal")
-async def terminal_command(session_id: str, request: TerminalRequest) -> dict[str, object]:
-    return _terminal_response(_session_or_404(session_id).execute_terminal(request.command))
+async def terminal_command(
+    session_id: str,
+    request: TerminalRequest,
+    emit_frame: FrameEmitter = Depends(get_frame_emitter),
+) -> dict[str, object]:
+    session = _session_or_404(session_id)
+    result = session.execute_terminal(request.command)
+    # Capture output contains observed frames, not executable frames.  Only the
+    # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
+    for attempt in result.frames:
+        if attempt.accepted:
+            await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(attempt, "ALERT"))
+    return _terminal_response(result)
 
 
 @router.post("/sessions/{session_id}/run")

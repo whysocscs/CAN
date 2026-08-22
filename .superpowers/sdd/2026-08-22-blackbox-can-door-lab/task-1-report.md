@@ -148,3 +148,129 @@ scan of the new lab code found no `eval(`, `exec(`, `shell=True`,
 - The original real PTY terminal remains POSIX-only when its WebSocket is
   actually opened; this task deliberately uses the new restricted virtual
   terminal instead.
+
+## Review correction TDD record
+
+An independent review identified four concrete regressions. Each was added as
+a test before its production change, then rerun green.
+
+### 1. Reset must remove the accepted door replay snapshot
+
+RED command:
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_labs_api.py -q
+```
+
+Relevant RED output:
+
+```text
+test_reset_clears_accepted_door_snapshot_before_a_browser_reconnects
+assert ['{"eventId": ... "replay": true}'] == []
+1 failed, 5 passed
+```
+
+GREEN command (same focused command) produced:
+
+```text
+6 passed, 1 warning
+```
+
+`clear_frame_snapshot("0x101")` now removes just the Toy-door replay event
+and matching unobserved SocketCAN metadata. `POST .../reset` still returns the
+existing public `vehicleState: closed` value, which is the frontend reset
+contract; no private protocol state is exposed.
+
+### 2. Terminal `cansend` must emit accepted frames, never blocked frames
+
+RED command:
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_labs_api.py -q
+```
+
+Relevant RED output:
+
+```text
+test_terminal_cansend_emits_an_accepted_toy_frame
+IndexError: list index out of range
+1 failed, 7 passed
+```
+
+GREEN command (same focused command) produced:
+
+```text
+8 passed, 1 warning
+```
+
+The terminal route now receives the same emitter dependency as script runs
+and emits only a `FrameAttempt.accepted` frame. Its blocked-frame regression
+test asserts that the emitter list stays empty.
+
+### 3. A valid frame after replay failure must advance the stage
+
+RED command:
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_door_blackbox.py -q
+```
+
+Relevant RED output:
+
+```text
+test_valid_frame_after_replay_failure_advances_out_of_replay_stage
+AssertionError: assert 'Replay 실패' == 'IDS 검증'
+1 failed, 9 passed
+```
+
+GREEN command (same focused command) produced:
+
+```text
+10 passed in 0.06s
+```
+
+The stage now derives from the latest verdict, rather than searching the full
+verdict history.
+
+### 4. SocketCAN pending metadata keys must be normalized
+
+RED command:
+
+```powershell
+.venv\Scripts\python -m pytest server\tests\test_labs_api.py -q
+```
+
+Relevant RED output:
+
+```text
+test_socketcan_emit_normalizes_pending_metadata_key
+KeyError: 'monitoring'
+1 failed, 8 passed
+```
+
+GREEN command (same focused command) produced:
+
+```text
+9 passed, 1 warning
+```
+
+SocketCAN enqueue keys now use `normalize_can_id()` and `normalize_data()`;
+the test exercises `emit("101", ["b7"])` and the normalized candump echo.
+
+## Corrected final verification
+
+```powershell
+.venv\Scripts\python -m pytest server\tests -q
+.venv\Scripts\python -m compileall -q server
+git diff --check
+```
+
+Relevant output:
+
+```text
+...................                                                      [100%]
+19 passed, 1 warning in 0.86s
+```
+
+`compileall` and `git diff --check` exited 0 with no output. The sole warning
+remains the upstream FastAPI/Starlette `TestClient` deprecation warning.

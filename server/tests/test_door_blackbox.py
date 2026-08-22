@@ -39,6 +39,18 @@ def test_replayed_counter_is_blocked_after_a_valid_frame() -> None:
     assert [attempt.verdict for attempt in result.attempts] == ["EXECUTED", "COUNTER_REJECTED"]
 
 
+def test_valid_frame_after_replay_failure_advances_out_of_replay_stage() -> None:
+    session = DoorBlackboxSession(session_id="test")
+
+    session.run_script("cansend vcan0 101#000113B7")
+    replay = session.run_script("cansend vcan0 101#000113B7")
+    recovered = session.run_script("cansend vcan0 101#000114B0")
+
+    assert replay.state["stage"] == "Replay 실패"
+    assert recovered.attempts[0].verdict == "EXECUTED"
+    assert recovered.state["stage"] == "IDS 검증"
+
+
 def test_single_valid_frame_updates_toy_vehicle_but_alerts_ids() -> None:
     session = DoorBlackboxSession(session_id="test")
 

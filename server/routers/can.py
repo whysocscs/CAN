@@ -139,6 +139,15 @@ def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any]:
     return event
 
 
+def clear_frame_snapshot(can_id: str) -> bool:
+    """Remove one CAN ID's replay state and any unobserved accepted metadata."""
+    normalized_id = normalize_can_id(can_id)
+    removed = _last_frames.pop(normalized_id, None) is not None
+    for key in [key for key in _pending_metadata if key[0] == normalized_id]:
+        _pending_metadata.pop(key, None)
+    return removed
+
+
 # --------------------------------------------------------------- 브로드캐스트
 
 async def broadcast(event: dict[str, Any]) -> None:
@@ -190,7 +199,7 @@ async def emit(
         for name, value in (("context", context), ("processing", processing), ("monitoring", monitoring))
         if value is not None
     }
-    metadata_key = (can_id, tuple(data))
+    metadata_key = (normalize_can_id(can_id), tuple(normalize_data(data)))
     if metadata:
         _pending_metadata[metadata_key].append(metadata)
     payload = "".join(data)
@@ -350,6 +359,7 @@ async def clear_snapshot() -> dict[str, Any]:
     """
     cleared = len(_last_frames)
     _last_frames.clear()
+    _pending_metadata.clear()
     return {"cleared": cleared}
 
 
