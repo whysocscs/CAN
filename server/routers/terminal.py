@@ -6,9 +6,6 @@ from typing import Final
 
 from fastapi import APIRouter, WebSocket, status
 
-from server.services.terminal_service import run_terminal_session
-
-
 HOST: Final = "127.0.0.1"
 PROJECT_ROOT: Final = Path(os.environ.get("CANLITE_SHELL_CWD", Path.cwd())).resolve()
 SHELL: Final = os.environ.get("CANLITE_SHELL", "/bin/bash")
@@ -36,6 +33,10 @@ async def health() -> dict[str, str]:
 
 @router.websocket("/ws/terminal")
 async def terminal_socket(websocket: WebSocket) -> None:
+    # PTY support is POSIX-specific.  Keep the health/CAN routers importable on
+    # Windows; the restricted door lab itself never uses this real terminal.
+    from server.services.terminal_service import run_terminal_session
+
     origin = websocket.headers.get("origin")
     if origin and origin not in ALLOWED_ORIGINS:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)

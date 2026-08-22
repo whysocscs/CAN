@@ -1,0 +1,121 @@
+"""HTTP boundary for the isolated Toy CAN door lab."""
+
+from __future__ import annotations
+
+import asyncio
+from collections.abc import Awaitable, Callable
+from typing import Any
+from uuid import uuid4
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+
+from server.labs.door_blackbox import DoorBlackboxSession, FrameAttempt, ScriptResult, TerminalResult
+
+
+router = APIRouter(prefix="/labs/door-blackbox", tags=["labs"])
+_sessions: dict[str, DoorBlackboxSession] = {}
+
+FrameEmitter = Callable[..., Awaitable[bool]]
+
+
+def get_frame_emitter() -> FrameEmitter:
+    """Late import avoids making the pure lab domain depend on the CAN router."""
+    from server.routers.can import emit
+
+    return emit
+
+
+class TerminalRequest(BaseModel):
+    command: str = Field(min_length=1, max_length=512)
+
+
+class ScriptRequest(BaseModel):
+    script: str = Field(min_length=1, max_length=4096)
+
+
+def _session_or_404(session_id: str) -> DoorBlackboxSession:
+    session = _sessions.get(session_id)
+    if session is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="lab session not found")
+    return session
+
+
+def _attempt_response(attempt: FrameAttempt) -> dict[str, object]:
+    return {"canId": attempt.can_id, "data": list(attempt.data), "verdict": attempt.verdict}
+
+
+def _terminal_response(result: TerminalResult) -> dict[str, object]:
+    return {
+        "ok": result.ok,
+        "code": result.code,
+        "output": result.output,
+        "frames": [_attempt_response(frame) for frame in result.frames],
+    }
+
+
+def _script_response(result: ScriptResult) -> dict[str, object]:
+    return {
+        "attempts": [_attempt_response(attempt) for attempt in result.attempts],
+        "idsStatus": result.ids_status,
+        "state": result.state,
+        "error": result.error,
+    }
+
+
+def _metadata_for(attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
+    return {
+        "context": {
+            "command": "DOOR_LOCK",
+            "source": "obd",
+            "target": "body",
+            "route": ["obd", "ids", "gateway", "body"],
+            "meaning": "Toy Body ECU accepted state frame",
+            "action": "LEFT_DOOR_OPEN" if attempt.data[0] == "00" else "LEFT_DOOR_CLOSE",
+        },
+        "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
+        "monitoring": {"idsObserved": True, "status": ids_status},
+    }
+
+
+@router.post("/sessions", status_code=status.HTTP_201_CREATED)
+async def create_session() -> dict[str, object]:
+    session_id = str(uuid4())
+    session = DoorBlackboxSession(session_id=session_id)
+    _sessions[session_id] = session
+    return session.public_state()
+
+
+@router.get("/sessions/{session_id}")
+async def get_session(session_id: str) -> dict[str, object]:
+    return _session_or_404(session_id).public_state()
+
+
+@router.post("/sessions/{session_id}/reset")
+async def reset_session(session_id: str) -> dict[str, object]:
+    session = _session_or_404(session_id)
+    session.reset()
+    return session.public_state()
+
+
+@router.post("/sessions/{session_id}/terminal")
+async def terminal_command(session_id: str, request: TerminalRequest) -> dict[str, object]:
+    return _terminal_response(_session_or_404(session_id).execute_terminal(request.command))
+
+
+@router.post("/sessions/{session_id}/run")
+async def run_script(
+    session_id: str,
+    request: ScriptRequest,
+    emit_frame: FrameEmitter = Depends(get_frame_emitter),
+) -> dict[str, object]:
+    result = _session_or_404(session_id).run_script(request.script)
+    emitted = False
+    for attempt in result.attempts:
+        if not attempt.accepted:
+            continue
+        if emitted and result.interval_ms is not None:
+            await asyncio.sleep(result.interval_ms / 1000)
+        await emit_frame(attempt.can_id, list(attempt.data), **_metadata_for(attempt, result.ids_status))
+        emitted = True
+    return _script_response(result)

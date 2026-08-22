@@ -16,6 +16,8 @@ API로 열든 실습생이 터미널로 열든 화면이 똑같이 반응하고,
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict, deque
+import contextlib
 import json
 import os
 import shutil
@@ -60,6 +62,9 @@ _sequence = count(1)
 # 마지막으로 본 바이트를 그대로 다시 보낼 뿐이고, 해석은 브라우저가 합니다.
 # 표준 CAN 프레임 ID는 0x7ff까지라 이 dict는 자연히 2048개로 묶입니다.
 _last_frames: dict[str, dict[str, Any]] = {}
+# SocketCAN emits are observed later by candump.  Keep metadata keyed by the
+# frame until that observation reaches the shared event stream.
+_pending_metadata: dict[tuple[str, tuple[str, ...]], deque[dict[str, Any]]] = defaultdict(deque)
 
 
 # --------------------------------------------------------------- 프레임 표현
@@ -78,17 +83,31 @@ def normalize_data(data: list[str] | str | None) -> list[str]:
     return [p.lower().removeprefix("0x").rjust(2, "0").upper() for p in parts if p]
 
 
-def build_event(can_id: str, data: list[str], *, timestamp_ms: int, channel: str) -> dict[str, Any]:
+def build_event(
+    can_id: str,
+    data: list[str],
+    *,
+    timestamp_ms: int,
+    channel: str,
+    context: dict[str, Any] | None = None,
+    processing: dict[str, Any] | None = None,
+    monitoring: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """프론트의 CanEvent(types.ts)와 같은 모양의 dict를 만듭니다."""
-    return {
+    event: dict[str, Any] = {
         "eventId": f"can-{next(_sequence):06d}",
         "timestamp": timestamp_ms,
         "channel": channel,
         "origin": "backend",
         "frame": {"canId": can_id, "dlc": len(data), "data": data},
         # 의미 해석은 프론트가 합니다. 여기서는 비워 둡니다.
-        "context": {},
+        "context": context or {},
     }
+    if processing is not None:
+        event["processing"] = processing
+    if monitoring is not None:
+        event["monitoring"] = monitoring
+    return event
 
 
 def parse_candump(line: str) -> dict[str, Any] | None:
@@ -106,6 +125,18 @@ def parse_candump(line: str) -> dict[str, Any] | None:
     except ValueError:
         return None
     return build_event(can_id, normalize_data(payload), timestamp_ms=timestamp_ms, channel=channel)
+
+
+def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any]:
+    """Attach metadata recorded by ``emit`` when SocketCAN echoes a frame."""
+    frame = event["frame"]
+    key = (frame["canId"], tuple(frame["data"]))
+    pending = _pending_metadata.get(key)
+    if pending:
+        event.update(pending.popleft())
+        if not pending:
+            _pending_metadata.pop(key, None)
+    return event
 
 
 # --------------------------------------------------------------- 브로드캐스트
@@ -130,13 +161,38 @@ async def send_snapshot(websocket: WebSocket) -> None:
         await websocket.send_text(json.dumps({**event, "replay": True}))
 
 
-async def emit(can_id: str, data: list[str]) -> bool:
+async def emit(
+    can_id: str,
+    data: list[str],
+    *,
+    context: dict[str, Any] | None = None,
+    processing: dict[str, Any] | None = None,
+    monitoring: dict[str, Any] | None = None,
+) -> bool:
     """프레임 하나를 버스에 올립니다. 브라우저 전달은 구독 루프가 맡습니다."""
     if MODE == "loopback":
         loop_ms = int(asyncio.get_running_loop().time() * 1000)
-        await broadcast(build_event(can_id, data, timestamp_ms=loop_ms, channel=CHANNEL))
+        await broadcast(
+            build_event(
+                can_id,
+                data,
+                timestamp_ms=loop_ms,
+                channel=CHANNEL,
+                context=context,
+                processing=processing,
+                monitoring=monitoring,
+            )
+        )
         return True
 
+    metadata = {
+        name: value
+        for name, value in (("context", context), ("processing", processing), ("monitoring", monitoring))
+        if value is not None
+    }
+    metadata_key = (can_id, tuple(data))
+    if metadata:
+        _pending_metadata[metadata_key].append(metadata)
     payload = "".join(data)
     # 셸을 거치지 않고 인자 배열로 실행합니다. 문자열을 그대로 넘기면 명령 주입이 됩니다.
     process = await asyncio.create_subprocess_exec(
@@ -147,7 +203,16 @@ async def emit(can_id: str, data: list[str]) -> bool:
         stderr=asyncio.subprocess.DEVNULL,
     )
     await process.wait()
-    return process.returncode == 0
+    if process.returncode == 0:
+        return True
+    if metadata:
+        pending = _pending_metadata.get(metadata_key)
+        if pending:
+            with contextlib.suppress(ValueError):
+                pending.remove(metadata)
+            if not pending:
+                _pending_metadata.pop(metadata_key, None)
+    return False
 
 
 async def pump() -> None:
@@ -166,7 +231,7 @@ async def pump() -> None:
         async for raw in process.stdout:
             event = parse_candump(raw.decode(errors="ignore"))
             if event is not None:
-                await broadcast(event)
+                await broadcast(attach_pending_metadata(event))
         # candump이 죽으면(인터페이스 down 등) 잠깐 쉬었다 다시 붙습니다.
         await asyncio.sleep(2)
 
