@@ -553,8 +553,9 @@ async def _deliver_to_clients(
     """Schedule owner-loop writers without awaiting WebSocket network I/O."""
     for client in clients:
         _schedule_client_drain(client)
-    if clients:
-        await asyncio.sleep(0)
+    # Replaying clients queue the payload but are absent from ``clients``.
+    # Yield unconditionally so their runnable snapshot handoff cannot starve.
+    await asyncio.sleep(0)
 
 
 async def broadcast(

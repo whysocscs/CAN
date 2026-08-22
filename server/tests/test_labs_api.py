@@ -2596,3 +2596,88 @@ def test_ready_instant_websocket_survives_sequential_burst_over_backlog_cap(
             can._last_frames.update(original_frames)
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("publisher", ["broadcast", "observed"])
+def test_fast_replaying_websocket_survives_same_loop_burst_over_backlog_cap(
+    monkeypatch,
+    publisher: str,
+) -> None:
+    """A runnable replay handoff gets CPU while same-loop live frames are queued."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        can._last_frames["0x101"] = can.build_event(
+            "0x101",
+            ["AA"],
+            timestamp_ms=999,
+            channel="vcan0",
+        )
+        websocket = _ControlledCanSocket(block_first_send=True)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        connection: object | None = None
+        event_count = can._CLIENT_BACKLOG_MAX_MESSAGES * 4
+
+        async def wait_for_all_messages() -> None:
+            while len(websocket.messages) < event_count + 1:
+                await asyncio.sleep(0)
+
+        try:
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            connection = next(iter(registry))
+            assert connection.replaying is True
+
+            # Waking the snapshot sender only makes it runnable.  The producer
+            # below must yield explicitly or it will fill the replay backlog
+            # before the handoff task gets another event-loop turn.
+            websocket.release_send.set()
+            for index in range(event_count):
+                if publisher == "broadcast":
+                    await can.broadcast(
+                        can.build_event(
+                            "0x200",
+                            [f"{index % 256:02X}"],
+                            timestamp_ms=1_000 + index,
+                            channel="vcan0",
+                        )
+                    )
+                else:
+                    observed = can.parse_candump(
+                        f"(2000.{index:06d}) vcan0 200#{index % 256:02X}"
+                    )
+                    assert observed is not None
+                    assert await can.publish_observed_event(observed) is True
+
+            assert connection.evicted is False
+            assert len(registry) == 1
+            await asyncio.wait_for(wait_for_all_messages(), 2)
+            delivered = [json.loads(message) for message in websocket.messages]
+            assert delivered[0]["replay"] is True
+            assert delivered[0]["frame"] == {
+                "canId": "0x101",
+                "dlc": 1,
+                "data": ["AA"],
+            }
+            live = delivered[1:]
+            assert all(event.get("replay", False) is False for event in live)
+            assert [event["frame"]["data"] for event in live] == [
+                [f"{index % 256:02X}"] for index in range(event_count)
+            ]
+
+            websocket.disconnect_requested.set()
+            await asyncio.wait_for(socket_task, 0.5)
+            assert len(registry) == 0
+            assert connection.writer_task is None
+        finally:
+            websocket.release_send.set()
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
