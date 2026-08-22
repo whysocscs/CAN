@@ -46,7 +46,9 @@ vi.mock("../can/events/backendProvider", () => ({
   connectCanStream: stream.connect,
 }))
 vi.mock("./DoorAttackVehicle", () => ({
-  default: () => <div aria-label="Toy Vehicle 3D view" />,
+  default: ({ currentStage }: { currentStage?: string }) => (
+    <div aria-label="Toy Vehicle 3D view" data-current-stage={currentStage} />
+  ),
 }))
 
 import DoorAttackLabPage from "./DoorAttackLabPage"
@@ -249,6 +251,10 @@ describe("DoorAttackLabPage", () => {
     expect(
       screen.getByRole("region", { name: "Restricted terminal" }),
     ).toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-current-stage",
+      "정찰",
+    )
     expect(stream.connect).toHaveBeenCalledTimes(1)
   })
 

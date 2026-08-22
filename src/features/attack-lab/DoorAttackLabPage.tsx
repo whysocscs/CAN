@@ -587,7 +587,7 @@ export default function DoorAttackLabPage() {
             </div>
             <span>교육용 논리 ECU 위치</span>
           </header>
-          <DoorAttackVehicle />
+          <DoorAttackVehicle currentStage={session?.stage} />
         </section>
 
         <section
