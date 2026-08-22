@@ -64,10 +64,11 @@ const STEP_SEQUENCE: Array<{ key: StepKey; title: string; short: string }> = [
   { key: "command", title: "STEP 1 : Command Parsing", short: "Command Parsing" },
   { key: "frame", title: "STEP 2 : CAN Frame Build", short: "CAN Frame Build" },
   { key: "socketcan", title: "STEP 3 : SocketCAN Flow", short: "SocketCAN Flow" },
-  { key: "filter", title: "STEP 4 : Acceptance Filter", short: "Acceptance Filter" },
-  { key: "message", title: "STEP 5 : Message Decode", short: "Message Decode" },
-  { key: "payload", title: "STEP 6 : Payload Decode", short: "Payload Decode" },
-  { key: "result", title: "STEP 7 : Application Result", short: "Application Result" },
+  // STEP 4~7은 후속 개발 전까지 전환 대상에서 제외한다.
+  // { key: "filter", title: "STEP 4 : Acceptance Filter", short: "Acceptance Filter" },
+  // { key: "message", title: "STEP 5 : Message Decode", short: "Message Decode" },
+  // { key: "payload", title: "STEP 6 : Payload Decode", short: "Payload Decode" },
+  // { key: "result", title: "STEP 7 : Application Result", short: "Application Result" },
 ]
 
 const STEP_DESCRIPTIONS: Record<StepKey, string> = {
