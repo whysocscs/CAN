@@ -32,6 +32,7 @@
 - Create: `server/routers/can_attack_labs.py`
 - Create: `server/tests/test_can_attack_basics.py`
 - Create: `server/tests/test_can_attack_labs_api.py`
+- Modify: `server/routers/can.py` only to expose a virtual-only event publisher that never invokes SocketCAN
 - Modify: `server/main.py`
 
 **Produces:** `BeginnerCanAttackSession`, two scenario specs, virtual terminal/script results, `/labs/can-attacks/{scenario}/sessions` routes, accepted enriched event emission.
@@ -41,7 +42,7 @@
 - [ ] Implement the framework-free domain with immutable result values and exact virtual grammar.
 - [ ] Run focused domain tests and record GREEN.
 - [ ] Write failing API tests for create/get/reset/terminal/run, wrong scenario/session 404, bounded sessions, targeted snapshot clearing, accepted-only emission, exact metadata, no top-level replay, stale session/generation suppression, and reset/in-flight races.
-- [ ] Implement the separate router/coordinator and include it in `server/main.py`; do not refactor the Door router.
+- [ ] Implement the separate router/coordinator and include it in `server/main.py`; add a narrow `publish_virtual_event` bridge that always uses the in-process accepted event path even when global CAN mode is SocketCAN, and do not refactor the Door router or alter existing `emit` behavior.
 - [ ] Run focused and full backend tests plus compileall.
 - [ ] Self-review security boundaries, commit, and write `task-1-report.md`.
 
@@ -110,4 +111,3 @@
 - [ ] Use Browser plugin if available; otherwise regular Playwright. From a fresh load test desktop and fresh mobile navigation, all three interactive routes, target-map overlap, exact happy/negative flows, reset, console errors, screenshots, and body horizontal overflow.
 - [ ] Dispatch broad final review, fix its Critical/Important findings once, and re-review.
 - [ ] Commit only on the feature branch, push only `feat/can-attack-basics-expansion`, and verify remote `main` and remote parent branch did not move.
-
