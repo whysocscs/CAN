@@ -135,6 +135,13 @@ export const vehicle = {
    * 매핑된 명령이 없으면 아무것도 하지 않고 false를 돌려줍니다.
    */
   applyCanEvent(event: CanEvent): boolean {
+    if (
+      event.processing?.executionResult === "BLOCKED"
+      || event.processing?.filterResult === "DROP"
+    ) {
+      return false
+    }
+
     const command = event.context.command
       ?? (normalizeCanId(event.frame.canId) ? CAN_ID_TO_COMMAND[normalizeCanId(event.frame.canId)!] : undefined)
 
