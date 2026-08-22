@@ -116,7 +116,7 @@ cansend vcan0 456#000114B0
 cansend vcan0 456#000115B1
 ```
 
-기대 결과는 세 attempt 모두 `EXECUTED`, IDS status `NORMAL`, `completed=true`, 왼쪽 문 `open`·오른쪽 문 `closed`다. 간격이 80–120 ms 밖이면 ECU가 프레임을 승인하더라도 IDS는 `FREQUENCY_ANOMALY`가 된다.
+기대 결과는 세 attempt 모두 `EXECUTED`, IDS status `NORMAL`, `completed=true`, 왼쪽 문 `open`·오른쪽 문 `closed`다. 간격이 80–120 ms 밖이면 ECU가 프레임을 승인하더라도 IDS status는 `ALERT`이며, 원인은 80–120 ms 빈도 조건 위반이다.
 
 ### 설명 포인트
 
