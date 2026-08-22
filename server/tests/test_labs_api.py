@@ -2542,3 +2542,57 @@ def test_replay_overflow_stops_already_captured_backlog_after_eviction(
             can._last_frames.update(original_frames)
 
     asyncio.run(scenario())
+
+
+def test_ready_instant_websocket_survives_sequential_burst_over_backlog_cap(
+    monkeypatch,
+) -> None:
+    """Sequential awaited publishers must let an instantaneous writer make progress."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        websocket = _ControlledCanSocket()
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        connection: object | None = None
+        event_count = can._CLIENT_BACKLOG_MAX_MESSAGES + 1
+
+        async def wait_for_all_messages() -> None:
+            while len(websocket.messages) < event_count:
+                await asyncio.sleep(0)
+
+        try:
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            connection = next(iter(registry))
+
+            for index in range(event_count):
+                await can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        [f"{index % 256:02X}"],
+                        timestamp_ms=1_000 + index,
+                        channel="vcan0",
+                    )
+                )
+
+            assert connection.evicted is False
+            assert len(registry) == 1
+            await asyncio.wait_for(wait_for_all_messages(), 1)
+            delivered = [json.loads(message)["timestamp"] for message in websocket.messages]
+            assert delivered == list(range(1_000, 1_000 + event_count))
+
+            websocket.disconnect_requested.set()
+            await asyncio.wait_for(socket_task, 0.5)
+            assert len(registry) == 0
+            assert connection.writer_task is None
+        finally:
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
