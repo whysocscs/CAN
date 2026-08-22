@@ -161,4 +161,3 @@ The initial script contains syntax placeholders only. Reset closes the affected 
 - Arbitrary code execution or real shell access
 - Multi-user persistence/SQLite progress
 - Refactoring the existing Door domain/router or global vehicle debug handle
-
