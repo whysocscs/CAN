@@ -20,6 +20,69 @@ class _SnapshotSocket:
         self.messages.append(message)
 
 
+class _OrderedClientRegistry:
+    """Set-shaped registry with deterministic iteration for concurrency tests."""
+
+    def __init__(self) -> None:
+        self._items: list[object] = []
+
+    def add(self, item: object) -> None:
+        if item not in self._items:
+            self._items.append(item)
+
+    def discard(self, item: object) -> None:
+        if item in self._items:
+            self._items.remove(item)
+
+    def clear(self) -> None:
+        self._items.clear()
+
+    def __iter__(self):
+        return iter(tuple(self._items))
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+
+class _ControlledCanSocket:
+    """ASGI WebSocket boundary double with real asynchronous backpressure."""
+
+    def __init__(self, *, block_first_send: bool = False, block_all_sends: bool = False) -> None:
+        self.headers: dict[str, str] = {}
+        self.messages: list[str] = []
+        self.accepted = asyncio.Event()
+        self.receive_started = asyncio.Event()
+        self.disconnect_requested = asyncio.Event()
+        self.send_started = asyncio.Event()
+        self.release_send = asyncio.Event()
+        self.send_cancelled = asyncio.Event()
+        self._block_first_send = block_first_send
+        self._block_all_sends = block_all_sends
+        self._send_count = 0
+
+    async def accept(self) -> None:
+        self.accepted.set()
+
+    async def send_text(self, message: str) -> None:
+        self._send_count += 1
+        self.send_started.set()
+        should_block = self._block_all_sends or (
+            self._block_first_send and self._send_count == 1
+        )
+        if should_block:
+            try:
+                await self.release_send.wait()
+            except asyncio.CancelledError:
+                self.send_cancelled.set()
+                raise
+        self.messages.append(message)
+
+    async def receive_text(self) -> str:
+        self.receive_started.set()
+        await self.disconnect_requested.wait()
+        raise can.WebSocketDisconnect()
+
+
 def test_can_event_keeps_optional_accepted_frame_metadata() -> None:
     event = can.build_event(
         "0x101",
@@ -1401,19 +1464,19 @@ def test_global_clear_cannot_be_undone_between_echo_attach_and_snapshot_store(
     async def fake_subprocess_exec(*_args: object, **_kwargs: object) -> SuccessfulProcess:
         return SuccessfulProcess()
 
-    broadcast_paused = threading.Event()
-    resume_broadcast = threading.Event()
-    original_broadcast = can.broadcast
+    delivery_paused = threading.Event()
+    resume_delivery = threading.Event()
+    original_delivery = can._deliver_to_clients
     publish_results: list[bool] = []
     worker_errors: list[BaseException] = []
 
-    async def pausing_broadcast(
-        event: dict[str, object],
-        **kwargs: object,
+    async def pausing_delivery(
+        clients: tuple[object, ...],
+        payload: str,
     ) -> None:
-        broadcast_paused.set()
-        await asyncio.to_thread(resume_broadcast.wait)
-        await original_broadcast(event, **kwargs)
+        delivery_paused.set()
+        await asyncio.to_thread(resume_delivery.wait)
+        await original_delivery(clients, payload)
 
     original_frames = dict(can._last_frames)
     original_pending = {key: deque(value) for key, value in can._pending_echoes.items()}
@@ -1421,7 +1484,7 @@ def test_global_clear_cannot_be_undone_between_echo_attach_and_snapshot_store(
     monkeypatch.setattr(can, "MODE", "socketcan")
     monkeypatch.setattr(can.asyncio, "create_subprocess_exec", fake_subprocess_exec)
     monkeypatch.setattr(can.time, "time", lambda: 1_000.0)
-    monkeypatch.setattr(can, "broadcast", pausing_broadcast)
+    monkeypatch.setattr(can, "_deliver_to_clients", pausing_delivery)
     can._last_frames.clear()
     can._pending_echoes.clear()
     can._cleared_echo_tombstones.clear()
@@ -1445,9 +1508,9 @@ def test_global_clear_cannot_be_undone_between_echo_attach_and_snapshot_store(
     publish_thread = threading.Thread(target=publish_in_another_event_loop)
     try:
         publish_thread.start()
-        assert broadcast_paused.wait(2)
+        assert delivery_paused.wait(2)
         assert asyncio.run(can.clear_snapshot()) == {"cleared": 1}
-        resume_broadcast.set()
+        resume_delivery.set()
         publish_thread.join(2)
         assert not publish_thread.is_alive()
         assert worker_errors == []
@@ -1456,7 +1519,7 @@ def test_global_clear_cannot_be_undone_between_echo_attach_and_snapshot_store(
         assert not can._pending_echoes
         assert not can._cleared_echo_tombstones
     finally:
-        resume_broadcast.set()
+        resume_delivery.set()
         publish_thread.join(2)
         can._last_frames.clear()
         can._last_frames.update(original_frames)
@@ -1571,3 +1634,322 @@ def test_uncertain_cancel_removal_and_tombstone_are_atomic_across_event_loops(
         can._pending_echoes.update(original_pending)
         can._cleared_echo_tombstones.clear()
         can._cleared_echo_tombstones.extend(original_tombstones)
+
+
+def test_websocket_snapshot_handoff_delivers_one_ordered_live_event(
+    monkeypatch,
+) -> None:
+    """A frame accepted during replay must follow that replay exactly once."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        can._last_frames["0x101"] = can.build_event(
+            "0x101",
+            ["01", "01"],
+            timestamp_ms=1,
+            channel="vcan0",
+        )
+        websocket = _ControlledCanSocket(block_first_send=True)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        try:
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            live = can.build_event(
+                "0x101",
+                ["00", "01"],
+                timestamp_ms=2,
+                channel="vcan0",
+            )
+
+            await asyncio.wait_for(can.broadcast(live), 1)
+            websocket.release_send.set()
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            websocket.disconnect_requested.set()
+            await asyncio.wait_for(socket_task, 1)
+
+            delivered = [json.loads(message) for message in websocket.messages]
+            assert [event["timestamp"] for event in delivered] == [1, 2]
+            assert [event.get("replay", False) for event in delivered] == [True, False]
+            assert [event["frame"]["data"] for event in delivered] == [
+                ["01", "01"],
+                ["00", "01"],
+            ]
+            assert len(registry) == 0
+        finally:
+            websocket.release_send.set()
+            websocket.disconnect_requested.set()
+            if not socket_task.done():
+                socket_task.cancel()
+            await asyncio.gather(socket_task, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_stalled_websocket_is_bounded_and_cannot_block_terminal_reset(
+    monkeypatch,
+) -> None:
+    """A stalled CAN listener must not hold the lab lifecycle lock forever."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "MODE", "loopback")
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 0.05, raising=False)
+        original_frames = dict(can._last_frames)
+        original_sessions = dict(labs._sessions)
+        original_active = labs._active_correlation
+        can._last_frames.clear()
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        websocket = _ControlledCanSocket(block_all_sends=True)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        terminal_task: asyncio.Task[dict[str, object]] | None = None
+        reset_task: asyncio.Task[dict[str, object]] | None = None
+        try:
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            terminal_task = asyncio.create_task(
+                labs.terminal_command(
+                    session_id,
+                    labs.TerminalRequest(command="cansend vcan0 456#000113B7"),
+                    can.emit,
+                )
+            )
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            reset_task = asyncio.create_task(labs.reset_session(session_id))
+
+            done, pending = await asyncio.wait(
+                {terminal_task, reset_task},
+                timeout=0.5,
+            )
+            assert pending == set()
+            assert done == {terminal_task, reset_task}
+            assert terminal_task.result()["code"] == "EXECUTED"
+            assert reset_task.result()["generation"] == 1
+            assert websocket.release_send.is_set() is False
+            assert websocket.send_cancelled.is_set() is True
+            await asyncio.wait_for(socket_task, 0.5)
+            assert len(registry) == 0
+        finally:
+            websocket.release_send.set()
+            websocket.disconnect_requested.set()
+            tasks = [
+                task
+                for task in (terminal_task, reset_task, socket_task)
+                if task is not None
+            ]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+            labs._sessions.clear()
+            labs._sessions.update(original_sessions)
+            labs._active_correlation = original_active
+
+    asyncio.run(scenario())
+
+
+def test_websocket_clients_send_in_parallel_and_disconnect_without_leaks(
+    monkeypatch,
+) -> None:
+    """One blocked client cannot delay a healthy client or leave handler tasks."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 0.05, raising=False)
+        original_frames = dict(can._last_frames)
+        can._last_frames.clear()
+        slow = _ControlledCanSocket(block_all_sends=True)
+        fast = _ControlledCanSocket()
+        slow_task = asyncio.create_task(can.can_socket(slow))
+        fast_task = asyncio.create_task(can.can_socket(fast))
+        broadcast_task: asyncio.Task[None] | None = None
+        try:
+            await asyncio.wait_for(slow.receive_started.wait(), 1)
+            await asyncio.wait_for(fast.receive_started.wait(), 1)
+            event = can.build_event(
+                "0x200",
+                ["01"],
+                timestamp_ms=3,
+                channel="vcan0",
+            )
+            broadcast_task = asyncio.create_task(can.broadcast(event))
+            await asyncio.wait_for(slow.send_started.wait(), 1)
+
+            await asyncio.wait_for(fast.send_started.wait(), 0.2)
+            assert [json.loads(message)["timestamp"] for message in fast.messages] == [3]
+            assert slow.release_send.is_set() is False
+            await asyncio.wait_for(broadcast_task, 0.5)
+            await asyncio.wait_for(slow_task, 0.5)
+            assert slow.send_cancelled.is_set() is True
+            assert len(registry) == 1
+
+            fast.disconnect_requested.set()
+            await asyncio.wait_for(fast_task, 0.5)
+            assert len(registry) == 0
+            assert slow_task.done() and fast_task.done() and broadcast_task.done()
+        finally:
+            slow.release_send.set()
+            slow.disconnect_requested.set()
+            fast.disconnect_requested.set()
+            tasks = [task for task in (broadcast_task, slow_task, fast_task) if task]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_concurrent_broadcasts_preserve_route_order_for_each_websocket(
+    monkeypatch,
+) -> None:
+    """Scheduling after routing must not reverse two live CAN events."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        original_frames = dict(can._last_frames)
+        original_delivery = can._deliver_to_clients
+        can._last_frames.clear()
+        first_routed = asyncio.Event()
+        release_first_delivery = asyncio.Event()
+        websocket = _ControlledCanSocket()
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        first_task: asyncio.Task[None] | None = None
+        second_task: asyncio.Task[None] | None = None
+
+        async def pause_first_after_routing(
+            clients: tuple[object, ...],
+            payload: str,
+        ) -> None:
+            if json.loads(payload)["timestamp"] == 10:
+                first_routed.set()
+                await release_first_delivery.wait()
+            await original_delivery(clients, payload)
+
+        monkeypatch.setattr(can, "_deliver_to_clients", pause_first_after_routing)
+        try:
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            first_task = asyncio.create_task(
+                can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        ["01"],
+                        timestamp_ms=10,
+                        channel="vcan0",
+                    )
+                )
+            )
+            await asyncio.wait_for(first_routed.wait(), 1)
+            second_task = asyncio.create_task(
+                can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        ["00"],
+                        timestamp_ms=11,
+                        channel="vcan0",
+                    )
+                )
+            )
+            await asyncio.wait_for(second_task, 1)
+            release_first_delivery.set()
+            await asyncio.wait_for(first_task, 1)
+
+            delivered = [json.loads(message) for message in websocket.messages]
+            assert [event["timestamp"] for event in delivered] == [10, 11]
+            assert [event["frame"]["data"] for event in delivered] == [["01"], ["00"]]
+        finally:
+            release_first_delivery.set()
+            websocket.disconnect_requested.set()
+            tasks = [task for task in (first_task, second_task, socket_task) if task]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())
+
+
+def test_cancelled_broadcast_waiting_for_client_send_evicts_without_stranding(
+    monkeypatch,
+) -> None:
+    """Cancellation behind a client lock cannot strand a routed live frame."""
+
+    async def scenario() -> None:
+        registry = _OrderedClientRegistry()
+        monkeypatch.setattr(can, "_clients", registry)
+        monkeypatch.setattr(can, "_CLIENT_SEND_TIMEOUT_SECONDS", 1.0)
+        original_frames = dict(can._last_frames)
+        original_drain = can._drain_live_backlog
+        can._last_frames.clear()
+        second_drain_started = asyncio.Event()
+        websocket = _ControlledCanSocket(block_first_send=True)
+        socket_task = asyncio.create_task(can.can_socket(websocket))
+        first_task: asyncio.Task[None] | None = None
+        second_task: asyncio.Task[None] | None = None
+
+        async def observe_second_drain(client: object) -> None:
+            if can._last_frames.get("0x200", {}).get("timestamp") == 21:
+                second_drain_started.set()
+            await original_drain(client)
+
+        monkeypatch.setattr(can, "_drain_live_backlog", observe_second_drain)
+        try:
+            await asyncio.wait_for(websocket.receive_started.wait(), 1)
+            first_task = asyncio.create_task(
+                can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        ["01"],
+                        timestamp_ms=20,
+                        channel="vcan0",
+                    )
+                )
+            )
+            await asyncio.wait_for(websocket.send_started.wait(), 1)
+            second_task = asyncio.create_task(
+                can.broadcast(
+                    can.build_event(
+                        "0x200",
+                        ["00"],
+                        timestamp_ms=21,
+                        channel="vcan0",
+                    )
+                )
+            )
+            await asyncio.wait_for(second_drain_started.wait(), 1)
+            assert can._last_frames["0x200"]["timestamp"] == 21
+
+            second_task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await second_task
+            websocket.release_send.set()
+            await asyncio.wait_for(first_task, 1)
+
+            assert [json.loads(message)["timestamp"] for message in websocket.messages] == [20]
+            assert len(registry) == 0
+            await asyncio.wait_for(socket_task, 0.5)
+            assert socket_task.done() and first_task.done() and second_task.done()
+        finally:
+            websocket.release_send.set()
+            websocket.disconnect_requested.set()
+            tasks = [task for task in (first_task, second_task, socket_task) if task]
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            can._last_frames.clear()
+            can._last_frames.update(original_frames)
+
+    asyncio.run(scenario())

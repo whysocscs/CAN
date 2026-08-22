@@ -18,7 +18,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict, deque
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 import json
 import os
@@ -56,7 +56,22 @@ def resolve_mode() -> Mode:
 
 MODE: Final[Mode] = resolve_mode()
 
-_clients: set[WebSocket] = set()
+
+@dataclass(eq=False, slots=True)
+class _ClientConnection:
+    """One ordered CAN WebSocket stream owned by the server event loop."""
+
+    websocket: WebSocket
+    loop: asyncio.AbstractEventLoop
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    evicted_event: asyncio.Event = field(default_factory=asyncio.Event)
+    backlog: deque[str] = field(default_factory=deque)
+    replaying: bool = True
+    evicted: bool = False
+
+
+_clients: set[_ClientConnection] = set()
+_CLIENT_SEND_TIMEOUT_SECONDS: Final = 0.25
 _sequence = count(1)
 
 # CAN ID별 마지막 프레임. 새로 접속한 브라우저에게 현재 상태를 알려주는 데 씁니다.
@@ -355,20 +370,93 @@ def clear_frame_snapshot(can_id: str) -> bool:
 
 # --------------------------------------------------------------- 브로드캐스트
 
+
+def _signal_client_evicted(client: _ClientConnection) -> None:
+    """Wake the connection handler, including a handler on another test loop."""
+    if client.evicted_event.is_set() or client.loop.is_closed():
+        return
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is client.loop:
+        client.evicted_event.set()
+    else:
+        client.loop.call_soon_threadsafe(client.evicted_event.set)
+
+
+def _evict_client(client: _ClientConnection) -> None:
+    """Atomically stop routing events to a failed or disconnected client."""
+    with _echo_state_lock:
+        if client.evicted:
+            return
+        client.evicted = True
+        client.backlog.clear()
+        _clients.discard(client)
+        _signal_client_evicted(client)
+
+
+def _route_event_locked(
+    event: dict[str, Any],
+    *,
+    store_snapshot: bool,
+) -> tuple[str, tuple[_ClientConnection, ...]]:
+    """Commit replay state and choose recipients at one linearization point."""
+    if store_snapshot:
+        _last_frames[event["frame"]["canId"]] = event
+    payload = json.dumps(event)
+    ready: list[_ClientConnection] = []
+    for client in list(_clients):
+        if client.evicted:
+            _clients.discard(client)
+        else:
+            client.backlog.append(payload)
+            if not client.replaying:
+                ready.append(client)
+    return payload, tuple(ready)
+
+
+async def _drain_live_backlog(client: _ClientConnection) -> None:
+    try:
+        async with client.send_lock:
+            with _echo_state_lock:
+                if client.evicted or client not in _clients:
+                    return
+                pending = tuple(client.backlog)
+                client.backlog.clear()
+            for payload in pending:
+                await asyncio.wait_for(
+                    client.websocket.send_text(payload),
+                    timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                )
+    except asyncio.CancelledError:
+        _evict_client(client)
+        raise
+    except Exception:
+        _evict_client(client)
+
+
+async def _deliver_to_clients(
+    clients: tuple[_ClientConnection, ...],
+    _payload: str,
+) -> None:
+    """Send concurrently; every coroutine finishes or is cancelled before return."""
+    if not clients:
+        return
+    await asyncio.gather(*(_drain_live_backlog(client) for client in clients))
+
+
 async def broadcast(
     event: dict[str, Any],
     *,
     store_snapshot: bool = True,
 ) -> None:
-    if store_snapshot:
-        with _echo_state_lock:
-            _last_frames[event["frame"]["canId"]] = event
-    payload = json.dumps(event)
-    for client in list(_clients):
-        try:
-            await client.send_text(payload)
-        except Exception:
-            _clients.discard(client)  # 끊긴 클라이언트는 조용히 정리합니다.
+    with _echo_state_lock:
+        payload, clients = _route_event_locked(
+            event,
+            store_snapshot=store_snapshot,
+        )
+    await _deliver_to_clients(clients, payload)
 
 
 async def publish_observed_event(event: dict[str, Any]) -> bool:
@@ -377,8 +465,8 @@ async def publish_observed_event(event: dict[str, Any]) -> bool:
         resolved = attach_pending_metadata(event)
         if resolved is None:
             return False
-        _last_frames[resolved["frame"]["canId"]] = resolved
-    await broadcast(resolved, store_snapshot=False)
+        payload, clients = _route_event_locked(resolved, store_snapshot=True)
+    await _deliver_to_clients(clients, payload)
     return True
 
 
@@ -388,8 +476,16 @@ async def send_snapshot(websocket: WebSocket) -> None:
     replay=True가 붙어 있어 브라우저가 새 트래픽과 구분할 수 있습니다.
     (Monitor 목록에는 넣지 않고, 차량 상태에만 반영합니다.)
     """
-    for event in list(_last_frames.values()):
-        await websocket.send_text(json.dumps({**event, "replay": True}))
+    with _echo_state_lock:
+        payloads = [
+            json.dumps({**event, "replay": True})
+            for event in _last_frames.values()
+        ]
+    for payload in payloads:
+        await asyncio.wait_for(
+            websocket.send_text(payload),
+            timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+        )
 
 
 async def emit(
@@ -630,6 +726,81 @@ async def clear_snapshot() -> dict[str, Any]:
 
 # --------------------------------------------------------------- WebSocket
 
+
+def _register_client_and_capture_snapshot(
+    client: _ClientConnection,
+) -> tuple[str, ...]:
+    """Atomically split history from future live events for one connection."""
+    with _echo_state_lock:
+        payloads = tuple(
+            json.dumps({**event, "replay": True})
+            for event in _last_frames.values()
+        )
+        _clients.add(client)
+        return payloads
+
+
+async def _send_snapshot_and_backlog(
+    client: _ClientConnection,
+    snapshot: tuple[str, ...],
+) -> bool:
+    """Run with ``send_lock`` held so live sends cannot overtake replay."""
+    try:
+        for payload in snapshot:
+            await asyncio.wait_for(
+                client.websocket.send_text(payload),
+                timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+            )
+
+        while True:
+            with _echo_state_lock:
+                if client.evicted:
+                    return False
+                pending = tuple(client.backlog)
+                client.backlog.clear()
+                if not pending:
+                    client.replaying = False
+                    return True
+            for payload in pending:
+                await asyncio.wait_for(
+                    client.websocket.send_text(payload),
+                    timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        _evict_client(client)
+        return False
+
+
+async def _wait_for_disconnect_or_eviction(client: _ClientConnection) -> None:
+    """Observe either peer disconnect or server eviction without orphan tasks."""
+    while not client.evicted_event.is_set():
+        receive = asyncio.create_task(client.websocket.receive_text())
+        evicted = asyncio.create_task(client.evicted_event.wait())
+        tasks = (receive, evicted)
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if evicted in done:
+            await asyncio.gather(receive, return_exceptions=True)
+            return
+        try:
+            receive.result()
+        except (WebSocketDisconnect, RuntimeError):
+            return
+
+
 @router.websocket("/ws/can")
 async def can_socket(websocket: WebSocket) -> None:
     origin = websocket.headers.get("origin")
@@ -638,15 +809,24 @@ async def can_socket(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    # 스트림에 넣기 전에 스냅샷을 보냅니다. 순서가 반대면 재생 중에 들어온
-    # 새 프레임이 오래된 값에 덮여 상태가 뒤집힐 수 있습니다.
-    await send_snapshot(websocket)
-    _clients.add(websocket)
+    client = _ClientConnection(
+        websocket=websocket,
+        loop=asyncio.get_running_loop(),
+    )
+    registered = False
     try:
-        while True:
-            # 클라이언트 입력은 쓰지 않습니다. 연결 유지 및 종료 감지용입니다.
-            await websocket.receive_text()
-    except (WebSocketDisconnect, RuntimeError):
-        pass
+        # Acquire before registration.  A live sender that sees this client
+        # therefore cannot overtake its snapshot/backlog handoff.
+        await client.send_lock.acquire()
+        try:
+            snapshot = _register_client_and_capture_snapshot(client)
+            registered = True
+            ready = await _send_snapshot_and_backlog(client, snapshot)
+        finally:
+            client.send_lock.release()
+        if not ready:
+            return
+        await _wait_for_disconnect_or_eviction(client)
     finally:
-        _clients.discard(websocket)
+        if registered:
+            _evict_client(client)
