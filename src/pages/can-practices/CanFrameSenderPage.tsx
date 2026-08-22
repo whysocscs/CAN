@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowClockwise,
   CaretDown,
@@ -106,6 +106,32 @@ const STEP_FRAME_STAGE_CONFIG: StepFrameStageElement[] = [
     description: "CAN 기초 페이지와 동일한 프레임 도식에서 ID, DLC, DATA만 현재 입력값 기준으로 집중해서 확인합니다.",
   },
 ]
+
+type SocketCanStageCategory = "coral" | "purple" | "teal" | "green"
+
+type SocketCanStageConfig = {
+  index: 0 | 1 | 2 | 3 | 4 | 5
+  name: string
+  category: SocketCanStageCategory
+  caption: string
+  top: number
+}
+
+const SOCKETCAN_STAGE_CONFIG: SocketCanStageConfig[] = [
+  { index: 0, name: "cansend", category: "coral", caption: "파싱된 프레임 객체가 소켓 write 호출로 전달됩니다.", top: 0 },
+  { index: 1, name: "struct can_frame", category: "coral", caption: "프레임이 커널이 이해하는 바이너리 구조체 형태로 존재합니다.", top: 72 },
+  { index: 2, name: "SocketCAN", category: "purple", caption: "AF_CAN 소켓이 구조체를 프로토콜 스택으로 넘깁니다.", top: 144 },
+  { index: 3, name: "Linux Kernel", category: "purple", caption: "커널이 CAN ID를 보고 목적지 인터페이스로 라우팅합니다.", top: 216 },
+  { index: 4, name: "vcan0", category: "teal", caption: "vcan0가 프레임을 버스에 브로드캐스트합니다.", top: 288 },
+  { index: 5, name: "Body ECU", category: "green", caption: "0x101을 수신한 Body ECU가 도어 잠금을 해제합니다.", top: 360 },
+]
+
+const SOCKETCAN_CATEGORY_STYLES: Record<SocketCanStageCategory, { background: string; borderColor: string; color: string }> = {
+  coral: { background: "#FAECE7", borderColor: "#D85A30", color: "#4A1B0C" },
+  purple: { background: "#EEEDFE", borderColor: "#7F77DD", color: "#26215C" },
+  teal: { background: "#E1F5EE", borderColor: "#5DCAA5", color: "#04342C" },
+  green: { background: "#EAF3DE", borderColor: "#97C459", color: "#173404" },
+}
 
 const STEP_SEQUENCE: Array<{ key: StepKey; title: string; short: string }> = [
   { key: "command", title: "STEP 1 : Command Parsing", short: "Command Parsing" },
@@ -589,42 +615,100 @@ function StepFrameStage({
 }
 
 function StepSocketStage({
-  analysis,
   substage,
 }: {
-  analysis: RunAnalysis
   substage: number
 }) {
-  const frameTokenClass =
-    substage >= 5
-      ? "is-vcan"
-      : substage >= 4
-        ? "is-kernel"
-        : substage >= 3
-          ? "is-socket"
-          : substage >= 2
-            ? "is-struct"
-            : "is-app"
+  const activeStage = SOCKETCAN_STAGE_CONFIG[substage] ?? SOCKETCAN_STAGE_CONFIG[0]
+  const activeStageRef = useRef<HTMLDivElement>(null)
+  const progressHeight = `${(activeStage.top / SOCKETCAN_STAGE_CONFIG.at(-1)!.top) * 100}%`
+
+  useEffect(() => {
+    if (activeStage.index !== 5) return
+    activeStageRef.current?.animate(
+      [
+        { transform: "scale(1)" },
+        { transform: "scale(1.06)" },
+        { transform: "scale(1)" },
+      ],
+      { duration: 420, easing: "ease-out" },
+    )
+  }, [activeStage.index])
 
   return (
     <div className="senderlab__scene senderlab__scene--socket">
       <div className="senderlab__socket-stack">
-        {["cansend", "struct can_frame", "SocketCAN", "Linux Kernel", "vcan0"].map(
-          (label, index) => (
-            <div key={label} className={substage >= index + 1 ? "is-on" : ""}>
-              <span>{label}</span>
+        <i
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 30,
+            bottom: 38,
+            left: "50%",
+            width: 2,
+            background: "#CBD5E1",
+            transform: "translateX(-50%)",
+          }}
+        />
+        <i
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 30,
+            left: "50%",
+            width: 2,
+            height: progressHeight,
+            background: SOCKETCAN_CATEGORY_STYLES[activeStage.category].borderColor,
+            transform: "translateX(-50%)",
+            transition: "height .45s ease, background-color .45s ease",
+          }}
+        />
+        {SOCKETCAN_STAGE_CONFIG.map((stage) => {
+          const isActive = stage.index === activeStage.index
+          const colors = SOCKETCAN_CATEGORY_STYLES[stage.category]
+
+          return (
+            <div
+              key={stage.index}
+              ref={stage.index === 5 ? activeStageRef : undefined}
+              className={isActive ? "is-on" : ""}
+              style={{
+                top: stage.top,
+                background: isActive ? colors.background : "#F8FAFC",
+                borderColor: isActive ? colors.borderColor : "#CBD5E1",
+                color: isActive ? colors.color : "#64748B",
+                opacity: 1,
+                transform: "translateY(0)",
+                transition: "background-color .3s ease, border-color .3s ease, color .3s ease",
+              }}
+            >
+              <span style={{ color: "inherit" }}>{stage.name}</span>
             </div>
-          ),
-        )}
-        <div className={`senderlab__frame-token ${frameTokenClass}`}>
-          <code>{analysis.parsed.canId}</code>
-          <small>DLC {analysis.parsed.len}</small>
-          <code>{formatPayload(analysis.parsed.dataBytes)}</code>
+          )
+        })}
+        <div
+          className="senderlab__frame-token"
+          style={{
+            top: 12,
+            transform: `translate(-50%, ${activeStage.top}px)`,
+            transition: "transform .45s ease",
+          }}
+        >
+          <code>0x101 · DLC 1 · 01</code>
         </div>
+        <p
+          className="senderlab__scene-note is-on"
+          style={{
+            position: "absolute",
+            top: 442,
+            left: "50%",
+            width: "100%",
+            transform: "translateX(-50%)",
+          }}
+        >
+          {activeStage.caption}
+        </p>
       </div>
-      <p className={`senderlab__scene-note ${substage >= 5 ? "is-on" : ""}`}>
-        vcan0는 실제 차량 배선이 아니라 Linux 기반 Virtual CAN Interface입니다.
-      </p>
     </div>
   )
 }
@@ -821,7 +905,7 @@ function StepStage({
     case "frame":
       return <StepFrameStage analysis={analysis} substage={substage} />
     case "socketcan":
-      return <StepSocketStage analysis={analysis} substage={substage} />
+      return <StepSocketStage substage={substage} />
     //case "filter":
       //return <StepFilterStage analysis={analysis} substage={substage} />
     //case "message":
@@ -884,7 +968,7 @@ export default function CanFrameSenderPage() {
     const nextIndex = currentStepIndex + direction
     if (nextIndex < 0 || nextIndex >= STEP_SEQUENCE.length) return
     setCurrentStepIndex(nextIndex)
-    setSubstage(1)
+    setSubstage(STEP_SEQUENCE[nextIndex].key === "socketcan" ? 0 : 1)
   }
 
   const advanceViewport = () => {
@@ -904,6 +988,14 @@ export default function CanFrameSenderPage() {
 
     if (currentStepIndex < STEP_SEQUENCE.length - 1) {
       moveStep(1)
+    }
+  }
+
+  const retreatViewport = () => {
+    if (!analysis) return
+    const firstSubstage = currentStep.key === "socketcan" ? 0 : 1
+    if (substage > firstSubstage) {
+      setSubstage((current) => current - 1)
     }
   }
 
@@ -1006,7 +1098,12 @@ export default function CanFrameSenderPage() {
                       ? event.target.closest("button, a, input, select, textarea, [role='button']")
                       : null
                     if (interactiveTarget && interactiveTarget !== event.currentTarget) return
-                    advanceViewport()
+                    const viewportCenter = event.currentTarget.getBoundingClientRect().left + event.currentTarget.clientWidth / 2
+                    if (event.clientX < viewportCenter) {
+                      retreatViewport()
+                    } else {
+                      advanceViewport()
+                    }
                   }}
                   role={analysis ? "button" : undefined}
                   tabIndex={analysis ? 0 : undefined}
