@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from server.routers.can import pump, router as can_router
+from server.routers.can_attack_labs import router as can_attack_labs_router
 from server.routers.labs import router as labs_router
 from server.routers.terminal import ALLOWED_ORIGINS, router as terminal_router
 
@@ -32,3 +33,4 @@ app.add_middleware(
 app.include_router(terminal_router)
 app.include_router(can_router)
 app.include_router(labs_router)
+app.include_router(can_attack_labs_router)
