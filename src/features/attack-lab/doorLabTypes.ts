@@ -40,6 +40,8 @@ export interface DoorLabTerminalResult {
   code: string
   output: string
   frames: DoorLabFrameAttempt[]
+  state: DoorLabSessionState
+  idsStatus: DoorLabIdsStatus | null
 }
 
 export interface DoorLabScriptResult {

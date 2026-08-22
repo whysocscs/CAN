@@ -296,7 +296,15 @@ def test_terminal_cansend_emits_an_accepted_toy_frame() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["code"] == "EXECUTED"
+    payload = response.json()
+    assert payload["code"] == "EXECUTED"
+    assert payload["idsStatus"] == "ALERT"
+    assert payload["state"]["generation"] == 0
+    assert payload["state"]["stage"] == "IDS 검증"
+    assert payload["state"]["attemptCount"] == 1
+    assert payload["state"]["vehicleState"] == {"leftDoor": "open", "rightDoor": "closed"}
+    assert payload["state"]["evidence"] == [{"kind": "attempt", "status": "recorded"}]
+    assert len(emitted) == 1
     assert emitted[0]["processing"] == {"filterResult": "ACCEPT", "executionResult": "EXECUTED"}
     assert emitted[0]["lab"] == {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0}
 
@@ -320,7 +328,14 @@ def test_terminal_cansend_does_not_emit_a_blocked_toy_frame() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["code"] == "CHECKSUM_INVALID"
+    payload = response.json()
+    assert payload["code"] == "CHECKSUM_INVALID"
+    assert payload["idsStatus"] == "ALERT"
+    assert payload["state"]["generation"] == 0
+    assert payload["state"]["stage"] == "프레임 제작"
+    assert payload["state"]["attemptCount"] == 1
+    assert payload["state"]["vehicleState"] == {"leftDoor": "closed", "rightDoor": "closed"}
+    assert payload["state"]["evidence"] == [{"kind": "attempt", "status": "recorded"}]
     assert emitted == []
 
 
@@ -389,7 +404,14 @@ def test_terminal_capture_is_observed_but_never_emitted() -> None:
     )
 
     assert response.status_code == 200
-    assert response.json()["frames"][0]["verdict"] == "OBSERVED"
+    payload = response.json()
+    assert payload["frames"][0]["verdict"] == "OBSERVED"
+    assert payload["idsStatus"] is None
+    assert payload["state"]["generation"] == 0
+    assert payload["state"]["stage"] == "분석"
+    assert payload["state"]["messageContractStatus"] == "OBSERVED"
+    assert payload["state"]["attemptCount"] == 0
+    assert payload["state"]["evidence"] == [{"kind": "capture", "status": "observed"}]
     assert emitted == []
 
 
@@ -707,6 +729,33 @@ def test_terminal_domain_mutation_waits_for_the_lifecycle_lock() -> None:
         assert state_while_lifecycle_is_blocked["generation"] == 0
         assert state_while_lifecycle_is_blocked["attemptCount"] == 0
         assert state_while_lifecycle_is_blocked["vehicleState"]["leftDoor"] == "closed"
+
+    asyncio.run(scenario())
+
+
+def test_terminal_response_keeps_the_state_snapshot_from_before_emit_side_effects() -> None:
+    async def scenario() -> None:
+        created = await labs.create_session()
+        session_id = str(created["sessionId"])
+        session = labs._sessions[session_id]
+
+        async def reset_during_emit(_can_id: str, _data: list[str], **_metadata: object) -> bool:
+            session.reset()
+            return True
+
+        response = await labs.terminal_command(
+            session_id,
+            labs.TerminalRequest(command="cansend vcan0 456#000113B7"),
+            reset_during_emit,
+        )
+
+        assert response["state"]["sessionId"] == session_id
+        assert response["state"]["generation"] == 0
+        assert response["state"]["attemptCount"] == 1
+        assert response["state"]["vehicleState"] == {"leftDoor": "open", "rightDoor": "closed"}
+        assert response["idsStatus"] == "ALERT"
+        assert session.public_state()["generation"] == 1
+        assert session.public_state()["vehicleState"] == {"leftDoor": "closed", "rightDoor": "closed"}
 
     asyncio.run(scenario())
 

@@ -443,7 +443,14 @@ export default function DoorAttackLabPage() {
         command,
         request.controller.signal,
       )
-      if (!isActionCurrent(request)) return
+      if (
+        !isActionCurrent(request) ||
+        result.state.sessionId !== request.sessionId ||
+        result.state.generation !== request.sessionGeneration
+      )
+        return
+      setSession(result.state)
+      if (result.idsStatus !== null) setIdsStatus(result.idsStatus)
       setTerminalEntries((existing) =>
         [
           ...existing,

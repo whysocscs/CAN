@@ -98,6 +98,16 @@ def test_virtual_terminal_rejects_unknown_commands_without_execution() -> None:
     assert result.code == "COMMAND_REJECTED"
 
 
+def test_virtual_terminal_returns_ids_verdict_only_for_evaluated_cansend() -> None:
+    capture = DoorBlackboxSession(session_id="capture").execute_terminal("cat baseline.log")
+    accepted = DoorBlackboxSession(session_id="accepted").execute_terminal("cansend vcan0 456#000113B7")
+    blocked = DoorBlackboxSession(session_id="blocked").execute_terminal("cansend vcan0 456#00011300")
+
+    assert capture.ids_status is None
+    assert accepted.ids_status == "ALERT"
+    assert blocked.ids_status == "ALERT"
+
+
 def test_script_rejects_size_line_and_interval_limit_violations() -> None:
     session = DoorBlackboxSession(session_id="test")
 

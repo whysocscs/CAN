@@ -24,11 +24,21 @@ function commit() {
   for (const listener of listeners) listener(snapshot)
 }
 
+function setParts(updates: Partial<VehicleState>) {
+  let changed = false
+  for (const id of PART_IDS) {
+    const ratio = updates[id]
+    if (ratio === undefined) continue
+    const next = Math.min(1, Math.max(0, ratio))
+    if (state[id] === next) continue
+    state[id] = next
+    changed = true
+  }
+  if (changed) commit()
+}
+
 function setPart(id: PartId, ratio: number) {
-  const next = Math.min(1, Math.max(0, ratio))
-  if (state[id] === next) return
-  state[id] = next
-  commit()
+  setParts({ [id]: ratio })
 }
 
 function doorIds(side: DoorSide): PartId[] {
@@ -49,15 +59,29 @@ function doorIds(side: DoorSide): PartId[] {
  * 프레임은 명령이 아니라 상태를 싣습니다. 프레임 하나가 항상 전체 상태를
  * 담고 있어야 재접속 시 복원이 정확합니다.
  */
-const openRatio = (byte: string | undefined) => (byte === "01" ? 0 : 1)
+const openRatio = (byte: string | undefined): number | null => {
+  if (byte === "00") return 1
+  if (byte === "01") return 0
+  return null
+}
 
-const COMMAND_BINDINGS: Partial<Record<CanCommand, (data: string[]) => void>> = {
+const COMMAND_BINDINGS: Partial<Record<CanCommand, (
+  data: string[],
+) => boolean>> = {
   DOOR_LOCK: (data) => {
+    if (data.length !== 1 && data.length !== 2 && data.length !== 4)
+      return false
     // 1바이트 구형 프레임은 양쪽 같은 값으로 해석합니다.
-    setPart("doorL", openRatio(data[0]))
-    setPart("doorR", openRatio(data.length >= 2 ? data[1] : data[0]))
+    const leftDoor = openRatio(data[0])
+    const rightDoor = openRatio(data.length >= 2 ? data[1] : data[0])
+    if (leftDoor === null || rightDoor === null) return false
+    setParts({ doorL: leftDoor, doorR: rightDoor })
+    return true
   },
-  TRUNK_OPEN: (data) => setPart("tailgate", data[0] === "01" ? 1 : 0),
+  TRUNK_OPEN: (data) => {
+    setPart("tailgate", data[0] === "01" ? 1 : 0)
+    return true
+  },
 }
 
 /** command 정보 없이 원시 프레임만 들어왔을 때 쓰는 CAN ID 매핑 */
@@ -77,8 +101,14 @@ function normalizeCanId(canId: string | number): string | null {
 /** ["01"] / "01" / "0x01" / "0100" 전부 받아서 ["01"] 형태로 정규화 */
 function normalizeData(data?: readonly string[] | string): string[] {
   if (!data) return []
-  const bytes = Array.isArray(data) ? [...data] : (String(data).match(/.{1,2}/g) ?? [])
-  return bytes.map((byte) => byte.replace(/^0x/i, "").toUpperCase().padStart(2, "0"))
+  const bytes = Array.isArray(data)
+    ? [...data]
+    : (String(data)
+        .replace(/^0x/i, "")
+        .match(/.{1,2}/g) ?? [])
+  return bytes.map((byte) =>
+    byte.replace(/^0x/i, "").toUpperCase().padStart(2, "0"),
+  )
 }
 
 // ---------------------------------------------------------------- 공개 API
@@ -141,6 +171,7 @@ export const vehicle = {
     ) {
       return false
     }
+    if (event.frame.dlc !== event.frame.data.length) return false
 
     const command = event.context.command
       ?? (normalizeCanId(event.frame.canId) ? CAN_ID_TO_COMMAND[normalizeCanId(event.frame.canId)!] : undefined)
@@ -150,8 +181,7 @@ export const vehicle = {
     const handler = COMMAND_BINDINGS[command]
     if (!handler) return false
 
-    handler(normalizeData(event.frame.data))
-    return true
+    return handler(normalizeData(event.frame.data))
   },
 
   /** 원시 프레임용. vehicle.applyFrame({ canId: "0x200", data: ["01"] }) */
@@ -165,8 +195,7 @@ export const vehicle = {
     const handler = COMMAND_BINDINGS[command]
     if (!handler) return false
 
-    handler(normalizeData(frame.data))
-    return true
+    return handler(normalizeData(frame.data))
   },
 
   /** `cansend vcan0 200#01` 문자열을 그대로 받는 편의 함수 */

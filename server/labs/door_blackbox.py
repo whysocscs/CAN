@@ -62,6 +62,7 @@ class TerminalResult:
     code: str
     output: str
     frames: tuple[FrameAttempt, ...] = ()
+    ids_status: str | None = None
 
 
 @dataclass(frozen=True)
@@ -150,8 +151,19 @@ class DoorBlackboxSession:
             result = self.run_script(normalized)
             attempt = result.attempts[0] if result.attempts else None
             if attempt is None:
-                return TerminalResult(False, result.error or "COMMAND_REJECTED", "invalid educational CAN frame")
-            return TerminalResult(attempt.accepted, attempt.verdict, attempt.verdict, (attempt,))
+                return TerminalResult(
+                    False,
+                    result.error or "COMMAND_REJECTED",
+                    "invalid educational CAN frame",
+                    ids_status=result.ids_status,
+                )
+            return TerminalResult(
+                attempt.accepted,
+                attempt.verdict,
+                attempt.verdict,
+                (attempt,),
+                result.ids_status,
+            )
         return TerminalResult(False, "COMMAND_REJECTED", "restricted lab shell: command is not allowed")
 
     def run_script(self, script: str) -> ScriptResult:

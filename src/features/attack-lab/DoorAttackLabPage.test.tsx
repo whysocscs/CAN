@@ -81,6 +81,37 @@ const captureResult: DoorLabTerminalResult = {
       verdict: "OBSERVED",
     },
   ],
+  state: {
+    ...initialSession,
+    stage: "분석",
+    messageContractStatus: "OBSERVED",
+    evidence: [{ kind: "capture", status: "observed" }],
+  },
+  idsStatus: null,
+}
+
+const acceptedTerminalResult: DoorLabTerminalResult = {
+  ok: true,
+  code: "EXECUTED",
+  output: "EXECUTED",
+  frames: [
+    {
+      attemptId: "session-1-attempt-terminal",
+      timestamp: MONITOR_TIMESTAMP,
+      canId: "0x555",
+      data: ["00", "01"],
+      verdict: "EXECUTED",
+    },
+  ],
+  state: {
+    ...initialSession,
+    stage: "IDS 검증",
+    messageContractStatus: "INFERRED",
+    vehicleState: { leftDoor: "open", rightDoor: "closed" },
+    evidence: [{ kind: "attempt", status: "recorded" }],
+    attemptCount: 1,
+  },
+  idsStatus: "ALERT",
 }
 
 const blockedRun: DoorLabScriptResult = {
@@ -251,6 +282,135 @@ describe("DoorAttackLabPage", () => {
     const inspector = screen.getByRole("region", { name: "Binary inspector" })
     expect(within(inspector).getByText("10100101")).toBeInTheDocument()
     expect(within(inspector).getByText("00000001")).toBeInTheDocument()
+  })
+
+  it("applies the authoritative capture state while keeping Toy IDS pending", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "cat baseline.log",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    const evidence = screen.getByRole("region", { name: "Evidence" })
+    await waitFor(() => {
+      expect(evidence).toHaveTextContent(/Stage\s*분석/)
+      expect(evidence).toHaveTextContent(/Toy IDS\s*PENDING/)
+      expect(evidence).toHaveTextContent(/Attempts\s*0/)
+      expect(evidence).toHaveTextContent("capture: observed")
+    })
+    expect(screen.getByText("Contract").closest("div")).toHaveTextContent(
+      "OBSERVED",
+    )
+  })
+
+  it("uses terminal state and IDS but leaves accepted vehicle and monitor ownership to the WebSocket", async () => {
+    const user = userEvent.setup()
+    api.runDoorLabCommand.mockResolvedValueOnce(acceptedTerminalResult)
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "cansend vcan0 555#0001",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    const evidence = screen.getByRole("region", { name: "Evidence" })
+    await waitFor(() => {
+      expect(evidence).toHaveTextContent(/Stage\s*IDS 검증/)
+      expect(evidence).toHaveTextContent(/Toy IDS\s*ALERT/)
+      expect(evidence).toHaveTextContent(/Attempts\s*1/)
+      expect(evidence).toHaveTextContent("attempt: recorded")
+    })
+    const monitor = screen.getByRole("region", { name: "Network monitor" })
+    expect(within(monitor).queryByText("EXECUTED")).not.toBeInTheDocument()
+    expect(vehicle.isOpen("doorL")).toBe(false)
+
+    act(() =>
+      latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
+    )
+    await flushCanEvents()
+
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(within(monitor).getAllByText("EXECUTED")).toHaveLength(1)
+    expect(
+      within(monitor).getAllByRole("button", {
+        name: /0x555 00 01 frame 선택/,
+      }),
+    ).toHaveLength(1)
+  })
+
+  it.each([
+    ["wrong session", { sessionId: "session-2", generation: 0 }],
+    ["wrong generation", { sessionId: "session-1", generation: 1 }],
+  ])(
+    "ignores every terminal UI mutation from a %s response",
+    async (label, correlation) => {
+      const user = userEvent.setup()
+      const output = `stale-${label.replace(" ", "-")}-output`
+      api.runDoorLabCommand.mockResolvedValueOnce({
+        ...captureResult,
+        output,
+        state: { ...captureResult.state, ...correlation },
+        idsStatus: "ALERT",
+      })
+      render(<DoorAttackLabPage />)
+      await screen.findByText("BODY ECU")
+
+      const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+      await user.type(input, "pwd")
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: "명령 실행" })).toBeEnabled(),
+      )
+
+      expect(input).toHaveValue("pwd")
+      expect(
+        screen.getByRole("region", { name: "Restricted terminal" }),
+      ).not.toHaveTextContent(output)
+      const evidence = screen.getByRole("region", { name: "Evidence" })
+      expect(evidence).toHaveTextContent(/Stage\s*정찰/)
+      expect(evidence).toHaveTextContent(/Toy IDS\s*PENDING/)
+      expect(evidence).toHaveTextContent(/Attempts\s*0/)
+      expect(screen.getByText("0 / 300")).toBeInTheDocument()
+    },
+  )
+
+  it("does not erase the last authoritative IDS verdict when capture has no IDS result", async () => {
+    const user = userEvent.setup()
+    api.runDoorLabCommand.mockResolvedValueOnce({
+      ...captureResult,
+      state: {
+        ...blockedRun.state,
+        messageContractStatus: "INFERRED",
+        evidence: [
+          { kind: "capture", status: "observed" },
+          { kind: "attempt", status: "recorded" },
+        ],
+      },
+      idsStatus: null,
+    })
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
+    const evidence = screen.getByRole("region", { name: "Evidence" })
+    await waitFor(() => expect(evidence).toHaveTextContent(/Toy IDS\s*ALERT/))
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "cat baseline.log",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    await waitFor(() => {
+      expect(evidence).toHaveTextContent(/Toy IDS\s*ALERT/)
+      expect(evidence).toHaveTextContent("capture: observed")
+    })
   })
 
   it("records rejected run attempts without changing the vehicle", async () => {

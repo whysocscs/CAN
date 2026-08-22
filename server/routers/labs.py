@@ -89,12 +89,14 @@ def _attempt_response(attempt: FrameAttempt) -> dict[str, object]:
     }
 
 
-def _terminal_response(result: TerminalResult) -> dict[str, object]:
+def _terminal_response(result: TerminalResult, state: dict[str, object]) -> dict[str, object]:
     return {
         "ok": result.ok,
         "code": result.code,
         "output": result.output,
         "frames": [_attempt_response(frame) for frame in result.frames],
+        "state": state,
+        "idsStatus": result.ids_status,
     }
 
 
@@ -187,18 +189,19 @@ async def terminal_command(
             int(session.public_state()["generation"]),
         )
         result = session.execute_terminal(request.command)
+        response_state = session.public_state()
     # Capture output contains observed frames, not executable frames.  Only the
     # ECU's explicit EXECUTED verdict can reach the shared vehicle event path.
     for attempt in result.frames:
-        if attempt.accepted:
+        if attempt.accepted and result.ids_status is not None:
             async with _lifecycle_lock:
                 if _is_active_attempt(request_correlation, attempt):
                     await emit_frame(
                         attempt.can_id,
                         list(attempt.data),
-                        **_metadata_for(session.session_id, attempt, "ALERT"),
+                        **_metadata_for(session.session_id, attempt, result.ids_status),
                     )
-    return _terminal_response(result)
+    return _terminal_response(result, response_state)
 
 
 @router.post("/sessions/{session_id}/run")
