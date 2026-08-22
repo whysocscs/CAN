@@ -192,9 +192,34 @@ def test_terminal_and_script_bounds_and_final_action_grammar_are_enforced() -> N
     ).code == "SCRIPT_ACTION_COUNT_INVALID"
 
     clean = _session("spoofing")
-    executed = clean.run_script("# one safe final action\ncansend vcan0 5A1#01")
+    executed = clean.run_script(
+        "   \n  # formatted comment is allowed  \n\ncansend vcan0 5A1#01"
+    )
     assert executed.code == "EXECUTED"
     assert executed.state["completed"] is True
+
+
+@pytest.mark.parametrize(
+    ("scenario", "action"),
+    [
+        ("spoofing", "cansend vcan0 5A1#01"),
+        ("replay", "canplayer -I capture.log -l 1"),
+    ],
+)
+def test_script_final_action_rejects_surrounding_whitespace(
+    scenario: str,
+    action: str,
+) -> None:
+    session = _session(scenario)
+    if scenario == "replay":
+        session.execute_terminal("candump -L vcan0 > capture.log")
+
+    result = session.run_script(f"  {action}  ")
+
+    assert result.ok is False
+    assert result.code == "SCRIPT_COMMAND_INVALID"
+    assert result.attempts == ()
+    assert result.state["completed"] is False
 
 
 def test_reset_increments_generation_clears_capture_and_never_reuses_opaque_ids() -> None:

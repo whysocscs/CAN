@@ -307,6 +307,11 @@ class BeginnerCanAttackSession:
             line = raw_line.strip()
             if not line or line.startswith("#"):
                 continue
+            if raw_line != line:
+                return self._script_error(
+                    "SCRIPT_COMMAND_INVALID",
+                    "script final action must use exact command whitespace",
+                )
             if self.spec.scenario == "spoofing" and _CANSEND_RE.fullmatch(line):
                 actions.append(line)
                 continue
