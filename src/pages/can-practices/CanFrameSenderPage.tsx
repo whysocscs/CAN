@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowClockwise,
   CaretDown,
@@ -14,6 +14,7 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react"
 import { FrameStructureVisual } from "@/components/learning/LessonVisuals"
+import "./CanFrameSender.css"
 
 type StepKey =
   | "command"
@@ -97,7 +98,7 @@ const STEP_OBSERVATIONS: Record<StepKey, string> = {
 }
 
 const STEP_SUBSTAGE_COUNT: Record<StepKey, number> = {
-  command: 6,
+  command: 10,
   frame: 6,
   socketcan: 5,
   filter: 4,
@@ -376,132 +377,121 @@ function StoppedScene({
   )
 }
 
-function StepCommandStage({
-  analysis,
-  substage,
-  onAdvance,
-}: {
+type CommandTimelineLayout = {
+  source: [number, number, number]
+  split: number
+  fieldGap: number
+  framePeek: number
+  moveUp: number
+}
+
+function StepCommandTimeline({ analysis, substage, onAdvance }: {
   analysis: RunAnalysis
   substage: number
   onAdvance: () => void
 }) {
-  const hasPayload = analysis.parsed.dataBytes.length > 0
-  const sceneIndex = Math.min(Math.max(substage, 1), 6)
+  const phase = Math.min(Math.max(substage, 1), STEP_SUBSTAGE_COUNT.command)
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const tokenRefs = [useRef<HTMLElement>(null), useRef<HTMLElement>(null), useRef<HTMLElement>(null)]
+  const idRef = useRef<HTMLElement>(null)
+  const dataRef = useRef<HTMLElement>(null)
+  const [layout, setLayout] = useState<CommandTimelineLayout | null>(null)
+  const [fieldX, setFieldX] = useState<[number, number] | null>(null)
 
-  if (sceneIndex === 1) {
-    return (
-      <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-        <div className="senderlab__command-intro is-on">
-          <small>입력 명령</small>
-          <code>{`${analysis.parsed.command} ${analysis.parsed.iface} ${analysis.parsed.frameExpression}`}</code>
-        </div>
-      </div>
-    )
-  }
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    const tokens = tokenRefs.map((ref) => ref.current)
+    const canId = idRef.current
+    const data = dataRef.current
+    if (!viewport || tokens.some((token) => !token) || !canId || !data) return
 
-  if (sceneIndex === 2) {
-    return (
-      <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-        <div className="senderlab__command-bridge is-on">
-          <div className="senderlab__command-intro senderlab__command-intro--bridge">
-            <small>입력 명령</small>
-            <code>{`${analysis.parsed.command} ${analysis.parsed.iface} ${analysis.parsed.frameExpression}`}</code>
-          </div>
-          <div className="senderlab__command-bridge-arrow" aria-hidden="true">
-            ⬇️
-          </div>
-        </div>
-        <div className="senderlab__command-line is-on senderlab__command-line--delayed">
-          <code className="senderlab__chunk senderlab__chunk--left">{analysis.parsed.command}</code>
-          <code className="senderlab__chunk senderlab__chunk--center">{analysis.parsed.iface}</code>
-          <code className="senderlab__chunk senderlab__chunk--right">{analysis.parsed.frameExpression}</code>
-        </div>
-        <div className="senderlab__command-guides is-on senderlab__command-guides--delayed">
-          <div>
-            <b>실행 명령</b>
-          </div>
-          <div>
-            <b>인터페이스</b>
-          </div>
-          <div>
-            <b>Frame Expression</b>
-          </div>
-        </div>
-      </div>
-    )
-  }
+    const measure = () => {
+      const viewportRect = viewport.getBoundingClientRect()
+      const widths = tokens.map((token) => token!.getBoundingClientRect().width)
+      const presentation = window.getComputedStyle(viewport)
+      const readPresentationNumber = (property: string) =>
+        Number.parseFloat(presentation.getPropertyValue(property))
+      const gap = readPresentationNumber("--step1-command-gap")
+      const fieldClearance = readPresentationNumber("--step1-field-clearance")
+      const framePeek = readPresentationNumber("--step1-frame-peek")
+      const moveUpRatio = readPresentationNumber("--step1-move-up-ratio")
+      const moveUpMax = readPresentationNumber("--step1-move-up-max")
+      const totalWidth = widths[0] + widths[1] + widths[2] + gap * 2
+      const start = -totalWidth / 2
+      const maxSplit = Math.max(0, (viewportRect.width - Math.max(...widths) - 32) / 2)
+      const preferredSplit = Math.max(widths[0], widths[2]) / 2 + widths[1] / 2 + gap * 2
+      const fieldWidths = [canId.getBoundingClientRect().width, data.getBoundingClientRect().width]
+      setLayout({
+        source: [start + widths[0] / 2, start + widths[0] + gap + widths[1] / 2, start + widths[0] + widths[1] + gap * 2 + widths[2] / 2],
+        split: Math.min(maxSplit, preferredSplit),
+        fieldGap: Math.min(Math.max(0, (viewportRect.width - Math.max(...fieldWidths) - 32) / 2), Math.max(...fieldWidths) / 2 + fieldClearance),
+        framePeek,
+        moveUp: Math.min(moveUpMax, viewportRect.height * moveUpRatio),
+      })
+    }
 
-  if (sceneIndex === 3) {
-    return (
-      <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-        <div className="senderlab__command-fade is-on">
-          <div className="is-dimmed senderlab__focus-lane senderlab__focus-lane--left">
-            <code>{analysis.parsed.command}</code>
-            <small>실행 명령</small>
-          </div>
-          <div className="is-dimmed senderlab__focus-lane senderlab__focus-lane--center">
-            <code>{analysis.parsed.iface}</code>
-            <small>인터페이스</small>
-          </div>
-          <div className="is-focused senderlab__focus-lane senderlab__focus-lane--right">
-            <code>{analysis.parsed.frameExpression}</code>
-            <small>Frame Expression</small>
-          </div>
-        </div>
-      </div>
-    )
-  }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(viewport)
+    return () => observer.disconnect()
+  }, [analysis.parsed.command, analysis.parsed.iface, analysis.parsed.frameExpression])
 
-  if (sceneIndex === 4) {
-    return (
-      <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-        <div className="senderlab__expression-focus is-on">
-          <code className="senderlab__expression-part senderlab__expression-part--id">
-            {analysis.parsed.canIdRaw}
-          </code>
-          <span className="senderlab__expression-divider">#</span>
-          <code className="senderlab__expression-part senderlab__expression-part--data">
-            {analysis.parsed.payloadHex || "EMPTY"}
-          </code>
-        </div>
-        <div className="senderlab__expression-guides is-on">
-          <span>CAN ID</span>
-          <span>DATA</span>
-        </div>
-      </div>
-    )
-  }
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current
+    const canId = idRef.current
+    const data = dataRef.current
+    if (phase < 8 || !viewport || !canId || !data) {
+      setFieldX(null)
+      return
+    }
 
-  if (sceneIndex === 5) {
-    return (
-      <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-        <div className="senderlab__parse-summary is-on">
-          <div>
-            <small>CAN ID</small>
-            <code>{analysis.parsed.canId}</code>
-          </div>
-          <div>
-            <small>DATA</small>
-            <code>{formatPayload(analysis.parsed.dataBytes)}</code>
-          </div>
-        </div>
-      </div>
-    )
+    let animationFrame = 0
+    let stopTimer = 0
+    const syncFieldX = () => {
+      const viewportCenter = viewport.getBoundingClientRect().left + viewport.clientWidth / 2
+      const next: [number, number] = [
+        canId.getBoundingClientRect().left + canId.getBoundingClientRect().width / 2 - viewportCenter,
+        data.getBoundingClientRect().left + data.getBoundingClientRect().width / 2 - viewportCenter,
+      ]
+      setFieldX((current) =>
+        current && Math.abs(current[0] - next[0]) < 0.5 && Math.abs(current[1] - next[1]) < 0.5
+          ? current
+          : next,
+      )
+      animationFrame = window.requestAnimationFrame(syncFieldX)
+    }
+
+    syncFieldX()
+    stopTimer = window.setTimeout(() => window.cancelAnimationFrame(animationFrame), 1400)
+    return () => {
+      window.cancelAnimationFrame(animationFrame)
+      window.clearTimeout(stopTimer)
+    }
+  }, [phase, layout])
+
+  const transform = (index: number) => {
+    if (!layout) return "translate(-50%, -50%)"
+    const x = phase === 1 ? layout.source[index] : phase >= 6 && index === 2 ? 0 : (index - 1) * layout.split
+    const y = phase >= 3 && phase <= 5 ? -layout.moveUp : 0
+
+    return `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`
   }
 
   return (
-    <div className="senderlab__scene senderlab__scene--command senderlab__scene--command-single">
-      <div className="senderlab__command-complete is-on">
-        <strong>STEP 1 COMPLETE</strong>
-        <p>
-          CAN ID = {analysis.parsed.canId}
-          <br />
-          DATA = {hasPayload ? formatPayload(analysis.parsed.dataBytes) : "EMPTY"}
-        </p>
-        <button type="button" onClick={onAdvance}>
-          STEP 2 이동
-        </button>
-      </div>
+    <div ref={viewportRef} className={`senderlab__scene senderlab__command-timeline is-phase-${phase}`}>
+      <code ref={tokenRefs[0]} className="senderlab__timeline-token senderlab__timeline-token--command" style={{ transform: transform(0) }}>{analysis.parsed.command}</code>
+      <code ref={tokenRefs[1]} className="senderlab__timeline-token senderlab__timeline-token--interface" style={{ transform: transform(1) }}>{analysis.parsed.iface}</code>
+      <code ref={tokenRefs[2]} className="senderlab__timeline-token senderlab__timeline-token--frame" style={{ transform: transform(2) }}>
+        <span ref={idRef} className="senderlab__timeline-id" style={{ transform: phase >= 7 && layout ? `translateX(${-layout.fieldGap}px)` : "translateX(0)" }}>{analysis.parsed.canIdRaw}</span>
+        <span className="senderlab__timeline-divider" style={{ transform: "translateX(0)" }}>#</span>
+        <span ref={dataRef} className="senderlab__timeline-data" style={{ transform: phase >= 7 && layout ? `translateX(${layout.fieldGap}px)` : "translateX(0)" }}>{analysis.parsed.payloadHex || "EMPTY"}</span>
+      </code>
+      {(["Command", "Interface", "Frame expression"] as const).map((label, index) => (
+        <div key={label} className={`senderlab__timeline-guide senderlab__timeline-guide--${index}`} style={{ transform: transform(index) }}><i /><span>{label}</span></div>
+      ))}
+      <div className="senderlab__timeline-field senderlab__timeline-field--id" style={fieldX ? { left: `calc(50% + ${fieldX[0]}px)`, transform: "translateX(-50%)" } : undefined}><i /><strong>CAN ID</strong><code>0x{analysis.parsed.canIdRaw}</code></div>
+      <div className="senderlab__timeline-field senderlab__timeline-field--data" style={fieldX ? { left: `calc(50% + ${fieldX[1]}px)`, transform: "translateX(-50%)" } : undefined}><i /><strong>DATA</strong><code>{analysis.parsed.payloadHex || "EMPTY"}</code></div>
+      <div className="senderlab__timeline-complete"><strong>STEP 1 COMPLETE</strong><button type="button" onClick={onAdvance}>STEP 2 이동</button></div>
     </div>
   )
 }
@@ -798,19 +788,19 @@ function StepStage({
 }) {
   switch (stepKey) {
     case "command":
-      return <StepCommandStage analysis={analysis} substage={substage} onAdvance={onAdvance} />
+      return <StepCommandTimeline analysis={analysis} substage={substage} onAdvance={onAdvance} />
     case "frame":
       return <StepFrameStage analysis={analysis} substage={substage} />
     case "socketcan":
       return <StepSocketStage analysis={analysis} substage={substage} />
-    case "filter":
-      return <StepFilterStage analysis={analysis} substage={substage} />
-    case "message":
-      return <StepMessageStage analysis={analysis} substage={substage} />
-    case "payload":
-      return <StepPayloadStage analysis={analysis} substage={substage} />
-    case "result":
-      return <StepResultStage analysis={analysis} substage={substage} />
+    //case "filter":
+      //return <StepFilterStage analysis={analysis} substage={substage} />
+    //case "message":
+      //return <StepMessageStage analysis={analysis} substage={substage} />
+    //case "payload":
+      //return <StepPayloadStage analysis={analysis} substage={substage} />
+    //case "result":
+      //return <StepResultStage analysis={analysis} substage={substage} />
   }
 }
 
@@ -829,7 +819,10 @@ export default function CanFrameSenderPage() {
 
   const progress = analysis ? Math.round(((currentStepIndex + 1) / STEP_SEQUENCE.length) * 100) : 0
   const canMovePrev = currentStepIndex > 0
-  const canMoveNext = !!analysis && currentStepIndex < STEP_SEQUENCE.length - 1
+  const canMoveNext =
+    !!analysis &&
+    currentStepIndex < STEP_SEQUENCE.length - 1 &&
+    (currentStep.key !== "command" || substage >= STEP_SUBSTAGE_COUNT.command)
   const currentObservation = useMemo(
     () => getObservation(currentStep.key, analysis),
     [analysis, currentStep.key],
@@ -867,6 +860,12 @@ export default function CanFrameSenderPage() {
 
   const advanceViewport = () => {
     if (!analysis) return
+    if (currentStep.key === "command") {
+      if (substage < STEP_SUBSTAGE_COUNT.command) {
+        setSubstage((current) => current + 1)
+      }
+      return
+    }
     const maxSubstage = STEP_SUBSTAGE_COUNT[currentStep.key]
 
     if (substage < maxSubstage) {
@@ -973,11 +972,21 @@ export default function CanFrameSenderPage() {
               <div className="canlab__vehicle-stage senderstage">
                 <div
                   className={`senderstage__canvas senderstage__canvas--single ${analysis ? "is-clickable" : ""}`}
-                  onClick={advanceViewport}
+                  onClick={(event) => {
+                    const interactiveTarget = event.target instanceof Element
+                      ? event.target.closest("button, a, input, select, textarea, [role='button']")
+                      : null
+                    if (interactiveTarget && interactiveTarget !== event.currentTarget) return
+                    advanceViewport()
+                  }}
                   role={analysis ? "button" : undefined}
                   tabIndex={analysis ? 0 : undefined}
                   onKeyDown={(event) => {
                     if (!analysis) return
+                    const interactiveTarget = event.target instanceof Element
+                      ? event.target.closest("button, a, input, select, textarea, [role='button']")
+                      : null
+                    if (interactiveTarget && interactiveTarget !== event.currentTarget) return
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault()
                       advanceViewport()

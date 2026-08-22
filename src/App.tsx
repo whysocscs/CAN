@@ -12,7 +12,7 @@ import AttackPracticePage, {
 } from "@/pages/AttackPracticePage"
 import ModelManagerPage from "@/pages/ModelManagerPage"
 import CanPracticeOnlyPage from "@/pages/CanPracticeOnlyPage"
-import CanFrameSenderPage from "@/pages/CanFrameSenderPage"
+import CanFrameSenderPage from "@/pages/can-practices/CanFrameSenderPage"
 import ScaffoldPage, { type ScaffoldPageContent } from "@/pages/ScaffoldPage"
 import ECUPage from "@/pages/can-basics/ECUPage"
 import FramePage from "@/pages/can-basics/FramePage"
