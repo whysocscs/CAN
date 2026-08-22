@@ -2078,6 +2078,25 @@ html[data-design-version='ver4'] .senderlab {
   border-top: 1px solid #e2e8f0;
 }
 
+.senderlab__terminal-output .senderlab__command-form {
+  grid-template-columns: auto minmax(0, 1fr);
+  height: auto;
+  padding: 4px 0 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.senderlab__terminal-output .senderlab__command-form label,
+.senderlab__terminal-output .senderlab__command-form input {
+  color: #d8fbe3;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 11px;
+}
+
+.senderlab__terminal-output .senderlab__command-form input::placeholder {
+  color: rgba(216, 251, 227, .52);
+}
+
 .senderlab__terminal-output {
   display: grid;
   gap: 6px;
