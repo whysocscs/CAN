@@ -1,5 +1,134 @@
 /* CAN Frame Sender page-only styles */
 
+/* Keep the shared guide shell while making the sender's active mission compact. */
+.senderlab__learning-steps article > button:disabled {
+  cursor: default;
+  opacity: .48;
+}
+
+.senderlab__current-mission {
+  padding-top: 13px;
+}
+
+.senderlab__current-mission article {
+  margin-top: 0;
+}
+
+.senderlab__current-mission article > div {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.senderlab__current-mission article > div > p {
+  margin: 0;
+}
+
+.senderlab__current-mission article > div > p:first-child > strong {
+  color: #1e293b;
+  font-size: 11px;
+}
+
+.senderlab__mission-task {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #dbe5f1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.senderlab__mission-task p,
+.senderlab__mission-task small {
+  margin: 0;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.senderlab__mission-task > strong {
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.senderlab__mission-task code {
+  color: #1d4ed8;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 10px;
+}
+
+.senderlab__mission-complete {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.senderlab__mission-options {
+  display: grid;
+  gap: 6px;
+}
+
+.senderlab__mission-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 1px solid #dbe5f1;
+  border-radius: 7px;
+  background: #fff;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+button.senderlab__mission-option {
+  cursor: pointer;
+}
+
+.senderlab__mission-option:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.senderlab__mission-option:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.senderlab__mission-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.senderlab__mission-chip {
+  padding: 6px 8px;
+  border: 1px solid #dbe5f1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.senderlab__mission-chip:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.senderlab__mission-chip:disabled {
+  opacity: .52;
+}
+
 /* STEP 1 keeps one set of command tokens mounted while their positions change. */
 .senderlab__command-flow {
   position: absolute;
@@ -1940,8 +2069,7 @@
 }
 
 .senderlab__guide {
-  display: grid;
-  gap: 16px;
+  display: block;
 }
 
 .senderlab__guide-card {

@@ -4,6 +4,7 @@ import {
   CaretDown,
   CaretLeft,
   CaretRight,
+  Check,
   Code,
   Keyboard,
   List,
@@ -155,8 +156,8 @@ const LEARNING_STAGE_CONFIG: Array<{
   command: string
   details: string[]
 }> = [
-  { index: 1, title: "도어 잠금 해제 메시지 송신", shortTitle: "도어 잠금 해제", command: "cansend vcan0 101#01", details: ["1-1 명령어 구조 확인", "1-2 전달 과정 확인"] },
-  { index: 2, title: "도어 잠금 메시지 송신", shortTitle: "도어 잠금", command: "cansend vcan0 101#00", details: ["이전 CAN Frame과 비교"] },
+  { index: 1, title: "도어 잠금 해제 메시지 송신", shortTitle: "도어 잠금 해제", command: "cansend vcan0 101#00", details: ["1-1 명령어 구조 확인", "1-2 전달 과정 확인"] },
+  { index: 2, title: "도어 잠금 메시지 송신", shortTitle: "도어 잠금", command: "cansend vcan0 101#01", details: ["이전 CAN Frame과 비교"] },
   { index: 3, title: "Rear ECU 트렁크 열기", shortTitle: "Rear ECU 트렁크", command: "cansend vcan0 301#01", details: ["대상 ECU 예측", "명령어 직접 구성"] },
   { index: 4, title: "Dashboard 표시값 변경", shortTitle: "Dashboard 표시값", command: "cansend vcan0 201#32", details: ["최종 미션"] },
 ]
@@ -227,8 +228,8 @@ const MESSAGE_DEFINITIONS: Record<string, MessageDefinition> = {
     ecu: "Body ECU",
     name: "BODY_COMMAND",
     values: {
-      "00": "DOOR_LOCK",
-      "01": "UNLOCK",
+      "00": "UNLOCK",
+      "01": "DOOR_LOCK",
     },
   },
   "0x102": {
@@ -340,12 +341,12 @@ function parseCansendCommand(input: string): ParsedCommand {
   const trimmed = input.trim()
 
   if (!trimmed) {
-    throw new Error('명령이 비어 있습니다. 예: "cansend vcan0 101#01"')
+    throw new Error('명령이 비어 있습니다. 예: "cansend vcan0 101#00"')
   }
 
   const parts = trimmed.split(/\s+/)
   if (parts.length !== 3) {
-    throw new Error('형식이 올바르지 않습니다. 예: "cansend vcan0 101#01"')
+    throw new Error('형식이 올바르지 않습니다. 예: "cansend vcan0 101#00"')
   }
 
   const [command, iface, frameExpression] = parts
@@ -355,7 +356,7 @@ function parseCansendCommand(input: string): ParsedCommand {
   }
 
   if (!frameExpression.includes("#")) {
-    throw new Error('frame expression에 "#" 구분자가 필요합니다. 예: "101#01"')
+    throw new Error('frame expression에 "#" 구분자가 필요합니다. 예: "101#00"')
   }
 
   const [canIdRaw, payloadHexRaw] = frameExpression.split("#")
@@ -956,14 +957,14 @@ function StepStage({
 }
 
 export default function CanFrameSenderPage() {
-  const [terminalCommand, setTerminalCommand] = useState("cansend vcan0 101#01")
+  const [terminalCommand, setTerminalCommand] = useState("cansend vcan0 101#00")
   const [analysis, setAnalysis] = useState<RunAnalysis | null>(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [substage, setSubstage] = useState(0)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [lastSubmittedCommand, setLastSubmittedCommand] = useState("cansend vcan0 101#01")
+  const [lastSubmittedCommand, setLastSubmittedCommand] = useState("cansend vcan0 101#00")
   const [learningStage, setLearningStage] = useState<LearningStage>(1)
-  const [unlockedLearningStage, setUnlockedLearningStage] = useState<LearningStage>(1)
+  const [unlockedLearningStage, setUnlockedLearningStage] = useState<LearningStage>(4)
   const [completedLearningStages, setCompletedLearningStages] = useState<LearningStage[]>([])
   const [learningProgress, setLearningProgress] = useState({
     unlockCommand: false,
@@ -1038,7 +1039,7 @@ export default function CanFrameSenderPage() {
 
     if (learningStage < 4) {
       const nextStage = (learningStage + 1) as LearningStage
-      setUnlockedLearningStage(nextStage)
+      setUnlockedLearningStage(4)
       setLearningStage(nextStage)
     } else {
       setLearningMessage("모든 실습 단계를 완료했습니다.")
@@ -1125,7 +1126,7 @@ export default function CanFrameSenderPage() {
         }`,
         `[result] ${analysis.finalResult}`,
       ]
-    : ['입력 대기 중... 예: "cansend vcan0 101#01"']
+    : ['입력 대기 중... 예: "cansend vcan0 101#00"']
 
   return (
     <main className="canlab canlab--embedded senderlab-page" aria-label="CAN Frame 송신기 실습">
@@ -1251,7 +1252,7 @@ export default function CanFrameSenderPage() {
                     <div className="senderlab__idle-stage">
                       <strong>아직 실행된 명령이 없습니다.</strong>
                       <p>
-                        아래 Terminal에서 <code>cansend vcan0 101#01</code> 같은 명령을 입력하고
+                        아래 Terminal에서 <code>cansend vcan0 101#00</code> 같은 명령을 입력하고
                         Enter를 누르면 이 위치에서 단계별 애니메이션이 시작됩니다.
                       </p>
                     </div>
@@ -1313,7 +1314,7 @@ export default function CanFrameSenderPage() {
                       id="senderlab-command"
                       value={terminalCommand}
                       onChange={(event) => setTerminalCommand(event.target.value)}
-                      placeholder="cansend vcan0 101#01"
+                      placeholder="cansend vcan0 101#00"
                       autoComplete="off"
                     />
                   </form>
@@ -1345,7 +1346,16 @@ export default function CanFrameSenderPage() {
                 </i>
               </div>
 
-              <section className="canlab__status-box">
+              <section className="canlab__objectives">
+                <h1>학습 목표</h1>
+                <ol>
+                  <li><code>cansend</code> 명령어를 해석하여 <strong>CAN ID와 DATA가 어떤 의미를 가지는지 이해한다.</strong></li>
+                  <li>입력한 값이 <strong>CAN Frame의 ID·DLC·DATA 필드로 구성되는 과정을 파악한다.</strong></li>
+                  <li>생성된 CAN Frame이 <strong>CAN Bus를 통해 대상 ECU로 전달되고 실제 동작으로 이어지는 흐름을 이해한다.</strong></li>
+                </ol>
+              </section>
+
+              <section className="canlab__steps senderlab__learning-steps" aria-label="단계별 학습 지시사항">
                 <h2>단계별 학습 지시사항</h2>
                 {LEARNING_STAGE_CONFIG.map((stage) => {
                   const isLocked = stage.index > unlockedLearningStage
@@ -1353,45 +1363,36 @@ export default function CanFrameSenderPage() {
                   const isCompleted = completedLearningStages.includes(stage.index)
 
                   return (
-                    <button
-                      key={stage.index}
-                      type="button"
-                      disabled={isLocked}
-                      onClick={() => setLearningStage(stage.index)}
-                      style={{
-                        width: "100%",
-                        marginTop: 6,
-                        padding: "8px 10px",
-                        border: isActive ? "1px solid #5DCAA5" : "1px solid rgba(148, 163, 184, .22)",
-                        borderRadius: 10,
-                        background: isActive ? "rgba(93, 202, 165, .12)" : "transparent",
-                        color: isLocked ? "#94A3B8" : "#F8FAFC",
-                        cursor: isLocked ? "not-allowed" : "pointer",
-                        opacity: isLocked ? .5 : 1,
-                        textAlign: "left",
-                      }}
-                    >
-                      <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong>{stage.index}. {stage.shortTitle}</strong>
-                        <small style={{ color: "inherit" }}>{isLocked ? "🔒" : isCompleted ? "완료" : "진행 중"}</small>
-                      </span>
-                    </button>
+                    <article className={isActive ? "is-current" : isCompleted ? "is-done" : ""} key={stage.index}>
+                      <button type="button" disabled={isLocked} onClick={() => setLearningStage(stage.index)}>
+                        <span>{isLocked ? "🔒" : isCompleted ? <Check size={13} weight="bold" /> : stage.index}</span>
+                        <strong>{stage.shortTitle}</strong>
+                        <CaretRight size={14} />
+                      </button>
+                    </article>
                   )
                 })}
               </section>
 
-              <section className="canlab__status-box">
+              <section className="canlab__steps senderlab__current-mission">
                 <h2>현재 미션</h2>
-                <p><strong>{currentLearning.title}</strong></p>
+                <article className="is-current">
+                  <div>
+                    <p><strong>{currentLearning.title}</strong></p>
 
                 {learningStage === 1 && (
                   <>
-                    <p>도어 잠금 해제 메시지를 전송하세요.</p>
-                    <code>cansend vcan0 101#01</code>
-                    <strong style={{ display: "block", marginTop: 14 }}>1-1. <code>101#01</code>에서 <code>101</code>과 <code>01</code>은 각각 무엇을 의미합니까?</strong>
-                    <div role="radiogroup" style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                      {["CAN ID 101 / DATA 01", "DATA 101 / CAN ID 01", "둘 다 CAN ID", "둘 다 DATA"].map((choice, index) => (
-                        <label key={choice} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", border: "1px solid rgba(148, 163, 184, .22)", borderRadius: 9, opacity: learningProgress.unlockCommand ? 1 : .5 }}>
+                    {!learningProgress.unlockCommand && <div className="senderlab__mission-task">
+                      <p>도어 잠금 해제 메시지를 전송하세요.</p>
+                      <code>cansend vcan0 101#00</code>
+                    </div>}
+                    {learningProgress.unlockCommand && <p className="senderlab__mission-complete">✓ 도어 잠금 해제 메시지 전송</p>}
+                    {learningProgress.unlockCommand && !learningProgress.structureQuiz && (
+                      <div className="senderlab__mission-task">
+                    <strong>1-1. <code>101#00</code>에서 <code>101</code>과 <code>00</code>은 각각 무엇을 의미합니까?</strong>
+                    <div className="senderlab__mission-options" role="radiogroup">
+                      {["CAN ID 101 / DATA 00", "DATA 101 / CAN ID 00", "둘 다 CAN ID", "둘 다 DATA"].map((choice, index) => (
+                        <label className="senderlab__mission-option" key={choice}>
                           <input
                             type="radio"
                             name="frame-structure"
@@ -1405,9 +1406,14 @@ export default function CanFrameSenderPage() {
                         </label>
                       ))}
                     </div>
-                    <strong style={{ display: "block", marginTop: 14 }}>1-2. 전달 순서 맞추기</strong>
+                      </div>
+                    )}
+                    {learningProgress.structureQuiz && <p className="senderlab__mission-complete">✓ 명령어 구조 확인</p>}
+                    {learningProgress.structureQuiz && !learningProgress.routeQuiz && (
+                      <div className="senderlab__mission-task">
+                    <strong>1-2. 전달 순서 맞추기</strong>
                     <small>카드를 올바른 순서로 선택하세요. {routePosition}/{LEARNING_ROUTE_ORDER.length}</small>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    <div className="senderlab__mission-chips">
                       {LEARNING_ROUTE_CHOICES.map((choice) => (
                         <button
                           key={choice}
@@ -1424,12 +1430,15 @@ export default function CanFrameSenderPage() {
                             setLearningProgress((current) => ({ ...current, routeQuiz: nextPosition === LEARNING_ROUTE_ORDER.length }))
                             setLearningMessage(nextPosition === LEARNING_ROUTE_ORDER.length ? "전달 순서를 모두 맞췄습니다." : "다음 전달 단계를 선택하세요.")
                           }}
-                          style={{ padding: "7px 9px", borderRadius: 999, border: "1px solid rgba(148, 163, 184, .25)", background: "rgba(15, 23, 42, .25)" }}
+                          className="senderlab__mission-chip"
                         >
                           {choice}
                         </button>
                       ))}
                     </div>
+                      </div>
+                    )}
+                    {learningProgress.routeQuiz && <p className="senderlab__mission-complete">✓ 전달 과정 확인</p>}
                   </>
                 )}
 
@@ -1481,67 +1490,92 @@ export default function CanFrameSenderPage() {
 
                 {learningStage === 2 && (
                   <>
-                    <p><code>cansend vcan0 101#00</code>을 전송한 뒤 이전 Frame과 비교하세요.</p>
-                    <p><code>101#01 → Door Unlock</code><br /><code>101#00 → Door Lock</code></p>
+                    {!learningProgress.lockCommand && <div className="senderlab__mission-task">
+                      <p><code>cansend vcan0 101#01</code>을 전송한 뒤 이전 Frame과 비교하세요.</p>
+                      <p><code>101#00 → Door Unlock</code><br /><code>101#01 → Door Lock</code></p>
+                    </div>}
+                    {learningProgress.lockCommand && <p className="senderlab__mission-complete">✓ 도어 잠금 메시지 전송</p>}
+                    {learningProgress.lockCommand && !learningProgress.comparisonQuiz && (
+                      <div className="senderlab__mission-task">
                     <strong>이전 메시지와 비교했을 때 어떤 값이 변경되었습니까?</strong>
-                    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
-                      {["CAN ID와 DATA 모두 변경", "CAN ID는 동일하고 DATA가 01에서 00으로 변경", "DATA는 동일하고 CAN ID만 변경"].map((choice, index) => (
-                        <button key={choice} type="button" disabled={!learningProgress.lockCommand} onClick={() => {
+                    <div className="senderlab__mission-options">
+                      {["CAN ID와 DATA 모두 변경", "CAN ID는 동일하고 DATA가 00에서 01으로 변경", "DATA는 동일하고 CAN ID만 변경"].map((choice, index) => (
+                        <button className="senderlab__mission-option" key={choice} type="button" disabled={!learningProgress.lockCommand} onClick={() => {
                           setLearningProgress((current) => ({ ...current, comparisonQuiz: index === 1 }))
                           setLearningMessage(index === 1 ? "정답입니다. 같은 CAN ID도 DATA에 따라 동작이 달라집니다." : "다시 비교하세요. CAN ID 101은 동일합니다.")
                         }}>{choice}</button>
                       ))}
                     </div>
+                      </div>
+                    )}
+                    {learningProgress.comparisonQuiz && <p className="senderlab__mission-complete">✓ 이전 CAN Frame 비교</p>}
                   </>
                 )}
 
                 {learningStage === 3 && (
                   <>
-                    <p>Target ECU: <strong>Rear ECU</strong><br />CAN ID: <code>0x301</code><br />DATA: <code>01</code><br />Action: <code>TRUNK_OPEN</code></p>
+                    <div className="senderlab__mission-task">
+                      <p>Target ECU: <strong>Rear ECU</strong><br />CAN ID: <code>0x301</code><br />DATA: <code>01</code><br />Action: <code>TRUNK_OPEN</code></p>
+                    </div>
+                    {!learningProgress.rearPrediction && (
+                      <div className="senderlab__mission-task">
                     <strong><code>301#01</code>은 어느 ECU로 전달될 것으로 예상합니까?</strong>
-                    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                    <div className="senderlab__mission-options">
                       {["Body ECU", "Rear ECU", "Dashboard ECU"].map((choice) => (
-                        <button key={choice} type="button" onClick={() => {
+                        <button className="senderlab__mission-option" key={choice} type="button" onClick={() => {
                           const correct = choice === "Rear ECU"
                           setLearningProgress((current) => ({ ...current, rearPrediction: correct }))
                           setLearningMessage(correct ? "정답입니다. 이제 cansend 형식으로 명령을 직접 구성하세요." : "다시 확인하세요. 0x301은 Rear ECU의 교육용 CAN ID입니다.")
                         }}>{choice}</button>
                       ))}
                     </div>
-                    <p style={{ marginTop: 12 }}>지금까지 학습한 cansend 형식으로 Rear ECU에 트렁크 열기 메시지를 전송하세요.</p>
+                      </div>
+                    )}
+                    {learningProgress.rearPrediction && <p className="senderlab__mission-complete">✓ 대상 ECU 예측</p>}
+                    {learningProgress.rearPrediction && !learningProgress.rearCommand && (
+                      <div className="senderlab__mission-task">
+                        <p>지금까지 학습한 cansend 형식으로 Rear ECU에 트렁크 열기 메시지를 전송하세요.</p>
+                      </div>
+                    )}
+                    {learningProgress.rearCommand && <p className="senderlab__mission-complete">✓ Rear ECU 트렁크 열기 메시지 전송</p>}
                   </>
                 )}
 
                 {learningStage === 4 && (
                   <>
-                    <p>Dashboard ECU의 표시값을 <strong>50</strong>으로 변경하세요.</p>
-                    <p>Dashboard CAN ID: <code>0x201</code><br />50(decimal): <code>0x32</code><br />표시값은 DATA에 입력합니다.</p>
+                    {!learningProgress.dashboardCommand && <div className="senderlab__mission-task">
+                      <p>Dashboard ECU의 표시값을 <strong>50</strong>으로 변경하세요.</p>
+                      <p>Dashboard CAN ID: <code>0x201</code><br />50(decimal): <code>0x32</code><br />표시값은 DATA에 입력합니다.</p>
+                    </div>}
+                    {learningProgress.dashboardCommand && <p className="senderlab__mission-complete">✓ Dashboard 표시값 변경</p>}
+                    {learningProgress.dashboardCommand && !learningProgress.dashboardQuiz && (
+                      <div className="senderlab__mission-task">
                     <strong>Dashboard ECU를 결정하는 값과 실제 표시값을 결정하는 값은 무엇입니까?</strong>
-                    <div style={{ display: "grid", gap: 6, marginTop: 8 }}>
+                    <div className="senderlab__mission-options">
                       {["대상 ECU = CAN ID 0x201, 표시값 = DATA 0x32", "대상 ECU = DATA 0x32, 표시값 = CAN ID 0x201", "둘 다 DLC가 결정"].map((choice, index) => (
-                        <button key={choice} type="button" disabled={!learningProgress.dashboardCommand} onClick={() => {
+                        <button className="senderlab__mission-option" key={choice} type="button" disabled={!learningProgress.dashboardCommand} onClick={() => {
                           setLearningProgress((current) => ({ ...current, dashboardQuiz: index === 0 }))
                           setLearningMessage(index === 0 ? "정답입니다. 모든 실습 단계를 완료했습니다." : "다시 확인하세요. 대상은 CAN ID, 표시값은 DATA가 결정합니다.")
                         }}>{choice}</button>
                       ))}
                     </div>
+                      </div>
+                    )}
+                    {learningProgress.dashboardQuiz && <p className="senderlab__mission-complete">✓ Dashboard 값 구분</p>}
                   </>
                 )}
 
                 {learningMessage && <p style={{ marginTop: 12 }}><strong>{learningMessage}</strong></p>}
-                <button
-                  type="button"
-                  disabled={!canCompleteLearningStage || completedLearningStages.includes(learningStage)}
-                  onClick={completeLearningStage}
-                  style={{
-                    width: "100%", marginTop: 14, padding: 10, border: 0, borderRadius: 10,
-                    background: canCompleteLearningStage ? "#5DCAA5" : "rgba(148, 163, 184, .2)",
-                    color: canCompleteLearningStage ? "#04342C" : "#94A3B8",
-                    fontWeight: 800, cursor: canCompleteLearningStage ? "pointer" : "not-allowed",
-                  }}
-                >
-                  단계 완료
-                </button>
+                {completedLearningStages.includes(learningStage) && <p className="senderlab__mission-complete">✓ {learningStage}단계 완료</p>}
+                    <button
+                      type="button"
+                      disabled={!canCompleteLearningStage || completedLearningStages.includes(learningStage)}
+                      onClick={completeLearningStage}
+                    >
+                      단계 완료 <CaretRight size={13} weight="bold" />
+                    </button>
+                  </div>
+                </article>
               </section>
             </div>
           </aside>
