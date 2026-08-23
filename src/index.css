@@ -717,12 +717,34 @@
 .canlab__monitor-row:hover { background: #f8fafc; }
 .canlab__monitor-row.is-selected { background: #eff6ff; box-shadow: inset 2px 0 0 #2563eb; }
 .canlab__empty-state { margin: 12px 0 0; color: #64748b; font-size: 10px; line-height: 1.6; }
-.canlab__inspector-pane dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
-.canlab__inspector-pane dl > div { display: block; margin: 0; padding: 9px; border-radius: 7px; background: #f8fafc; }
-.canlab__inspector-pane dt { color: #94a3b8; font-size: 9px; }
-.canlab__inspector-pane dd { margin: 3px 0 0; color: #334155; font-family: "JetBrains Mono Variable", monospace; font-size: 11px; font-weight: 700; }
-.canlab__inspector-section + .canlab__inspector-section { margin-top: 14px; }
-.canlab__inspector-section h3 { margin: 0 0 9px; color: #475569; font-size: 11px; font-weight: 800; }
+.canlab__inspector-pane { display: grid; gap: 14px; padding: 14px 18px; overflow: auto; }
+.canlab__inspector-pane > .canlab__inspector-header,
+.canlab__inspector-pane > .canlab__inspector-section { display: block; margin: 0; }
+.canlab__inspector-header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+.canlab__inspector-header strong { color: #0f172a; font-family: "JetBrains Mono Variable", monospace; font-size: 14px; }
+.canlab__inspector-header span { color: #64748b; font-size: 10px; }
+.canlab__inspector-section { min-width: 0; }
+.canlab__inspector-section h3 { margin: 0 0 8px; color: #475569; font-size: 10px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.canlab__inspector-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; }
+.canlab__inspector-summary > div { display: grid; gap: 4px; min-width: 0; padding: 9px 11px; border-left: 1px solid #e2e8f0; background: #fbfdff; }
+.canlab__inspector-summary > div:first-child { border-left: 0; }
+.canlab__inspector-summary span { color: #94a3b8; font-size: 8px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+.canlab__inspector-summary strong { overflow: hidden; color: #0f766e; font-family: "JetBrains Mono Variable", monospace; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.canlab__frame-layout { display: grid; grid-template-columns: .55fr 1.5fr .7fr .7fr .85fr 1.25fr 1fr .8fr .75fr; gap: 3px; margin-top: 10px; }
+.canlab__frame-layout > * { display: grid; min-width: 0; min-height: 35px; place-items: center; padding: 5px; border: 1px solid #dbe5f1; border-radius: 4px; background: #f8fafc; color: #94a3b8; font-family: "JetBrains Mono Variable", monospace; font-size: 8px; font-weight: 700; text-align: center; }
+.canlab__frame-layout > strong { border-color: #8ab8aa; background: #eaf7f1; color: #0f766e; font-size: 10px; }
+.canlab__route-diagram { display: grid; grid-template-columns: minmax(100px, .8fr) minmax(105px, 1fr) minmax(100px, .8fr); align-items: center; gap: 10px; }
+.canlab__route-node { padding: 10px; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; color: #334155; font-family: "JetBrains Mono Variable", monospace; font-size: 10px; font-weight: 800; text-align: center; }
+.canlab__route-link { display: grid; grid-template-columns: 1fr auto 18px; align-items: center; gap: 5px; color: #0f766e; font-size: 9px; font-weight: 800; }
+.canlab__route-link::before { height: 2px; background: #5aa58f; content: ""; }
+.canlab__route-link::after { color: #0f766e; content: "→"; font-size: 17px; line-height: 1; }
+.canlab__route-action { display: grid; gap: 3px; margin-top: 8px; padding-left: 12px; border-left: 2px solid #5aa58f; }
+.canlab__route-action strong { color: #0f766e; font-family: "JetBrains Mono Variable", monospace; font-size: 11px; }
+.canlab__route-action span { color: #64748b; font-size: 9px; }
+.canlab__processing-status { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 9px 11px; border-top: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; }
+.canlab__processing-status span { color: #64748b; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; text-transform: uppercase; }
+.canlab__processing-status strong { position: relative; margin-left: 4px; padding-left: 9px; color: #0f766e; font-size: 10px; }
+.canlab__processing-status strong::before { position: absolute; top: 50%; left: 0; width: 5px; height: 5px; border-radius: 50%; background: #34b487; content: ""; transform: translateY(-50%); }
 .canlab__inspector-placeholder { display: grid; gap: 8px; color: #475569; font-size: 10px; line-height: 1.6; }
 .canlab__inspector-placeholder strong { color: #0f172a; font-size: 12px; }
 
@@ -985,6 +1007,13 @@ html[data-design-version='ver4'] .canlab--embedded .canlab__side-progress i {
   .canlab__vehicle-stage { height: 330px; }
   .canlab__panel-bar { align-items: flex-start; flex-direction: column; gap: 6px; }
   .canlab__vehicle-controls { justify-content: flex-start; }
+  .canlab__inspector-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .canlab__inspector-summary > div:nth-child(odd) { border-left: 0; }
+  .canlab__inspector-summary > div:nth-child(n + 3) { border-top: 1px solid #e2e8f0; }
+  .canlab__route-diagram { grid-template-columns: 1fr; gap: 7px; }
+  .canlab__route-link { grid-template-columns: 1fr auto; }
+  .canlab__route-link::before { width: 2px; height: 15px; justify-self: center; }
+  .canlab__route-link::after { content: "↓"; font-size: 15px; }
 }
 
 @media (max-width: 480px) {
@@ -1001,6 +1030,9 @@ html[data-design-version='ver4'] .canlab--embedded .canlab__side-progress i {
   .canlab__tabs button { flex: none; padding: 0 11px; }
   .canlab__data-pane { overflow-x: auto; }
   .canlab__data-pane table { min-width: 560px; }
+  .canlab__inspector-pane { padding-inline: 12px; }
+  .canlab__inspector-header { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .canlab__frame-layout { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {

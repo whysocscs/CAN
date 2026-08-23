@@ -1377,38 +1377,51 @@ export default function CanPracticeOnlyPage() {
                 >
                   {inspectorEvent ? (
                     <>
-                      <div>
+                      <header className="canlab__inspector-header">
                         <strong>Frame {inspectorEvent.frame.canId}</strong>
                         <span>{getEventUi(inspectorEvent)?.ui.title ?? "Selected CAN Event"}</span>
-                      </div>
-                      <div className="canlab__inspector-section">
+                      </header>
+                      <section className="canlab__inspector-section canlab__inspector-frame">
                         <h3>CAN Frame</h3>
-                        <dl>
-                          <div><dt>CAN ID</dt><dd>{inspectorEvent.frame.canId}</dd></div>
-                          <div><dt>DLC</dt><dd>{inspectorEvent.frame.dlc}</dd></div>
-                          <div><dt>DATA</dt><dd>{formatData(inspectorEvent.frame.data)}</dd></div>
-                          <div><dt>Channel</dt><dd>{inspectorEvent.channel}</dd></div>
-                        </dl>
-                      </div>
-                      <div className="canlab__inspector-section">
+                        <div className="canlab__inspector-summary" aria-label="CAN frame summary">
+                          <div><span>CAN ID</span><strong>{inspectorEvent.frame.canId}</strong></div>
+                          <div><span>DLC</span><strong>{inspectorEvent.frame.dlc}</strong></div>
+                          <div><span>DATA</span><strong>{formatData(inspectorEvent.frame.data)}</strong></div>
+                          <div><span>Channel</span><strong>{inspectorEvent.channel}</strong></div>
+                        </div>
+                        <div className="canlab__frame-layout" aria-label="Classical CAN Frame structure">
+                          <span>SOF</span>
+                          <strong>{inspectorEvent.frame.canId}</strong>
+                          <span>RTR</span>
+                          <span>IDE</span>
+                          <strong>{inspectorEvent.frame.dlc}</strong>
+                          <strong>{formatData(inspectorEvent.frame.data)}</strong>
+                          <span>CRC</span>
+                          <span>ACK</span>
+                          <span>EOF</span>
+                        </div>
+                      </section>
+                      <section className="canlab__inspector-section canlab__inspector-context">
                         <h3>Simulation Context</h3>
-                        <dl>
-                          <div><dt>Source</dt><dd>{getNodeLabel(inspectorEvent.context.source)}</dd></div>
-                          <div><dt>Target</dt><dd>{getNodeLabel(inspectorEvent.context.target)}</dd></div>
-                          <div><dt>Route</dt><dd>{inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</dd></div>
-                          <div><dt>Meaning</dt><dd>{inspectorEvent.context.meaning ?? "-"}</dd></div>
-                          <div><dt>Action</dt><dd>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</dd></div>
-                        </dl>
-                      </div>
-                      <div className="canlab__inspector-section">
+                        <div className="canlab__route-diagram">
+                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.source)}</div>
+                          <div className="canlab__route-link"><span>CAN Bus</span></div>
+                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.target)}</div>
+                        </div>
+                        <div className="canlab__route-action">
+                          <strong>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</strong>
+                          <span>{inspectorEvent.context.meaning ?? "-"} · {inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</span>
+                        </div>
+                      </section>
+                      <section className="canlab__inspector-section canlab__inspector-processing">
                         <h3>Processing</h3>
-                        <dl>
-                          <div><dt>Filter</dt><dd>{inspectorEvent.processing?.filterResult ?? "-"}</dd></div>
-                          <div><dt>Result</dt><dd>{inspectorEvent.processing?.executionResult ?? "-"}</dd></div>
-                          <div><dt>IDS</dt><dd>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</dd></div>
-                          <div><dt>Origin</dt><dd>{inspectorEvent.origin}</dd></div>
-                        </dl>
-                      </div>
+                        <div className="canlab__processing-status">
+                          <span>Filter <strong>{inspectorEvent.processing?.filterResult ?? "-"}</strong></span>
+                          <span>IDS <strong>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</strong></span>
+                          <span>Result <strong>{inspectorEvent.processing?.executionResult ?? "-"}</strong></span>
+                          <span>Origin <strong>{inspectorEvent.origin}</strong></span>
+                        </div>
+                      </section>
                     </>
                   ) : (
                     <div className="canlab__inspector-placeholder">
