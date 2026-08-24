@@ -381,7 +381,7 @@
   pointer-events: none;
   white-space: nowrap;
 }
-.vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% + 48px); text-align: right; }
+.vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% + 49px); text-align: right; }
 .vehicle-network-viewport__callout[data-placement="effect-high-right"] { bottom: calc(100% + 23px); left: calc(50% + 10px); }
 .vehicle-network-viewport__callout::after {
   position: absolute;
@@ -390,7 +390,7 @@
   border-top: 1px solid var(--vehicle-route-accent);
   content: "";
 }
-.vehicle-network-viewport__callout[data-placement="target-far-left"]::after { right: -48px; width: 55px; transform: rotate(13deg); transform-origin: left; }
+.vehicle-network-viewport__callout[data-placement="target-far-left"]::after { right: -49px; width: 56px; transform: rotate(13deg); transform-origin: left; }
 .vehicle-network-viewport__callout[data-placement="effect-high-right"]::after { left: -18px; transform: rotate(-32deg); transform-origin: right; }
 .vehicle-network-viewport__callout strong { font-size: 9px; font-weight: 800; }
 .vehicle-network-viewport__callout small { color: #d8e2ef; font-size: 7px; font-weight: 650; letter-spacing: .01em; }
@@ -541,6 +541,17 @@
   .vehicle-network-viewport__canvas { order: 2; height: 380px; min-height: 380px; flex: none; }
   .vehicle-network-viewport__target-map { order: 3; border-top: 1px solid var(--dal-line, var(--border-default, #d7dde5)); border-bottom: 0; }
   .vehicle-network-viewport__callout { min-width: 104px; padding: 4px 6px; }
+  .vehicle-network-viewport__callout[data-camera-focused="true"] { transform: scale(.52); }
+  .vehicle-network-viewport__callout[data-camera-focused="true"][data-placement="target-far-left"] {
+    right: calc(50% + 5px);
+    transform-origin: right bottom;
+  }
+  .vehicle-network-viewport__callout[data-camera-focused="true"][data-placement="target-far-left"]::after {
+    right: -12px;
+    width: 19px;
+    transform: rotate(32deg);
+  }
+  .vehicle-network-viewport__callout[data-camera-focused="true"][data-placement="effect-high-right"] { transform-origin: left bottom; }
   .vehicle-network-viewport__hint { bottom: auto; top: 370px; }
   .door-attack-lab__secondary { grid-template-columns: minmax(0, 1fr); }
   .door-attack-lab__learning { grid-template-columns: 1fr 1fr; }

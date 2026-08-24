@@ -219,6 +219,22 @@ describe("VehicleNetworkViewport", () => {
       "GLB Left Door영향 부위",
     ])
 
+    await user.click(screen.getByRole("button", { name: "Target ECU" }))
+    expect(
+      within(canvas).getAllByTestId("vehicle-topology-callout")[0],
+    ).toHaveAttribute("data-camera-focused", "true")
+    expect(
+      within(canvas).getAllByTestId("vehicle-topology-callout")[1],
+    ).not.toHaveAttribute("data-camera-focused")
+
+    await user.click(screen.getByRole("button", { name: "영향 부위" }))
+    expect(
+      within(canvas).getAllByTestId("vehicle-topology-callout")[0],
+    ).not.toHaveAttribute("data-camera-focused")
+    expect(
+      within(canvas).getAllByTestId("vehicle-topology-callout")[1],
+    ).toHaveAttribute("data-camera-focused", "true")
+
     view.rerender(
       <VehicleNetworkViewport
         route={["obd", "ids", "gateway", "body", "leftDoor"]}

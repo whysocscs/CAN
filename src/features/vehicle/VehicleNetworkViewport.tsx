@@ -202,11 +202,13 @@ function TopologyPin({
   accent,
   active,
   calloutKind,
+  cameraFocused,
 }: {
   node: VehicleTopologyNode
   accent: string
   active: boolean
   calloutKind?: TopologyCalloutKind
+  cameraFocused: boolean
 }) {
   return (
     <Html position={node.anchor} center distanceFactor={7.2} sprite>
@@ -229,6 +231,7 @@ function TopologyPin({
             data-placement={
               calloutKind === "target" ? "target-far-left" : "effect-high-right"
             }
+            data-camera-focused={cameraFocused ? "true" : undefined}
             data-testid="vehicle-topology-callout"
             aria-hidden="true"
           >
@@ -249,12 +252,14 @@ function TopologyOverlay({
   nodes,
   accent,
   activeNodeId,
+  cameraFocusedNodeId,
   targetId,
   effectId,
 }: {
   nodes: readonly VehicleTopologyNode[]
   accent: string
   activeNodeId?: VehicleTopologyNodeId
+  cameraFocusedNodeId?: VehicleTopologyNodeId
   targetId: VehicleLogicalNodeId
   effectId: VehicleEffectTargetId
 }) {
@@ -276,6 +281,7 @@ function TopologyOverlay({
           node={node}
           accent={accent}
           active={node.id === activeNodeId}
+          cameraFocused={node.id === cameraFocusedNodeId}
           calloutKind={
             node.id === targetId
               ? "target"
@@ -521,6 +527,7 @@ export default function VehicleNetworkViewport({
                 nodes={routeNodes}
                 accent={accent}
                 activeNodeId={activeNodeId}
+                cameraFocusedNodeId={focusedId}
                 targetId={targetId}
                 effectId={effectId}
               />
