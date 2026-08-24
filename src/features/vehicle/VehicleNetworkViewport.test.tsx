@@ -152,6 +152,87 @@ describe("VehicleNetworkViewport", () => {
     ).toBeInTheDocument()
   })
 
+  it("renders exactly the scenario target and effect as visual-only door callouts", () => {
+    renderDoorViewport()
+
+    const canvas = screen.getByTestId("canvas-boundary")
+    const callouts = within(canvas).getAllByTestId("vehicle-topology-callout")
+
+    expect(callouts).toHaveLength(2)
+    expect(
+      callouts.map((callout) => callout.getAttribute("data-kind")),
+    ).toEqual(["target", "effect"])
+    expect(callouts[0]).toHaveTextContent("Toy Body ECU")
+    expect(callouts[0]).toHaveTextContent("Target ECU · 교육용 위치")
+    expect(callouts[1]).toHaveTextContent("GLB Left Door")
+    expect(callouts[1]).toHaveTextContent("영향 부위")
+    expect(
+      callouts.every(
+        (callout) => callout.getAttribute("aria-hidden") === "true",
+      ),
+    ).toBe(true)
+    expect(within(canvas).queryByText("Toy Rear ECU")).not.toBeInTheDocument()
+    expect(within(canvas).queryByText("GLB Tailgate")).not.toBeInTheDocument()
+  })
+
+  it("switches spoofing callouts to the rear target and tailgate effect only", () => {
+    renderDoorViewport({
+      route: ["obd", "ids", "gateway", "rear", "tailgate"],
+      targetId: "rear",
+      effectId: "tailgate",
+      scenarioTitle: "Spoofing route",
+    })
+
+    const canvas = screen.getByTestId("canvas-boundary")
+    const callouts = within(canvas).getAllByTestId("vehicle-topology-callout")
+
+    expect(callouts).toHaveLength(2)
+    expect(callouts[0]).toHaveAttribute("data-kind", "target")
+    expect(callouts[0]).toHaveTextContent("Toy Rear ECU")
+    expect(callouts[0]).toHaveTextContent("Target ECU · 교육용 위치")
+    expect(callouts[1]).toHaveAttribute("data-kind", "effect")
+    expect(callouts[1]).toHaveTextContent("GLB Tailgate")
+    expect(callouts[1]).toHaveTextContent("영향 부위")
+    expect(within(canvas).queryByText("Toy Body ECU")).not.toBeInTheDocument()
+    expect(within(canvas).queryByText("GLB Left Door")).not.toBeInTheDocument()
+  })
+
+  it("keeps callout identity independent of camera and focused node changes", async () => {
+    const user = userEvent.setup()
+    const view = renderDoorViewport()
+    const canvas = screen.getByTestId("canvas-boundary")
+    const calloutCopy = () =>
+      within(canvas)
+        .getAllByTestId("vehicle-topology-callout")
+        .map((callout) => callout.textContent)
+
+    expect(calloutCopy()).toEqual([
+      "Toy Body ECUTarget ECU · 교육용 위치",
+      "GLB Left Door영향 부위",
+    ])
+
+    await user.click(screen.getByRole("button", { name: "진입점" }))
+    expect(calloutCopy()).toEqual([
+      "Toy Body ECUTarget ECU · 교육용 위치",
+      "GLB Left Door영향 부위",
+    ])
+
+    view.rerender(
+      <VehicleNetworkViewport
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        targetId="body"
+        effectId="leftDoor"
+        focusedNodeId="ids"
+        scenarioTitle="Door spoofing route"
+        accent="#d94b4b"
+      />,
+    )
+    expect(calloutCopy()).toEqual([
+      "Toy Body ECUTarget ECU · 교육용 위치",
+      "GLB Left Door영향 부위",
+    ])
+  })
+
   it("changes focus presets and resets without remounting Canvas", async () => {
     const user = userEvent.setup()
     renderDoorViewport()

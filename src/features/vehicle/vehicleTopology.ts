@@ -10,6 +10,7 @@ interface VehicleTopologyNodeBase {
   id: VehicleTopologyNodeId
   number: number
   label: string
+  calloutLabel?: string
   role: string
   anchor: VehicleAnchor
   truthDetail: string
@@ -67,6 +68,7 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     id: "body",
     number: 4,
     label: "Toy Body ECU",
+    calloutLabel: "Toy Body ECU",
     role: "도어 상태 프레임 처리",
     anchor: [0.67, 0.73, -0.54],
     kind: "logical",
@@ -77,6 +79,7 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     id: "rear",
     number: 4,
     label: "Toy Rear ECU",
+    calloutLabel: "Toy Rear ECU",
     role: "테일게이트 상태 프레임 처리",
     anchor: [0.56, 0.6, -1.58],
     kind: "logical",
@@ -87,6 +90,7 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     id: "leftDoor",
     number: 5,
     label: "Left Door Effect",
+    calloutLabel: "GLB Left Door",
     role: "GLB 왼쪽 문 상태 표현",
     anchor: HINGES.doorL.pivot,
     kind: "effect",
@@ -97,6 +101,7 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     id: "tailgate",
     number: 5,
     label: "Tailgate Effect",
+    calloutLabel: "GLB Tailgate",
     role: "GLB 테일게이트 상태 표현",
     anchor: HINGES.tailgate.pivot,
     kind: "effect",

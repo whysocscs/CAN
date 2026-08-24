@@ -61,6 +61,7 @@ interface NodeCameraFocus {
 }
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
+type TopologyCalloutKind = "target" | "effect"
 
 interface OrbitControlsState {
   target: THREE.Vector3
@@ -200,21 +201,42 @@ function TopologyPin({
   node,
   accent,
   active,
+  calloutKind,
 }: {
   node: VehicleTopologyNode
   accent: string
   active: boolean
+  calloutKind?: TopologyCalloutKind
 }) {
   return (
     <Html position={node.anchor} center distanceFactor={7.2} sprite>
       <span
-        className="vehicle-network-viewport__pin"
-        data-active={active}
-        data-testid="vehicle-topology-pin"
+        className="vehicle-network-viewport__marker"
         style={{ "--vehicle-route-accent": accent } as CSSProperties}
-        aria-hidden="true"
       >
-        {node.number}
+        <span
+          className="vehicle-network-viewport__pin"
+          data-active={active}
+          data-testid="vehicle-topology-pin"
+          aria-hidden="true"
+        >
+          {node.number}
+        </span>
+        {calloutKind && node.calloutLabel ? (
+          <span
+            className="vehicle-network-viewport__callout"
+            data-kind={calloutKind}
+            data-testid="vehicle-topology-callout"
+            aria-hidden="true"
+          >
+            <strong>{node.calloutLabel}</strong>
+            <small>
+              {calloutKind === "target"
+                ? "Target ECU · 교육용 위치"
+                : "영향 부위"}
+            </small>
+          </span>
+        ) : null}
       </span>
     </Html>
   )
@@ -224,10 +246,14 @@ function TopologyOverlay({
   nodes,
   accent,
   activeNodeId,
+  targetId,
+  effectId,
 }: {
   nodes: readonly VehicleTopologyNode[]
   accent: string
   activeNodeId?: VehicleTopologyNodeId
+  targetId: VehicleLogicalNodeId
+  effectId: VehicleEffectTargetId
 }) {
   return (
     <group rotation={MODEL_ROTATION}>
@@ -247,6 +273,13 @@ function TopologyOverlay({
           node={node}
           accent={accent}
           active={node.id === activeNodeId}
+          calloutKind={
+            node.id === targetId
+              ? "target"
+              : node.id === effectId
+                ? "effect"
+                : undefined
+          }
         />
       ))}
     </group>
@@ -485,6 +518,8 @@ export default function VehicleNetworkViewport({
                 nodes={routeNodes}
                 accent={accent}
                 activeNodeId={activeNodeId}
+                targetId={targetId}
+                effectId={effectId}
               />
             </Suspense>
           </VehicleErrorBoundary>

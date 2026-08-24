@@ -52,4 +52,18 @@ describe("vehicle topology contract", () => {
       /driver footwell|B-pillar|centre tunnel|center tunnel|rear floor|운전석 발밑|B필러|센터 터널|리어 플로어/i,
     )
   })
+
+  it("maps compact callout labels only to scenario targets and effects", () => {
+    expect(
+      VEHICLE_TOPOLOGY.map(({ id, calloutLabel }) => [id, calloutLabel]),
+    ).toEqual([
+      ["obd", undefined],
+      ["ids", undefined],
+      ["gateway", undefined],
+      ["body", "Toy Body ECU"],
+      ["rear", "Toy Rear ECU"],
+      ["leftDoor", "GLB Left Door"],
+      ["tailgate", "GLB Tailgate"],
+    ])
+  })
 })
