@@ -381,8 +381,8 @@
   pointer-events: none;
   white-space: nowrap;
 }
-.vehicle-network-viewport__callout[data-kind="target"] { right: calc(50% + 10px); text-align: right; }
-.vehicle-network-viewport__callout[data-kind="effect"] { left: calc(50% + 10px); }
+.vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% + 54px); text-align: right; }
+.vehicle-network-viewport__callout[data-placement="effect-near-right"] { left: calc(50% + 10px); }
 .vehicle-network-viewport__callout::after {
   position: absolute;
   top: calc(100% + 6px);
@@ -390,8 +390,8 @@
   border-top: 1px solid var(--vehicle-route-accent);
   content: "";
 }
-.vehicle-network-viewport__callout[data-kind="target"]::after { right: -18px; transform: rotate(32deg); transform-origin: left; }
-.vehicle-network-viewport__callout[data-kind="effect"]::after { left: -18px; transform: rotate(-32deg); transform-origin: right; }
+.vehicle-network-viewport__callout[data-placement="target-far-left"]::after { right: -54px; width: 61px; transform: rotate(13deg); transform-origin: left; }
+.vehicle-network-viewport__callout[data-placement="effect-near-right"]::after { left: -18px; transform: rotate(-32deg); transform-origin: right; }
 .vehicle-network-viewport__callout strong { font-size: 9px; font-weight: 800; }
 .vehicle-network-viewport__callout small { color: #d8e2ef; font-size: 7px; font-weight: 650; letter-spacing: .01em; }
 .vehicle-network-viewport__status { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid #cbd3dd; background: rgba(255,255,255,.94); color: #445066; font-family: "Noto Sans KR Variable", sans-serif; font-size: 10px; white-space: nowrap; }

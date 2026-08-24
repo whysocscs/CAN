@@ -226,6 +226,9 @@ function TopologyPin({
           <span
             className="vehicle-network-viewport__callout"
             data-kind={calloutKind}
+            data-placement={
+              calloutKind === "target" ? "target-far-left" : "effect-near-right"
+            }
             data-testid="vehicle-topology-callout"
             aria-hidden="true"
           >

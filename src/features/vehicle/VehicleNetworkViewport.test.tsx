@@ -164,8 +164,10 @@ describe("VehicleNetworkViewport", () => {
     ).toEqual(["target", "effect"])
     expect(callouts[0]).toHaveTextContent("Toy Body ECU")
     expect(callouts[0]).toHaveTextContent("Target ECU · 교육용 위치")
+    expect(callouts[0]).toHaveAttribute("data-placement", "target-far-left")
     expect(callouts[1]).toHaveTextContent("GLB Left Door")
     expect(callouts[1]).toHaveTextContent("영향 부위")
+    expect(callouts[1]).toHaveAttribute("data-placement", "effect-near-right")
     expect(
       callouts.every(
         (callout) => callout.getAttribute("aria-hidden") === "true",
