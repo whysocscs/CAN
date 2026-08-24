@@ -55,6 +55,11 @@ const AppContext = createContext<AppContextType | null>(null)
 
 const canStoryHashes = new Set([
   "#why-can",
+  "#shared-bus",
+  "#message-based",
+  "#bus-access",
+  "#reliability",
+  // Legacy deep links remain valid and are remapped inside CanBasicsStory.
   "#dominant-recessive",
   "#arbitration",
   "#frame",

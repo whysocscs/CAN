@@ -70,25 +70,32 @@ const frameStepGroups = [
 ] as const
 
 export function WhyCanVisual({ step }: { step: number }) {
-  const state = step === 0 ? "separate" : step === 1 ? "converging" : "shared"
+  const state = step === 0 ? "separate" : "shared"
   const facts =
     [
       [
-        ["연결 방식", "ECU 간 직접 연결"],
-        ["배선 변화", "노드마다 증가"],
-        ["결과", "확장 복잡"],
+        ["연결 방식", "신호별 전용 배선"],
+        ["신호 증가", "배선 · 연결 지점 증가"],
+        ["결과", "확장 · 유지보수 복잡"],
       ],
       [
-        ["연결 방식", "짧은 분기선"],
-        ["공용선", "CAN_H · CAN_L"],
-        ["변화", "하나의 경로"],
+        ["연결 방식", "공용 Bus"],
+        ["연결 대상", "여러 ECU"],
+        ["효과", "개별 신호 배선 감소"],
       ],
       [
-        ["프레임", "0x101"],
-        ["모든 ECU", "프레임 수신"],
-        ["Body ECU", "0x101 처리"],
+        ["네트워크", "CAN Bus"],
+        ["참여 노드", "여러 ECU"],
+        ["통신 방식", "공용 통신망"],
       ],
     ][step] ?? []
+
+  const description =
+    step === 0
+      ? "Body, Dashboard, Engine, Brake ECU 사이에 RPM, Door Status, Brake Warning 등 신호별 전용 배선이 교차해 연결됩니다."
+      : step === 1
+        ? "동일한 네 ECU가 하나의 공용 CAN Bus에 짧은 분기선으로 연결됩니다."
+        : "동일한 네 ECU가 하나의 공용 CAN 통신망에 참여합니다."
 
   return (
     <div className="can-visual can-visual--why" data-topology={state}>
@@ -98,20 +105,24 @@ export function WhyCanVisual({ step }: { step: number }) {
         aria-labelledby="why-can-visual-title why-can-visual-description"
       >
         <title id="why-can-visual-title">
-          ECU 배선이 공용 CAN Bus로 수렴하는 과정
+          신호별 전용 배선이 공용 CAN Bus와 Frame 전달 구조로 정리되는 과정
         </title>
         <desc id="why-can-visual-description">
-          개별 연결에서는 ECU 사이에 많은 배선이 필요하지만 CAN에서는 네 ECU가
-          CAN H와 CAN L 두 선을 함께 사용합니다.
+          {description}
         </desc>
 
         <g className="can-why__legacy-wires" aria-hidden="true">
-          <path d="M154 104 C300 72 458 70 606 104" />
-          <path d="M154 104 C286 164 462 294 606 350" />
-          <path d="M154 350 C286 290 462 164 606 104" />
-          <path d="M154 350 C300 382 458 382 606 350" />
-          <path d="M154 104 C204 210 204 246 154 350" />
-          <path d="M606 104 C556 210 556 246 606 350" />
+          <path d="M194 92 C310 54 450 56 566 92" />
+          <path d="M194 112 C322 168 438 280 566 338" />
+          <path d="M566 132 C450 178 310 274 194 318" />
+          <path d="M194 338 C314 374 446 374 566 338" />
+          <path d="M178 140 C232 210 232 250 178 314" />
+          <g className="can-why__wire-labels">
+            <text x="380" y="66" textAnchor="middle">DOOR STATUS</text>
+            <text x="430" y="194" textAnchor="middle">BRAKE WARNING</text>
+            <text x="334" y="292" textAnchor="middle">RPM</text>
+            <text x="380" y="390" textAnchor="middle">VEHICLE SIGNAL</text>
+          </g>
         </g>
 
         <g className="can-why__branches" aria-hidden="true">
@@ -125,27 +136,33 @@ export function WhyCanVisual({ step }: { step: number }) {
           <line x1="188" y1="220" x2="572" y2="220" />
           <line x1="188" y1="240" x2="572" y2="240" />
           <text x="380" y="194" textAnchor="middle">
-            SHARED CAN BUS
+            CAN BUS
           </text>
           <text x="380" y="274" textAnchor="middle">
-            CAN_H · CAN_L
+            SHARED NETWORK
           </text>
         </g>
 
         <g className="can-why__broadcast" aria-hidden="true">
-          <rect x="330" y="208" width="100" height="44" rx="3" />
-          <text x="380" y="235" textAnchor="middle">
+          <rect x="324" y="198" width="112" height="64" rx="3" />
+          <text x="380" y="223" textAnchor="middle" className="can-why__frame-title">
+            CAN Frame
+          </text>
+          <text x="380" y="244" textAnchor="middle">
             ID 0x101
           </text>
         </g>
 
         {[
           { x: 46, y: 68, title: "Body ECU", detail: "Door · Lamp" },
-          { x: 566, y: 68, title: "Dashboard", detail: "Speed · RPM" },
-          { x: 46, y: 314, title: "Gateway", detail: "Routing" },
-          { x: 566, y: 314, title: "IDS ECU", detail: "Detection" },
+          { x: 566, y: 68, title: "Dashboard ECU", detail: "Display · Warning" },
+          { x: 46, y: 314, title: "Engine ECU", detail: "RPM · Torque" },
+          { x: 566, y: 314, title: "Brake ECU", detail: "Brake · ABS" },
         ].map((node) => (
-          <g key={node.title} className="can-why__node">
+          <g
+            key={node.title}
+            className="can-why__node"
+          >
             <rect x={node.x} y={node.y} width="148" height="72" rx="3" />
             <text x={node.x + 16} y={node.y + 29}>
               {node.title}
@@ -159,6 +176,9 @@ export function WhyCanVisual({ step }: { step: number }) {
             </text>
           </g>
         ))}
+        <text x="380" y="434" textAnchor="middle" className="can-why__caption">
+          {step === 0 ? "개별 신호 배선 개념도" : "공용 CAN Bus 개념도"}
+        </text>
       </svg>
       <div className="can-why__facts" aria-live="polite">
         {facts.map(([label, value]) => (
@@ -170,10 +190,272 @@ export function WhyCanVisual({ step }: { step: number }) {
       </div>
       <p className="can-visual__state" aria-live="polite">
         {step === 0 &&
-          "개별 연결: 장치가 늘수록 배선 경로가 빠르게 증가합니다."}
-        {step === 1 && "수렴 중: 각 ECU의 송수신 선이 하나의 경로로 모입니다."}
+          "개별 신호 배선에서는 기능이 늘수록 필요한 배선과 연결 지점도 함께 증가합니다."}
+        {step === 1 &&
+          "각 ECU는 별도의 장거리 신호선 대신 공용 CAN Bus에 연결됩니다."}
         {step === 2 &&
-          "0x101을 모든 ECU가 수신하고, 해당 ID를 사용하는 Body ECU만 처리합니다."}
+          "같은 CAN Bus에 연결된 ECU들이 하나의 통신망을 함께 사용합니다. 그렇다면 이 공용 Bus는 누가 관리할까요?"}
+      </p>
+    </div>
+  )
+}
+
+const protocolNodes = [
+  { x: 42, y: 54, title: "Body ECU", detail: "Door · Lamp" },
+  { x: 568, y: 54, title: "Dashboard ECU", detail: "Display · Warning" },
+  { x: 42, y: 326, title: "Engine ECU", detail: "RPM · Torque" },
+  { x: 568, y: 326, title: "Brake ECU", detail: "Brake · ABS" },
+] as const
+
+function ProtocolBusNetwork({
+  mode,
+}: {
+  mode: "multi-master" | "sending" | "observing" | "message"
+}) {
+  return (
+    <svg viewBox="0 0 760 460" aria-hidden="true">
+      <g className="can-protocol__branches">
+        <path d="M190 90 H222 V220" />
+        <path d="M568 90 H538 V220" />
+        <path d="M190 362 H222 V240" />
+        <path d="M568 362 H538 V240" />
+      </g>
+      <g className="can-protocol__bus">
+        <line x1="188" y1="220" x2="572" y2="220" />
+        <line x1="188" y1="240" x2="572" y2="240" />
+        <text x="380" y="198" textAnchor="middle">CAN BUS</text>
+        <text x="380" y="273" textAnchor="middle">
+          {mode === "multi-master" ? "MULTI-MASTER · NO CENTRAL MASTER" : "SHARED BUS"}
+        </text>
+      </g>
+      {protocolNodes.map((node, index) => {
+        const sending = mode === "sending" && index === 2
+        const interested = mode === "message" && (index === 0 || index === 3)
+        return (
+          <g
+            key={node.title}
+            className={`can-protocol__node${sending ? " is-sending" : ""}${
+              interested ? " is-interested" : ""
+            }`}
+          >
+            <rect x={node.x} y={node.y} width="150" height="72" rx="3" />
+            <text x={node.x + 16} y={node.y + 29}>{node.title}</text>
+            <text x={node.x + 16} y={node.y + 51} className="can-protocol__detail">
+              {node.detail}
+            </text>
+            {mode === "observing" && (
+              <text x={node.x + 75} y={node.y + 91} textAnchor="middle" className="can-protocol__status">
+                BUS 관찰
+              </text>
+            )}
+            {sending && (
+              <text x={node.x + 75} y={node.y + 91} textAnchor="middle" className="can-protocol__status">
+                SEND
+              </text>
+            )}
+            {mode === "message" && (
+              <text x={node.x + 75} y={node.y + 91} textAnchor="middle" className="can-protocol__status">
+                {interested ? "0x101 관심 있음" : "관심 없음"}
+              </text>
+            )}
+          </g>
+        )
+      })}
+      {mode === "sending" && (
+        <g className="can-protocol__message is-sending">
+          <rect x="329" y="202" width="102" height="56" rx="3" />
+          <text x="380" y="226" textAnchor="middle">MESSAGE</text>
+          <text x="380" y="246" textAnchor="middle">SENDING</text>
+        </g>
+      )}
+      {mode === "message" && (
+        <g className="can-protocol__message">
+          <rect x="324" y="198" width="112" height="64" rx="3" />
+          <text x="380" y="223" textAnchor="middle">CAN MESSAGE</text>
+          <text x="380" y="245" textAnchor="middle">ID 0x101</text>
+        </g>
+      )}
+    </svg>
+  )
+}
+
+function ProtocolFacts({ facts }: { facts: readonly (readonly [string, string])[] }) {
+  return (
+    <div className="can-why__facts" aria-live="polite">
+      {facts.map(([label, value]) => (
+        <span key={label}>
+          <small>{label}</small>
+          <strong>{value}</strong>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+export function SharedBusVisual({ step }: { step: number }) {
+  const modes = ["multi-master", "sending", "observing"] as const
+  const facts = [
+    [["구조", "Multi-Master"], ["중앙 Master", "없음"], ["참여", "여러 ECU"]],
+    [["Bus 상태", "Idle"], ["송신 노드", "전송 시작"], ["다른 노드", "Bus 관찰"]],
+    [["송신", "여러 노드 가능"], ["Bus", "공유"], ["관찰", "모든 참여 노드"]],
+  ] as const
+  return (
+    <div className="can-visual can-visual--protocol" data-step={step}>
+      <div role="img" aria-label={
+        step === 0
+          ? "중앙 Master 없이 네 ECU가 공용 CAN Bus에 참여하는 Multi-Master 구조입니다."
+          : step === 1
+            ? "Bus가 비어 있을 때 Engine ECU가 전송을 시작하고 다른 노드는 Bus를 관찰합니다."
+            : "송신자를 포함한 모든 참여 노드가 같은 Bus 상태를 관찰합니다."
+      }>
+        <ProtocolBusNetwork mode={modes[step] ?? modes[0]} />
+      </div>
+      <ProtocolFacts facts={facts[step] ?? facts[0]} />
+      <p className="can-visual__state" aria-live="polite">
+        {step === 0 && "CAN은 중앙 Master 없이 여러 ECU가 통신에 참여하는 Multi-Master 방식입니다."}
+        {step === 1 && "Bus가 비어 있으면 전송할 정보가 있는 ECU가 통신을 시작합니다."}
+        {step === 2 && "송신자와 수신자가 고정된 1:1 구조가 아닙니다. 그렇다면 특정 ECU에게 정보를 어떻게 전달할까요?"}
+      </p>
+    </div>
+  )
+}
+
+export function MessageBasedVisual({ step }: { step: number }) {
+  const facts = [
+    [["주소 기반", "목적지 지정"], ["CAN", "메시지 공유"], ["전달 범위", "같은 Bus"]],
+    [["Identifier", "CAN ID"], ["예시", "0x101"], ["의미", "메시지 구분"]],
+    [["메시지", "ID 0x101"], ["같은 Bus", "메시지 관찰"], ["관심 있는 ECU", "선택 · 처리"]],
+  ] as const
+  return (
+    <div className="can-visual can-visual--protocol" data-step={step}>
+      {step === 0 && (
+        <div className="can-message-model" role="img" aria-label="목적지를 지정하는 일대일 주소 기반 통신과 같은 Bus에 메시지를 공유하는 CAN 통신을 비교합니다.">
+          <section className="is-muted">
+            <small>ADDRESS-BASED</small>
+            <div><strong>ECU A</strong><span>→</span><strong>ECU B</strong></div>
+            <p>목적지 지정</p>
+          </section>
+          <section>
+            <small>CAN · MESSAGE-BASED</small>
+            <div><strong>A</strong><strong>B</strong><strong>C</strong><strong>D</strong></div>
+            <i />
+            <p>같은 Bus에 메시지 공유</p>
+          </section>
+        </div>
+      )}
+      {step === 1 && (
+        <div className="can-message-card" role="img" aria-label="CAN ID 0x101이 메시지 종류를 식별하는 CAN Message 카드입니다.">
+          <small>CAN MESSAGE</small>
+          <span>IDENTIFIER</span>
+          <strong>0x101</strong>
+          <p>MESSAGE ID · NOT ECU ADDRESS</p>
+        </div>
+      )}
+      {step === 2 && (
+        <div role="img" aria-label="ID 0x101 메시지를 모든 ECU가 관찰하고 Body ECU와 Brake ECU가 관심 있는 메시지로 선택합니다.">
+          <ProtocolBusNetwork mode="message" />
+        </div>
+      )}
+      <ProtocolFacts facts={facts[step] ?? facts[0]} />
+      <p className="can-visual__state" aria-live="polite">
+        {step === 0 && "CAN은 목적지 ECU를 지정하는 대신 같은 Bus에 메시지를 공유합니다."}
+        {step === 1 && "CAN ID는 ECU 주소가 아니라 메시지의 종류를 구분하는 Identifier입니다."}
+        {step === 2 && "여러 ECU가 같은 ID에 관심을 가질 수 있습니다. 그런데 여러 ECU가 동시에 전송하려고 하면 어떻게 될까요?"}
+      </p>
+    </div>
+  )
+}
+
+export function BusAccessVisual({ step }: { step: number }) {
+  const facts = [
+    [["ECU A", "0x120"], ["ECU B", "0x300"], ["상태", "동시 전송"]],
+    [["Dominant", "0"], ["Recessive", "1"], ["동시에 전송", "0 우선"]],
+    [["승리", "0x120"], ["다른 노드", "전송 중단"], ["이후", "Bus가 비면 재시도"]],
+  ] as const
+  return (
+    <div className="can-visual can-visual--protocol" data-step={step}>
+      <div className="can-access" role="img" aria-label={
+        step === 0
+          ? "Body ECU의 0x120과 Engine ECU의 0x300 메시지가 동시에 전송을 시작합니다."
+          : step === 1
+            ? "Dominant 0과 Recessive 1이 동시에 전송되면 Bus에는 Dominant 0이 남습니다."
+            : "0x120은 전송을 계속하고 0x300은 중단한 뒤 Bus가 비면 재시도합니다."
+      }>
+        {step === 0 && <>
+          <div><small>BODY ECU</small><strong>0x120</strong><em>TRANSMIT</em></div>
+          <span className="can-access__bus">CAN BUS</span>
+          <div><small>ENGINE ECU</small><strong>0x300</strong><em>TRANSMIT</em></div>
+        </>}
+        {step === 1 && <div className="can-access__logic">
+          <span><small>DOMINANT</small><strong>0</strong></span>
+          <b>+</b>
+          <span><small>RECESSIVE</small><strong>1</strong></span>
+          <b>→</b>
+          <span className="is-result"><small>BUS</small><strong>0</strong></span>
+        </div>}
+        {step === 2 && <div className="can-access__result">
+          <span className="is-winner"><code>0x120</code><strong>CONTINUE</strong><small>WINNER</small></span>
+          <span><code>0x300</code><strong>STOP</strong><small>RETRY LATER</small></span>
+        </div>}
+      </div>
+      <ProtocolFacts facts={facts[step] ?? facts[0]} />
+      <p className="can-visual__state" aria-live="polite">
+        {step === 0 && "Multi-Master Bus에서는 둘 이상의 ECU가 동시에 전송을 시작할 수 있습니다."}
+        {step === 1 && "Dominant 0이 Recessive 1보다 Bus에서 우선하는 논리 규칙으로 중재합니다."}
+        {step === 2 && "중재는 승리한 메시지를 손상시키지 않습니다. 전송을 멈춘 노드는 Bus가 비면 다시 시도합니다. 그렇다면 전송 도중 데이터가 잘못되면 어떻게 될까요?"}
+      </p>
+    </div>
+  )
+}
+
+export function ReliabilityVisual({
+  step,
+  checkpointAnswer,
+  reducedMotion,
+}: {
+  step: number
+  checkpointAnswer: string | null
+  reducedMotion: boolean
+}) {
+  const [errorStage, setErrorStage] = useState<"detected" | "retry">("detected")
+  useEffect(() => {
+    if (step !== 1 || reducedMotion) {
+      setErrorStage(step === 1 ? "retry" : "detected")
+      return
+    }
+    setErrorStage("detected")
+    const timer = window.setTimeout(() => setErrorStage("retry"), 620)
+    return () => window.clearTimeout(timer)
+  }, [reducedMotion, step])
+
+  const facts = [
+    [["감시", "Bus 상태"], ["검증", "전송 데이터"], ["목적", "오류 감지"]],
+    [["1", "오류 감지"], ["2", "전송 무효화"], ["3", "재시도"]],
+    [["기본 상태", "Error Active"], ["오류 누적", "Error Passive"], ["임계 초과", "Bus Off"]],
+  ] as const
+  return (
+    <div className="can-visual can-visual--protocol" data-step={step} data-error-stage={errorStage}>
+      {step === 0 && <div className="can-reliability__checks" role="img" aria-label="노드가 Bit monitoring, CRC, Format check, ACK 방식으로 오류를 감지합니다.">
+        {[["BIT MONITORING", "Bus 상태"], ["CRC", "전송 데이터"], ["FORMAT CHECK", "형식"], ["ACK", "수신 확인"]].map(([label, detail]) => (
+          <span key={label}><small>{label}</small><strong>{detail}</strong></span>
+        ))}
+      </div>}
+      {step === 1 && <div className="can-reliability__flow" role="img" aria-label="전송 중 오류를 감지하면 메시지를 무효화하고 Bus가 다시 사용 가능할 때 재시도합니다.">
+        <span className="is-complete">TRANSMIT</span><i>→</i>
+        <span className="is-alert">ERROR DETECTED</span><i>→</i>
+        <span className="is-alert">INVALID</span><i>→</i>
+        <span className={errorStage === "retry" ? "is-active" : ""}>RETRY</span>
+      </div>}
+      {step === 2 && <div className="can-reliability__confinement" role="img" aria-label="오류가 누적되면 노드 상태가 Error Active에서 Error Passive를 거쳐 Bus Off로 제한됩니다.">
+        <small>FAULT CONFINEMENT</small>
+        <div><span><b>01</b><strong>Error Active</strong><em>기본 참여 상태</em></span><i>→</i><span><b>02</b><strong>Error Passive</strong><em>오류 누적</em></span><i>→</i><span><b>03</b><strong>Bus Off</strong><em>통신 참여 중단</em></span></div>
+        {checkpointAnswer && <p>{checkpointAnswer.includes("공용 Bus") ? "PROTOCOL CHECK · PASS" : "PROTOCOL CHECK · REVIEW"}</p>}
+      </div>}
+      <ProtocolFacts facts={facts[step] ?? facts[0]} />
+      <p className="can-visual__state" aria-live="polite">
+        {step === 0 && "세부 필드 배치보다 CAN이 여러 방식으로 통신 오류를 감지한다는 점에 집중합니다."}
+        {step === 1 && (errorStage === "retry" ? "잘못된 전송을 무효화하고 Bus가 비면 재전송을 시도합니다." : "오류를 감지한 노드가 잘못된 전송을 무효화합니다.")}
+        {step === 2 && "Fault Confinement는 반복 오류 노드가 전체 Bus를 계속 방해하지 못하도록 참여를 단계적으로 제한합니다."}
       </p>
     </div>
   )

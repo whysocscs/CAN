@@ -8,10 +8,10 @@ import {
 } from "react"
 import { ArrowLeft, ArrowRight, Check, X } from "@phosphor-icons/react"
 import {
-  AckErrorVisual,
-  ArbitrationVisual,
-  FrameVisual,
-  SignalVisual,
+  BusAccessVisual,
+  MessageBasedVisual,
+  ReliabilityVisual,
+  SharedBusVisual,
   WhyCanVisual,
 } from "@/components/learning/CanBasicsVisuals"
 
@@ -39,98 +39,111 @@ const chapters = [
     koreanTitle: "왜 CAN이 필요한가",
     steps: [
       {
-        title: "배선은 기능보다 빠르게 복잡해집니다",
-        body: "ECU를 서로 직접 연결하면 장치 하나가 추가될 때마다 전용 배선과 커넥터가 함께 늘어납니다.",
+        title: "기능이 늘수록 배선도 빠르게 복잡해집니다",
+        body: "ECU 사이에서 신호를 개별 배선으로 주고받으면, 교환해야 할 신호가 늘어날수록 전용 배선과 커넥터도 함께 증가합니다.",
       },
       {
-        title: "각 ECU의 신호를 한 경로로 모읍니다",
-        body: "각 ECU는 긴 전용 배선 대신 짧은 분기선으로 CAN_H와 CAN_L 공용 버스에 연결됩니다.",
+        title: "여러 ECU가 하나의 CAN Bus를 공유합니다",
+        body: "CAN에서는 같은 네트워크에 연결된 여러 ECU가 공용 CAN Bus를 함께 사용합니다.",
       },
       {
-        title: "여러 장치가 하나의 버스를 공유한다",
-        body: "주소선을 따로 만들지 않고 모든 노드가 같은 프레임을 들은 뒤 필요한 메시지만 처리합니다.",
-      },
-    ],
-  },
-  {
-    id: "dominant-recessive",
-    title: "Dominant and Recessive",
-    koreanTitle: "0과 1을 구분하는 방법",
-    steps: [
-      {
-        title: "Recessive 1에서는 두 선이 같은 전압입니다",
-        body: "CAN_H와 CAN_L가 모두 약 2.5V일 때 수신 노드는 논리 1로 읽습니다.",
-      },
-      {
-        title: "Dominant 0은 두 선의 전압 차이를 만듭니다",
-        body: "CAN_H는 약 3.5V, CAN_L는 약 1.5V가 되어 수신 노드가 논리 0을 판정합니다.",
-      },
-      {
-        title: "0은 같은 순간에 전송된 1보다 우선합니다",
-        body: "노드는 자신이 보낸 비트와 실제 버스 값을 비교해 계속 전송할지 판단합니다.",
+        title: "하나의 통신망을 여러 ECU가 함께 사용합니다",
+        body: "같은 CAN Bus에 연결된 ECU들은 하나의 공용 통신망을 통해 정보를 주고받습니다.",
       },
     ],
   },
   {
-    id: "arbitration",
-    title: "Arbitration",
-    koreanTitle: "충돌 없이 우선순위 정하기",
+    id: "shared-bus",
+    title: "Shared Bus",
+    koreanTitle: "여러 ECU가 같은 Bus를 사용하는 방법",
     steps: [
       {
-        title: "세 ECU가 동시에 전송을 시작합니다",
-        body: "각 노드는 자신의 11-bit identifier를 가장 높은 비트부터 한 자리씩 내보냅니다.",
+        title: "CAN에는 중앙 Master가 필요하지 않습니다",
+        body: "같은 Bus에 연결된 ECU들은 매번 중앙 제어기의 허가를 받아 통신하는 구조가 아닙니다. CAN은 여러 노드가 통신에 참여할 수 있는 Multi-Master 방식입니다.",
       },
       {
-        title: "0x300이 첫 번째로 양보합니다",
-        body: "Recessive 1을 보냈지만 버스에서 Dominant 0을 읽었기 때문에 해당 비트에서 전송을 멈춥니다.",
+        title: "Bus가 비어 있으면 ECU가 전송을 시작합니다",
+        body: "전송할 정보가 있는 ECU는 Bus가 사용 가능한 상태인지 확인한 뒤 통신을 시작합니다.",
       },
       {
-        title: "가장 낮은 0x120이 버스를 차지합니다",
-        body: "0x128도 뒤의 비교 비트에서 양보합니다. 숫자가 낮은 identifier가 더 이른 Dominant 0을 유지합니다.",
+        title: "모든 노드는 같은 Bus 상태를 관찰합니다",
+        body: "CAN에 참여하는 노드는 송신 중에도 Bus를 관찰하며, 다른 노드의 통신과 현재 Bus 상태를 함께 확인합니다.",
       },
     ],
   },
   {
-    id: "frame",
-    title: "CAN Frame",
-    koreanTitle: "버스를 오가는 메시지 단위",
+    id: "message-based",
+    title: "Message-Based",
+    koreanTitle: "장치가 아니라 메시지를 식별하는 방식",
     steps: [
       {
-        title: "Frame은 버스 위를 오가는 메시지 한 묶음입니다",
-        body: "CAN은 특정 ECU 주소가 아니라 Frame을 보냅니다. 모든 노드가 같은 Frame을 듣고, 필요한 메시지인지 각자 판단합니다.",
+        title: "CAN은 특정 ECU 주소로 메시지를 보내지 않습니다",
+        body: "CAN에서는 일반적인 1:1 주소 기반 통신처럼 목적지 ECU 주소를 지정해 전송하지 않습니다.",
       },
       {
-        title: "Identifier가 메시지의 의미와 우선순위를 알려줍니다",
-        body: "Identifier는 수신 대상의 주소가 아닙니다. 어떤 종류의 메시지인지와 동시에 전송될 때의 중재 우선순위를 함께 나타냅니다.",
+        title: "CAN ID가 메시지를 구분합니다",
+        body: "각 CAN 메시지는 Identifier를 가지며, CAN ID는 어떤 메시지인지 구분하는 데 사용됩니다.",
       },
       {
-        title: "Data를 어떻게 읽는지는 CAN Frame에서 자세히 다룹니다",
-        body: "Data 길이, 실제 값, CRC와 ACK처럼 한 Frame의 세부 필드는 다음 CAN Frame 학습에서 교육용 예시와 함께 해석합니다.",
+        title: "각 ECU는 필요한 메시지를 선택합니다",
+        body: "같은 Bus의 노드들은 전송되는 메시지를 관찰하고, 자신에게 필요한 CAN ID의 메시지를 선택해 처리합니다.",
       },
     ],
   },
   {
-    id: "ack-error-practice",
-    title: "ACK, Error and Practice",
-    koreanTitle: "수신 확인과 오류 복구",
+    id: "bus-access",
+    title: "Bus Access & Arbitration",
+    koreanTitle: "동시에 전송하려 할 때 우선순위를 정하는 방법",
     steps: [
       {
-        title: "정상 수신 노드가 ACK를 기록합니다",
-        body: "송신 노드는 ACK 슬롯을 Recessive 1로 보내고, 정상 수신한 노드가 이를 Dominant 0으로 바꿉니다.",
+        title: "여러 ECU가 동시에 전송을 시작할 수 있습니다",
+        body: "CAN은 Multi-Master 방식이기 때문에 둘 이상의 ECU가 같은 시점에 Bus 사용을 시작할 수 있습니다.",
       },
       {
-        title: "오류 프레임은 중단하고 다시 전송합니다",
-        body: "오류를 감지한 노드가 Error flag를 보내면 현재 프레임을 폐기하고 버스가 비었을 때 다시 시도합니다.",
+        title: "CAN은 전송하면서 우선순위를 비교합니다",
+        body: "각 송신 노드는 자신이 보내는 값과 실제 Bus 상태를 함께 관찰하면서 중재에 참여합니다.",
       },
       {
-        title: "Checkpoint",
-        body: "identifier의 비트를 비교해 어떤 노드가 가장 먼저 버스를 차지하는지 선택하세요.",
+        title: "우선순위가 높은 메시지가 전송을 계속합니다",
+        body: "중재에서 우선순위가 낮은 노드는 전송을 멈추고, 승리한 메시지를 방해하지 않습니다. Bus가 다시 사용 가능해지면 이후 재시도합니다.",
+      },
+    ],
+  },
+  {
+    id: "reliability",
+    title: "Reliability",
+    koreanTitle: "오류를 감지하고 네트워크를 보호하는 방법",
+    steps: [
+      {
+        title: "CAN은 전송 중에도 오류를 검사합니다",
+        body: "CAN 노드들은 송수신 과정에서 Bus 상태와 전달된 정보를 확인하며 통신 오류를 감지합니다.",
+      },
+      {
+        title: "오류가 발견되면 잘못된 전송을 무효화합니다",
+        body: "오류를 감지한 노드는 현재 전송에 오류가 있음을 알리고, 잘못된 메시지가 정상 데이터로 처리되지 않도록 합니다. 송신 노드는 Bus가 다시 사용 가능해지면 재전송을 시도할 수 있습니다.",
+      },
+      {
+        title: "반복 오류 노드는 통신 참여가 제한됩니다",
+        body: "CAN은 각 노드의 오류 상태를 관리하며, 반복적으로 오류를 발생시키는 노드가 전체 Bus 통신을 계속 방해하지 못하도록 단계적으로 참여를 제한합니다.",
       },
     ],
   },
 ] as const
 
-const checkpointOptions = ["0x120", "0x128", "0x300"] as const
+const checkpointOptions = [
+  "모든 메시지는 특정 ECU의 목적지 주소를 포함한다",
+  "중앙 Master만 CAN Bus에서 전송할 수 있다",
+  "여러 ECU가 공용 Bus를 사용하며 CAN ID로 메시지를 구분한다",
+  "오류가 발생하면 항상 Bus 전체가 즉시 종료된다",
+] as const
+const correctCheckpointAnswer = checkpointOptions[2]
+
+const legacyChapterIds: Record<string, string> = {
+  "dominant-recessive": "shared-bus",
+  arbitration: "message-based",
+  frame: "bus-access",
+  "ack-error-practice": "reliability",
+}
 const totalSteps = chapters.reduce(
   (total, chapter) => total + chapter.steps.length,
   0,
@@ -178,7 +191,8 @@ function flatIndexToPosition(index: number): StoryPosition {
 }
 
 function hashToPosition(hash: string): StoryPosition | null {
-  const id = decodeURIComponent(hash.replace(/^#/, ""))
+  const requestedId = decodeURIComponent(hash.replace(/^#/, ""))
+  const id = legacyChapterIds[requestedId] ?? requestedId
   const chapterIndex = chapters.findIndex((chapter) => chapter.id === id)
   return chapterIndex >= 0 ? { chapterIndex, stepIndex: 0 } : null
 }
@@ -604,7 +618,7 @@ export default function CanBasicsStory({
 
   const selectCheckpointAnswer = (answer: string) => {
     setCheckpointAnswer(answer)
-    if (answer === checkpointOptions[0] && !completedRef.current) {
+    if (answer === correctCheckpointAnswer && !completedRef.current) {
       completedRef.current = true
       onComplete()
     }
@@ -627,37 +641,11 @@ export default function CanBasicsStory({
     const visualStep = visualStepForChapter(visualChapterIndex)
 
     if (visualChapterIndex === 0) return <WhyCanVisual step={visualStep} />
-    if (visualChapterIndex === 1) {
-      return (
-        <SignalVisual
-          step={visualStep}
-          onStepChange={(nextStep) =>
-            setLearningPosition({ chapterIndex: 1, stepIndex: nextStep }, {
-              source: "button",
-              scroll: true,
-              history: "replace",
-            })
-          }
-        />
-      )
-    }
-    if (visualChapterIndex === 2) return <ArbitrationVisual step={visualStep} />
-    if (visualChapterIndex === 3) {
-      return (
-        <FrameVisual
-          step={visualStep}
-          onStepChange={(nextStep) =>
-            setLearningPosition({ chapterIndex: 3, stepIndex: nextStep }, {
-              source: "button",
-              scroll: true,
-              history: "replace",
-            })
-          }
-        />
-      )
-    }
+    if (visualChapterIndex === 1) return <SharedBusVisual step={visualStep} />
+    if (visualChapterIndex === 2) return <MessageBasedVisual step={visualStep} />
+    if (visualChapterIndex === 3) return <BusAccessVisual step={visualStep} />
     return (
-      <AckErrorVisual
+      <ReliabilityVisual
         step={visualStep}
         checkpointAnswer={checkpointAnswer}
         reducedMotion={prefersReducedMotion}
@@ -763,40 +751,40 @@ export default function CanBasicsStory({
                         <h3>{step.title}</h3>
                         <p>{step.body}</p>
 
-                        {currentChapterIndex === 0 &&
-                          currentStepIndex === 2 && (
+                        {currentChapterIndex === 2 &&
+                          currentStepIndex === 1 && (
                             <blockquote>
-                              여러 장치가 하나의 버스를 공유한다
+                              CAN ID는 목적지 주소가 아닙니다
                             </blockquote>
                           )}
 
-                        {currentChapterIndex === 1 && (
+                        {currentChapterIndex === 3 &&
+                          currentStepIndex === 1 && (
                           <dl className="can-story__signal-facts">
                             <div>
                               <dt>Dominant 0</dt>
-                              <dd>3.5V / 1.5V</dd>
+                              <dd>Bus에 0이 남음</dd>
                             </div>
                             <div>
                               <dt>Recessive 1</dt>
-                              <dd>2.5V / 2.5V</dd>
+                              <dd>0과 만나면 양보</dd>
                             </div>
                           </dl>
                         )}
 
-                        {currentChapterIndex === 2 &&
+                        {currentChapterIndex === 3 &&
                           currentStepIndex === 2 && (
                             <p className="can-story__conclusion">
-                              0x120은 가장 먼저 Dominant 0을 유지했기 때문에
-                              승리합니다.
+                              11-bit Standard Data Frame 예시에서는 더 낮은
+                              Identifier 값이 높은 중재 우선순위를 갖습니다.
                             </p>
                           )}
 
-                        {chapter.id === "ack-error-practice" &&
+                        {chapter.id === "reliability" &&
                           currentStepIndex === 2 && (
                             <fieldset className="can-story__checkpoint">
                               <legend>
-                                세 노드가 동시에 전송할 때 어떤 identifier가
-                                승리합니까?
+                                CAN 통신의 특징으로 가장 적절한 것은 무엇입니까?
                               </legend>
                               <div>
                                 {checkpointOptions.map((option) => {
@@ -816,7 +804,7 @@ export default function CanBasicsStory({
                                     >
                                       <input
                                         type="radio"
-                                        name="can-arbitration-checkpoint"
+                                        name="can-protocol-checkpoint"
                                         value={option}
                                         checked={selected}
                                         onChange={() =>
@@ -845,19 +833,19 @@ export default function CanBasicsStory({
                               {checkpointAnswer && (
                                 <div
                                   className={`can-story__checkpoint-result${
-                                    checkpointAnswer === checkpointOptions[0]
+                                    checkpointAnswer === correctCheckpointAnswer
                                       ? " is-correct"
                                       : " is-wrong"
                                   }`}
                                   role="status"
                                   aria-live="polite"
                                 >
-                                  {checkpointAnswer === checkpointOptions[0]
-                                    ? "정답입니다. 0x120이 비교 과정에서 가장 먼저 Dominant 0을 유지합니다."
-                                    : "다시 확인해 보세요. identifier 값이 낮을수록 더 이른 위치에서 Dominant 0을 보냅니다."}
+                                  {checkpointAnswer === correctCheckpointAnswer
+                                    ? "정답입니다. CAN은 공용 Bus와 메시지 Identifier를 사용하는 Multi-Master 통신입니다."
+                                    : "다시 확인해 보세요. CAN은 중앙 Master나 목적지 주소에 의존하지 않습니다."}
                                 </div>
                               )}
-                              {checkpointAnswer === checkpointOptions[0] && (
+                              {checkpointAnswer === correctCheckpointAnswer && (
                                 <button
                                   type="button"
                                   className="can-story__continue"
