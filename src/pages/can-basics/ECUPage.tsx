@@ -4,6 +4,17 @@ import { designVersion } from "@/design/version"
 import RouteLesson from "@/components/learning/RouteLesson"
 import { RouteAction } from "@/components/learning/LessonQuiz"
 import {
+  AcceptanceFilterVisual,
+  ECUActionVisual,
+  ECUOverviewVisual,
+  ECUPipelineVisual,
+  EndToEndFlowVisual,
+  GatewayRoutingVisual,
+  VehicleNetworkVisual,
+  type ECUOverviewNode,
+  type GatewayRoutingMode,
+} from "@/components/learning/ECUGatewayVisuals"
+import {
   CourseCompleteVisual,
   ECUProcessingVisual,
   ECUNetworkVisual,
@@ -83,6 +94,91 @@ const ecuNodes = [
   },
 ]
 
+const overviewNodes: readonly ECUOverviewNode[] = [
+  { id: "body", label: "Body ECU", fullName: "Body Control Module", category: "ecu", domain: "Body", role: "차체 편의 기능 제어", functions: ["Door", "Window", "Lamp"] },
+  { id: "engine", label: "Engine ECU", fullName: "Engine Control Unit", category: "ecu", domain: "Powertrain", role: "엔진 상태 및 토크 제어", functions: ["RPM", "Torque", "Engine Control"] },
+  { id: "brake", label: "Brake ECU", fullName: "Brake Control Unit", category: "ecu", domain: "Chassis", role: "제동 및 차체 안정 기능", functions: ["Brake", "ABS"] },
+  { id: "cluster", label: "Instrument Cluster", fullName: "Instrument Cluster", category: "ecu", domain: "Display", role: "운전자 정보 표시", functions: ["Speed", "RPM", "Warning"] },
+  { id: "gateway", label: "Gateway ECU", fullName: "Vehicle Network Gateway", category: "gateway", domain: "Gateway", role: "차량 네트워크 연결 및 Routing", functions: ["Network 연결", "Routing"] },
+]
+
+function ECULessonV4({
+  selectedOverviewId,
+  onSelectOverview,
+  gatewayMode,
+  onGatewayModeChange,
+  onReview,
+  onComplete,
+}: {
+  selectedOverviewId: string
+  onSelectOverview: (id: string) => void
+  gatewayMode: GatewayRoutingMode
+  onGatewayModeChange: (mode: GatewayRoutingMode) => void
+  onReview: () => void
+  onComplete: () => void
+}) {
+  const activeNode = overviewNodes.find((node) => node.id === selectedOverviewId) ?? overviewNodes[0]
+  return (
+    <RouteLesson
+      snapScope="can-basics"
+      title="Frame이 실제 차량 기능이 되기까지"
+      introduction="CAN Bus를 지나온 Frame은 ECU 내부에서 단계적으로 처리되어 실제 차량 기능이 됩니다. 서로 다른 차량 네트워크로 전달해야 할 때는 Gateway가 Routing을 담당합니다."
+      objective="Transceiver·CAN Controller·Acceptance Filter·ECU Software의 역할을 구분하고, Gateway가 차량 네트워크를 연결하며 정책에 따라 Frame을 전달하는 과정을 설명할 수 있습니다."
+      chapters={[
+        {
+          id: "ecu-overview",
+          title: "ECU는 차량 기능을 담당하는 제어 컴퓨터입니다",
+          summary: "차량의 도어, 엔진, 제동, 계기판 같은 기능은 각 ECU가 담당합니다. ECU는 CAN Bus에서 필요한 정보를 받아 자신의 기능을 처리합니다.",
+          content: <div className="lesson-selected-detail"><div><strong>{activeNode.label}</strong><span>{activeNode.domain}</span></div><small>{activeNode.fullName}</small><p>{activeNode.role}</p><em>담당 기능 · {activeNode.functions.join(" · ")}</em></div>,
+          visual: <ECUOverviewVisual nodes={overviewNodes} selectedId={selectedOverviewId} onSelect={onSelectOverview} />,
+        },
+        {
+          id: "ecu-processing-pipeline",
+          title: "Frame은 ECU 안에서 단계적으로 처리됩니다",
+          summary: "CAN Bus의 신호는 Transceiver를 거쳐 CAN Controller가 처리하고, 필요한 메시지만 ECU Software로 전달됩니다.",
+          content: <div className="lesson-ecu-stage-list"><span><small>01</small><strong>Transceiver</strong><em>Physical Signal ↔ Logic</em></span><span><small>02</small><strong>CAN Controller</strong><em>Frame 처리 · Filtering</em></span><span><small>03</small><strong>ECU Software</strong><em>Data 의미 해석</em></span><span><small>04</small><strong>Vehicle Function</strong><em>실제 기능 실행</em></span></div>,
+          visual: <ECUPipelineVisual />,
+        },
+        {
+          id: "acceptance-filtering",
+          title: "CAN Controller가 필요한 메시지를 먼저 선택합니다",
+          summary: "같은 Bus의 Frame을 CAN Controller가 수신한 뒤, 설정된 Acceptance Filter를 이용해 ECU가 관심 있는 Identifier만 Software로 전달할 수 있습니다.",
+          content: <dl className="lesson-comparison-list"><div><dt>입력</dt><dd>여러 CAN Frame</dd></div><div><dt>판단</dt><dd>Identifier Filter</dd></div><div><dt>출력</dt><dd>필요한 Frame만 Software 전달</dd></div><div><dt>중요</dt><dd>CAN ID는 ECU 주소가 아님</dd></div></dl>,
+          visual: <AcceptanceFilterVisual />,
+        },
+        {
+          id: "ecu-action",
+          title: "Software가 Data의 의미를 차량 기능으로 바꿉니다",
+          summary: "CAN Controller를 통과한 Frame은 ECU Software에서 애플리케이션 의미로 해석되고, 그 결과 실제 차량 기능이 실행됩니다.",
+          content: <dl className="lesson-comparison-list"><div><dt>Frame</dt><dd>0x101#01</dd></div><div><dt>Identifier</dt><dd>교육용 Door Command</dd></div><div><dt>Data</dt><dd>01 = Lock</dd></div><div><dt>결과</dt><dd>Door: Locked</dd></div></dl>,
+          visual: <ECUActionVisual />,
+        },
+        {
+          id: "vehicle-networks",
+          title: "차량은 하나의 Bus가 아니라 여러 네트워크로 나뉠 수 있습니다",
+          summary: "차량에는 Body, Powertrain, Diagnostic 등 여러 네트워크 영역이 존재할 수 있으며, Gateway는 이 영역 사이를 연결합니다.",
+          content: <dl className="lesson-comparison-list"><div><dt>영역</dt><dd>여러 차량 네트워크</dd></div><div><dt>연결</dt><dd>Gateway ECU</dd></div><div><dt>기본 역할</dt><dd>Routing · Forwarding</dd></div><div><dt>진단 접근</dt><dd>OBD-II Diagnostic Port</dd></div></dl>,
+          visual: <VehicleNetworkVisual />,
+        },
+        {
+          id: "gateway-routing-policy",
+          title: "Gateway는 Routing 규칙에 따라 메시지를 전달합니다",
+          summary: "Gateway는 Source Network, Destination Network, Identifier 등의 정보를 Routing 또는 정책 규칙과 비교해 Frame을 전달할지 결정할 수 있습니다.",
+          content: <dl className="lesson-comparison-list"><div><dt>현재 입력</dt><dd>{gatewayMode === "allowed" ? "0x101#01" : "0x700#01"}</dd></div><div><dt>규칙</dt><dd>{gatewayMode === "allowed" ? "Match" : "No Match"}</dd></div><div><dt>결과</dt><dd>{gatewayMode === "allowed" ? "Forward" : "Drop"}</dd></div><div><dt>주의</dt><dd>교육용 Gateway 정책 예시</dd></div></dl>,
+          visual: <GatewayRoutingVisual mode={gatewayMode} onChange={onGatewayModeChange} />,
+        },
+        {
+          id: "ecu-end-to-end",
+          title: "하나의 Frame이 차량 동작이 되기까지",
+          summary: "CAN Bus에서 전달된 Frame은 ECU 내부에서 필터링·해석되어 차량 기능이 되고, 필요하면 Gateway를 통해 다른 네트워크로 전달됩니다.",
+          content: <div className="lesson-complete-actions"><ol className="lesson-end-to-end-summary"><li>Frame 수신</li><li>Controller 처리</li><li>Identifier Filtering</li><li>Data 해석</li><li>차량 기능 실행</li><li>필요 시 Gateway 전달</li></ol><div><RouteAction onClick={onReview}>CAN 프레임 복습</RouteAction><RouteAction primary onClick={onComplete}>CAN 실습 시작</RouteAction></div></div>,
+          visual: <EndToEndFlowVisual />,
+        },
+      ]}
+    />
+  )
+}
+
 export default function ECUPage() {
   const { navigate, completeItem, addScore, addNotification } = useApp()
   const [selectedNode, setSelectedNode] = useState<typeof ecuNodes[0] | null>(
@@ -90,6 +186,9 @@ export default function ECUPage() {
       ? (ecuNodes.find((node) => node.id === "body") ?? null)
       : null,
   )
+  const [selectedOverviewId, setSelectedOverviewId] = useState("body")
+  const [gatewayMode, setGatewayMode] =
+    useState<GatewayRoutingMode>("allowed")
 
   const handleComplete = () => {
     completeItem("can-basics/ecu")
@@ -102,8 +201,24 @@ export default function ECUPage() {
   }
 
   if (designVersion === "ver4") {
+    return (
+      <ECULessonV4
+        selectedOverviewId={selectedOverviewId}
+        onSelectOverview={setSelectedOverviewId}
+        gatewayMode={gatewayMode}
+        onGatewayModeChange={setGatewayMode}
+        onReview={() => navigate("can-basics/frame")}
+        onComplete={() => {
+          handleComplete()
+          navigate("practice/normal")
+        }}
+      />
+    )
+  }
+
+  if (false) {
     const activeNode =
-      selectedNode ?? ecuNodes.find((node) => node.id === "body") ?? null
+      selectedNode ?? ecuNodes.find((node) => node.id === "body") ?? ecuNodes[0]
 
     return (
       <RouteLesson

@@ -20,6 +20,294 @@
   font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
 }
 
+/* ECU and Gateway learning flow */
+
+html[data-design-version='ver4'] .ecu-overview,
+html[data-design-version='ver4'] .ecu-pipeline,
+html[data-design-version='ver4'] .acceptance-filter,
+html[data-design-version='ver4'] .ecu-action,
+html[data-design-version='ver4'] .vehicle-networks,
+html[data-design-version='ver4'] .gateway-routing,
+html[data-design-version='ver4'] .ecu-end-to-end {
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  color: var(--route-ink);
+}
+
+html[data-design-version='ver4'] .ecu-overview > small,
+html[data-design-version='ver4'] .ecu-pipeline > small,
+html[data-design-version='ver4'] .acceptance-filter > small,
+html[data-design-version='ver4'] .ecu-action > small,
+html[data-design-version='ver4'] .vehicle-networks > small,
+html[data-design-version='ver4'] .gateway-routing > small,
+html[data-design-version='ver4'] .ecu-end-to-end > small {
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono Variable', 'Noto Sans KR Variable', monospace;
+  font-size: 9px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes {
+  display: grid;
+  margin-top: 24px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes button {
+  display: flex;
+  min-height: 112px;
+  padding: 14px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  color: var(--route-ink);
+  background: var(--surface-default);
+  border: 1px solid var(--border-default);
+  text-align: left;
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes button:hover,
+html[data-design-version='ver4'] .ecu-overview__nodes button.is-active {
+  border-color: var(--route-active);
+  background: color-mix(in srgb, var(--route-active) 6%, var(--surface-default));
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes button.is-active {
+  box-shadow: inset 0 -3px 0 var(--route-active);
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes button small,
+html[data-design-version='ver4'] .ecu-overview__nodes button span {
+  color: var(--text-secondary);
+  font-family: 'JetBrains Mono Variable', 'Noto Sans KR Variable', monospace;
+  font-size: 8px;
+}
+
+html[data-design-version='ver4'] .ecu-overview__nodes button strong { font-size: 12px; }
+html[data-design-version='ver4'] .ecu-overview__nodes button:last-child { grid-column: 2; }
+
+html[data-design-version='ver4'] .ecu-overview__bus {
+  position: relative;
+  height: 42px;
+  margin-top: 14px;
+  border-top: 5px solid var(--route-ink);
+  text-align: center;
+}
+
+html[data-design-version='ver4'] .ecu-overview__bus span {
+  position: relative;
+  top: 8px;
+  padding: 0 8px;
+  color: var(--text-secondary);
+  background: var(--surface-default);
+  font-family: 'JetBrains Mono Variable', monospace;
+  font-size: 8px;
+}
+
+html[data-design-version='ver4'] .ecu-overview > p,
+html[data-design-version='ver4'] .acceptance-filter > p,
+html[data-design-version='ver4'] .ecu-action > p,
+html[data-design-version='ver4'] .vehicle-networks > p,
+html[data-design-version='ver4'] .gateway-routing > p,
+html[data-design-version='ver4'] .ecu-end-to-end > p {
+  margin: 14px 0 0;
+  color: var(--text-secondary);
+  font-size: 10px;
+  line-height: 1.65;
+}
+
+html[data-design-version='ver4'] .lesson-ecu-stage-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+html[data-design-version='ver4'] .lesson-ecu-stage-list > span {
+  display: flex;
+  min-width: 0;
+  padding: 14px 10px;
+  flex-direction: column;
+  gap: 5px;
+}
+
+html[data-design-version='ver4'] .lesson-ecu-stage-list > span:nth-child(even) { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .lesson-ecu-stage-list > span:nth-child(n + 3) { border-top: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .lesson-ecu-stage-list small,
+html[data-design-version='ver4'] .lesson-ecu-stage-list em { color: var(--text-secondary); font-size: 9px; font-style: normal; }
+html[data-design-version='ver4'] .lesson-ecu-stage-list strong { font-size: 12px; }
+
+html[data-design-version='ver4'] .ecu-pipeline > div {
+  display: flex;
+  margin-top: 24px;
+  align-items: stretch;
+}
+
+html[data-design-version='ver4'] .ecu-pipeline > div > span {
+  display: flex;
+  min-width: 96px;
+  min-height: 136px;
+  padding: 12px 8px;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--border-default);
+  text-align: center;
+}
+
+html[data-design-version='ver4'] .ecu-pipeline > div > span + span { border-left: 0; }
+html[data-design-version='ver4'] .ecu-pipeline > div > span:nth-child(3) { border-color: var(--route-active); }
+html[data-design-version='ver4'] .ecu-pipeline > div i { color: var(--route-active); font-family: 'JetBrains Mono Variable', monospace; font-size: 9px; font-style: normal; }
+html[data-design-version='ver4'] .ecu-pipeline > div strong { font-size: 10px; }
+html[data-design-version='ver4'] .ecu-pipeline > div small { color: var(--text-secondary); font-size: 8px; line-height: 1.5; }
+
+html[data-design-version='ver4'] .ecu-pipeline > dl,
+html[data-design-version='ver4'] .gateway-routing > dl {
+  display: grid;
+  margin: 16px 0 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+html[data-design-version='ver4'] .ecu-pipeline > dl > div,
+html[data-design-version='ver4'] .gateway-routing > dl > div { padding: 10px; }
+html[data-design-version='ver4'] .ecu-pipeline > dl > div + div,
+html[data-design-version='ver4'] .gateway-routing > dl > div + div { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .ecu-pipeline dt,
+html[data-design-version='ver4'] .gateway-routing dt { color: var(--text-secondary); font-size: 8px; }
+html[data-design-version='ver4'] .ecu-pipeline dd,
+html[data-design-version='ver4'] .gateway-routing dd { margin: 5px 0 0; font-family: 'JetBrains Mono Variable', 'Noto Sans KR Variable', monospace; font-size: 9px; font-weight: 750; }
+
+html[data-design-version='ver4'] .acceptance-filter__input {
+  display: grid;
+  margin-top: 24px;
+  grid-template-columns: 1.2fr repeat(4, 1fr);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+html[data-design-version='ver4'] .acceptance-filter__input > * { display: flex; min-height: 68px; padding: 10px; align-items: center; justify-content: center; }
+html[data-design-version='ver4'] .acceptance-filter__input > * + * { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .acceptance-filter__input span { flex-direction: column; gap: 5px; font-family: 'JetBrains Mono Variable', monospace; font-size: 11px; font-weight: 800; }
+html[data-design-version='ver4'] .acceptance-filter__input em { color: var(--text-secondary); font-size: 7px; font-style: normal; }
+html[data-design-version='ver4'] .acceptance-filter__input .is-rejected { opacity: 0.32; }
+html[data-design-version='ver4'] .acceptance-filter__input .is-accepted { color: var(--route-active); }
+
+html[data-design-version='ver4'] .acceptance-filter__gate {
+  display: flex;
+  width: min(440px, 72%);
+  min-height: 82px;
+  margin: 24px auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--route-active);
+}
+html[data-design-version='ver4'] .acceptance-filter__gate strong { font-size: 12px; }
+html[data-design-version='ver4'] .acceptance-filter__gate small { color: var(--text-secondary); font-size: 8px; }
+
+html[data-design-version='ver4'] .acceptance-filter__output { display: grid; grid-template-columns: 1fr 1fr 1.5fr; border: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .acceptance-filter__output > * { display: grid; min-height: 64px; padding: 10px; place-items: center; font-family: 'JetBrains Mono Variable', monospace; font-size: 10px; }
+html[data-design-version='ver4'] .acceptance-filter__output > * + * { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .acceptance-filter__output span { color: var(--route-active); }
+
+html[data-design-version='ver4'] .ecu-action > div {
+  display: flex;
+  margin-top: 24px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+}
+html[data-design-version='ver4'] .ecu-action > div span { display: flex; min-width: 112px; min-height: 132px; padding: 13px 9px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-default); text-align: center; }
+html[data-design-version='ver4'] .ecu-action > div i { color: var(--route-active); font-style: normal; }
+html[data-design-version='ver4'] .ecu-action > div small,
+html[data-design-version='ver4'] .ecu-action > div em { color: var(--text-secondary); font-family: 'JetBrains Mono Variable', 'Noto Sans KR Variable', monospace; font-size: 8px; font-style: normal; }
+html[data-design-version='ver4'] .ecu-action > div strong { font-family: 'JetBrains Mono Variable', monospace; font-size: 15px; }
+html[data-design-version='ver4'] .ecu-action > div .is-result { border-color: var(--route-active); background: color-mix(in srgb, var(--route-active) 6%, var(--surface-default)); }
+html[data-design-version='ver4'] .ecu-action > div .is-result em { color: var(--route-active); font-weight: 800; }
+
+html[data-design-version='ver4'] .vehicle-networks { align-items: center; text-align: center; }
+html[data-design-version='ver4'] .vehicle-networks__diagnostic { display: flex; margin-top: 18px; flex-direction: column; align-items: center; gap: 7px; }
+html[data-design-version='ver4'] .vehicle-networks__diagnostic span { display: flex; min-width: 210px; padding: 11px; flex-direction: column; gap: 5px; border: 1px dashed var(--border-strong); }
+html[data-design-version='ver4'] .vehicle-networks__diagnostic small { color: var(--text-secondary); font-size: 8px; }
+html[data-design-version='ver4'] .vehicle-networks__diagnostic i { color: var(--route-active); font-style: normal; }
+html[data-design-version='ver4'] .vehicle-networks__diagnostic b { font-family: 'JetBrains Mono Variable', monospace; font-size: 9px; }
+html[data-design-version='ver4'] .vehicle-networks__gateway { display: flex; min-width: 260px; min-height: 92px; margin: 14px 0; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--surface-default); background: var(--route-ink); }
+html[data-design-version='ver4'] .vehicle-networks__gateway small,
+html[data-design-version='ver4'] .vehicle-networks__gateway span { font-family: 'JetBrains Mono Variable', monospace; font-size: 8px; }
+html[data-design-version='ver4'] .vehicle-networks__domains { display: grid; width: 100%; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+html[data-design-version='ver4'] .vehicle-networks__domains section { display: grid; grid-template-columns: repeat(2, 1fr); border: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .vehicle-networks__domains b { padding: 10px; grid-column: 1 / -1; border-bottom: 1px solid var(--border-default); font-family: 'JetBrains Mono Variable', monospace; font-size: 9px; }
+html[data-design-version='ver4'] .vehicle-networks__domains span { padding: 14px 8px; font-size: 9px; }
+html[data-design-version='ver4'] .vehicle-networks__domains span + span { border-left: 1px solid var(--border-default); }
+
+html[data-design-version='ver4'] .gateway-routing__tabs { display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: 18px; border: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .gateway-routing__tabs button { min-height: 42px; color: var(--route-ink); background: transparent; border: 0; font-size: 10px; font-weight: 750; }
+html[data-design-version='ver4'] .gateway-routing__tabs button + button { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .gateway-routing__tabs button.is-active { color: var(--surface-default); background: var(--route-ink); }
+html[data-design-version='ver4'] .gateway-routing__flow { display: grid; margin-top: 18px; grid-template-columns: 1fr 34px 1.2fr 34px 1fr; align-items: center; }
+html[data-design-version='ver4'] .gateway-routing__flow section { display: flex; min-height: 142px; padding: 14px; flex-direction: column; align-items: center; justify-content: center; gap: 9px; border: 1px solid var(--border-default); text-align: center; }
+html[data-design-version='ver4'] .gateway-routing__flow > i { color: var(--route-active); font-size: 18px; font-style: normal; text-align: center; }
+html[data-design-version='ver4'] .gateway-routing__flow > i.is-stopped { color: var(--route-active); }
+html[data-design-version='ver4'] .gateway-routing__flow small { color: var(--text-secondary); font-size: 8px; }
+html[data-design-version='ver4'] .gateway-routing__flow strong { font-size: 11px; }
+html[data-design-version='ver4'] .gateway-routing__flow code { font-family: 'JetBrains Mono Variable', monospace; font-size: 12px; }
+html[data-design-version='ver4'] .gateway-routing__flow .is-gateway { border-color: var(--route-active); }
+html[data-design-version='ver4'] .gateway-routing__flow .is-forwarded { background: color-mix(in srgb, var(--route-active) 6%, var(--surface-default)); }
+html[data-design-version='ver4'] .gateway-routing__flow .is-forwarded strong,
+html[data-design-version='ver4'] .gateway-routing__flow .is-dropped strong { color: var(--route-active); }
+html[data-design-version='ver4'] .gateway-routing > dl { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+html[data-design-version='ver4'] .lesson-end-to-end-summary { display: grid; margin: 0 0 24px; padding: 0; grid-template-columns: repeat(2, 1fr); list-style: none; border-top: 1px solid var(--border-default); border-bottom: 1px solid var(--border-default); counter-reset: e2e; }
+html[data-design-version='ver4'] .lesson-end-to-end-summary li { padding: 12px 10px; counter-increment: e2e; font-size: 11px; }
+html[data-design-version='ver4'] .lesson-end-to-end-summary li::before { content: '0' counter(e2e) ' '; color: var(--route-active); font-family: 'JetBrains Mono Variable', monospace; font-size: 8px; }
+html[data-design-version='ver4'] .lesson-end-to-end-summary li:nth-child(even) { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .lesson-end-to-end-summary li:nth-child(n + 3) { border-top: 1px solid var(--border-default); }
+
+html[data-design-version='ver4'] .ecu-end-to-end__gateway { display: flex; margin: 18px 0 12px; align-items: center; justify-content: flex-end; gap: 10px; font-family: 'JetBrains Mono Variable', monospace; font-size: 9px; }
+html[data-design-version='ver4'] .ecu-end-to-end__gateway strong { padding: 10px 16px; color: var(--surface-default); background: var(--route-ink); }
+html[data-design-version='ver4'] .ecu-end-to-end__gateway i { color: var(--route-active); font-style: normal; }
+html[data-design-version='ver4'] .ecu-end-to-end__pipeline { display: flex; border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); }
+html[data-design-version='ver4'] .ecu-end-to-end__pipeline span { display: flex; min-width: 92px; min-height: 118px; padding: 10px 7px; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 9px; text-align: center; }
+html[data-design-version='ver4'] .ecu-end-to-end__pipeline span + span { border-left: 1px solid var(--border-default); }
+html[data-design-version='ver4'] .ecu-end-to-end__pipeline i { color: var(--route-active); font-family: 'JetBrains Mono Variable', monospace; font-size: 9px; font-style: normal; }
+html[data-design-version='ver4'] .ecu-end-to-end__pipeline strong { font-size: 9px; }
+
+@media (max-width: 1050px) {
+  html[data-design-version='ver4'] .ecu-overview__nodes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-design-version='ver4'] .ecu-overview__nodes button:last-child { grid-column: auto; }
+  html[data-design-version='ver4'] .ecu-pipeline > div,
+  html[data-design-version='ver4'] .ecu-action > div,
+  html[data-design-version='ver4'] .ecu-end-to-end__pipeline { overflow-x: auto; }
+}
+
+@media (max-width: 760px) {
+  html[data-design-version='ver4'] .ecu-overview__nodes,
+  html[data-design-version='ver4'] .vehicle-networks__domains { grid-template-columns: 1fr; }
+  html[data-design-version='ver4'] .ecu-pipeline > div,
+  html[data-design-version='ver4'] .ecu-action > div,
+  html[data-design-version='ver4'] .ecu-end-to-end__pipeline { justify-content: flex-start; }
+  html[data-design-version='ver4'] .ecu-pipeline > div > span,
+  html[data-design-version='ver4'] .ecu-action > div span,
+  html[data-design-version='ver4'] .ecu-end-to-end__pipeline span { flex: 0 0 116px; }
+  html[data-design-version='ver4'] .acceptance-filter__input { min-width: 520px; }
+  html[data-design-version='ver4'] .acceptance-filter { overflow-x: auto; }
+  html[data-design-version='ver4'] .gateway-routing__flow { min-width: 580px; }
+  html[data-design-version='ver4'] .gateway-routing { overflow-x: auto; }
+  html[data-design-version='ver4'] .ecu-pipeline > dl { grid-template-columns: repeat(2, 1fr); }
+  html[data-design-version='ver4'] .gateway-routing > dl { min-width: 440px; }
+}
+
 /* CAN foundations scroll story ------------------------------------------ */
 
 html[data-design-version='ver4'] .can-story {
