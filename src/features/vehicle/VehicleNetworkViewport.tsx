@@ -227,7 +227,7 @@ function TopologyPin({
             className="vehicle-network-viewport__callout"
             data-kind={calloutKind}
             data-placement={
-              calloutKind === "target" ? "target-far-left" : "effect-near-right"
+              calloutKind === "target" ? "target-far-left" : "effect-high-right"
             }
             data-testid="vehicle-topology-callout"
             aria-hidden="true"
