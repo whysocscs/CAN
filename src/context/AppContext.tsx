@@ -53,6 +53,19 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null)
 
+const canStoryHashes = new Set([
+  "#why-can",
+  "#shared-bus",
+  "#message-based",
+  "#bus-access",
+  "#reliability",
+  // Legacy deep links remain valid and are remapped inside CanBasicsStory.
+  "#dominant-recessive",
+  "#arbitration",
+  "#frame",
+  "#ack-error-practice",
+])
+
 const initialBadges: BadgeInfo[] = [
   {
     id: "first-login",
@@ -74,7 +87,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
     designVersion === "ver2" ? "dark" : "light",
   )
-  const [currentRoute, setCurrentRoute] = useState<Route>("practice/normal")
+  const [currentRoute, setCurrentRoute] = useState<Route>(() =>
+    typeof window !== "undefined" && canStoryHashes.has(window.location.hash)
+      ? "can-basics/protocol"
+      : "courses",
+  )
   const [devMode, setDevMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [notifications, setNotifications] = useState<Notification[]>([])
@@ -95,11 +112,35 @@ export function AppProvider({ children }: { children: ReactNode }) {
     document.documentElement.classList.toggle("dark", theme === "dark")
   }, [theme])
 
+  useEffect(() => {
+    const syncCanStoryRoute = () => {
+      if (canStoryHashes.has(window.location.hash)) {
+        setCurrentRoute("can-basics/protocol")
+      }
+    }
+    window.addEventListener("hashchange", syncCanStoryRoute)
+    window.addEventListener("popstate", syncCanStoryRoute)
+    return () => {
+      window.removeEventListener("hashchange", syncCanStoryRoute)
+      window.removeEventListener("popstate", syncCanStoryRoute)
+    }
+  }, [])
+
   const toggleTheme = useCallback(() => {
     setTheme((current) => (current === "light" ? "dark" : "light"))
   }, [])
 
   const navigate = useCallback((route: Route) => {
+    if (
+      route !== "can-basics/protocol" &&
+      canStoryHashes.has(window.location.hash)
+    ) {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}`,
+      )
+    }
     setCurrentRoute(route)
   }, [])
 

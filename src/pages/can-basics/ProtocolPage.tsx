@@ -1,9 +1,7 @@
 import { useState } from "react"
 import { useApp } from "@/context/AppContext"
 import { designVersion } from "@/design/version"
-import RouteLesson from "@/components/learning/RouteLesson"
-import LessonQuiz, { RouteAction } from "@/components/learning/LessonQuiz"
-import { ProtocolConceptVisual } from "@/components/learning/LessonVisuals"
+import CanBasicsStory from "@/components/learning/CanBasicsStory"
 
 const sections = [
   { id: "what", title: "CAN이란?" },
@@ -27,8 +25,14 @@ const quiz = {
 }
 
 export default function ProtocolPage() {
-  const { navigate, completeItem, addScore, earnBadge, addNotification } =
-    useApp()
+  const {
+    navigate,
+    completeItem,
+    addScore,
+    earnBadge,
+    addNotification,
+    progress,
+  } = useApp()
   const [activeSection, setActiveSection] = useState<string | null>(null)
   const [quizSelected, setQuizSelected] = useState<number | null>(null)
   const [quizSubmitted, setQuizSubmitted] = useState(false)
@@ -37,8 +41,11 @@ export default function ProtocolPage() {
     if (quizSelected === null) return
     setQuizSubmitted(true)
     if (quizSelected === quiz.answer) {
+      const isNewCompletion = !progress.completedItems.includes(
+        "can-basics/protocol",
+      )
       completeItem("can-basics/protocol")
-      addScore(100)
+      if (isNewCompletion) addScore(100)
       earnBadge({
         id: "protocol-done",
         name: "CAN 프로토콜 마스터",
@@ -48,7 +55,7 @@ export default function ProtocolPage() {
       })
       addNotification({
         type: "success",
-        title: "정답! +100점",
+        title: isNewCompletion ? "정답! +100점" : "정답입니다",
         message: "다음 학습으로 이동하세요.",
       })
     } else {
@@ -60,200 +67,31 @@ export default function ProtocolPage() {
     }
   }
 
+  const handleStoryComplete = () => {
+    const isNewCompletion = !progress.completedItems.includes(
+      "can-basics/protocol",
+    )
+    completeItem("can-basics/protocol")
+    if (isNewCompletion) addScore(100)
+    earnBadge({
+      id: "protocol-done",
+      name: "CAN 프로토콜 마스터",
+      emoji: "CAN",
+      description: "CAN 프로토콜 개요를 완료했습니다.",
+      earnedAt: new Date().toLocaleDateString(),
+    })
+    addNotification({
+      type: "success",
+      title: isNewCompletion ? "정답! +100점" : "정답입니다",
+      message: "CAN 중재 원리를 정확히 이해했습니다.",
+    })
+  }
+
   if (designVersion === "ver4") {
     return (
-      <RouteLesson
-        title="CAN은 어떻게 흐르는가"
-        introduction="하나의 버스에 연결된 여러 ECU가 메시지를 공유하고, 충돌 없이 우선순위를 결정하는 과정을 따라갑니다."
-        objective={
-          <div className="lesson-objective-list">
-            <span>CAN의 차량 내 역할</span>
-            <span>ID와 우선순위</span>
-            <span>차동 신호</span>
-            <span>오류 검출</span>
-          </div>
-        }
-        chapters={[
-          {
-            id: "protocol-what",
-            title: "CAN이란?",
-            summary:
-              "CAN은 여러 ECU가 별도 주소선 없이 하나의 버스에서 메시지를 공유하도록 만든 차량 통신 프로토콜입니다.",
-            content: (
-              <div className="lesson-facts">
-                <span>
-                  <small>표준</small>
-                  <strong>ISO 11898</strong>
-                </span>
-                <span>
-                  <small>최대 속도</small>
-                  <strong>1 Mbps</strong>
-                </span>
-                <span>
-                  <small>노드 수</small>
-                  <strong>최대 127개</strong>
-                </span>
-                <span>
-                  <small>버스 길이</small>
-                  <strong>최대 40m</strong>
-                </span>
-              </div>
-            ),
-            visual: <ProtocolConceptVisual kind="overview" />,
-          },
-          {
-            id: "protocol-ecu-bus",
-            title: "ECU와 CAN Bus",
-            summary:
-              "각 ECU는 CAN Controller에서 프레임을 처리하고, CAN Transceiver를 통해 물리 버스에 접속합니다.",
-            content: (
-              <div className="lesson-process">
-                <span>
-                  <strong>ECU</strong>
-                  <small>제어 로직</small>
-                </span>
-                <i aria-hidden="true" />
-                <span>
-                  <strong>Controller</strong>
-                  <small>프레임 처리</small>
-                </span>
-                <i aria-hidden="true" />
-                <span>
-                  <strong>Transceiver</strong>
-                  <small>전기 신호 변환</small>
-                </span>
-              </div>
-            ),
-            visual: <ProtocolConceptVisual kind="topology" />,
-          },
-          {
-            id: "protocol-message",
-            title: "Message-Based 통신",
-            summary:
-              "CAN은 수신 주소 대신 메시지 ID를 보냅니다. 모든 ECU가 프레임을 듣고 필요한 ID만 처리합니다.",
-            content: (
-              <div className="lesson-key-statement">
-                <code>0x101</code>
-                <p>
-                  Body ECU가 보낸 메시지를 모든 노드가 수신하고, 구독한 ECU만
-                  데이터로 사용합니다.
-                </p>
-              </div>
-            ),
-            visual: <ProtocolConceptVisual kind="broadcast" />,
-          },
-          {
-            id: "protocol-priority",
-            title: "CAN ID와 우선순위",
-            summary:
-              "Standard Frame은 11-bit ID를 사용합니다. 숫자가 낮을수록 버스 중재에서 먼저 살아남습니다.",
-            content: (
-              <div className="lesson-priority-copy">
-                <span>
-                  <code>0x001</code>
-                  <b>우선순위 최고</b>
-                </span>
-                <span>
-                  <code>0x7FF</code>
-                  <b>우선순위 최저</b>
-                </span>
-              </div>
-            ),
-            visual: <ProtocolConceptVisual kind="arbitration" />,
-          },
-          {
-            id: "protocol-signal",
-            title: "Dominant / Recessive",
-            summary:
-              "Dominant 0은 Recessive 1을 덮어씁니다. 이 특성으로 여러 노드가 동시에 전송해도 충돌을 판정할 수 있습니다.",
-            content: (
-              <dl className="lesson-signal-values">
-                <div>
-                  <dt>Dominant 0</dt>
-                  <dd>CAN_H 3.5V / CAN_L 1.5V</dd>
-                </div>
-                <div>
-                  <dt>Recessive 1</dt>
-                  <dd>CAN_H 2.5V / CAN_L 2.5V</dd>
-                </div>
-              </dl>
-            ),
-            visual: <ProtocolConceptVisual kind="signal" />,
-          },
-          {
-            id: "protocol-physical",
-            title: "CAN_H / CAN_L",
-            summary:
-              "두 선의 전압 차이로 비트를 표현하면 공통 노이즈를 상쇄할 수 있습니다. 버스 양 끝은 120Ω으로 종단합니다.",
-            content: (
-              <p className="lesson-note">
-                수신기는 각 선의 절대 전압보다{" "}
-                <strong>CAN_H와 CAN_L의 차이</strong>를 읽습니다.
-              </p>
-            ),
-            visual: <ProtocolConceptVisual kind="physical" />,
-          },
-          {
-            id: "protocol-errors",
-            title: "오류 검출",
-            summary:
-              "CAN 노드는 프레임을 보내는 동안 형식과 응답을 계속 검사하고 오류가 확인되면 다시 전송합니다.",
-            content: (
-              <div className="lesson-error-list">
-                <span>
-                  <strong>CRC Error</strong>
-                  <small>전송 데이터 무결성</small>
-                </span>
-                <span>
-                  <strong>Bit Error</strong>
-                  <small>송신 비트와 버스 비교</small>
-                </span>
-                <span>
-                  <strong>Form Error</strong>
-                  <small>프레임 형식 검사</small>
-                </span>
-                <span>
-                  <strong>Stuff Error</strong>
-                  <small>연속 비트 규칙 검사</small>
-                </span>
-                <span>
-                  <strong>ACK Error</strong>
-                  <small>수신 응답 확인</small>
-                </span>
-              </div>
-            ),
-            visual: <ProtocolConceptVisual kind="errors" />,
-          },
-          {
-            id: "protocol-quiz",
-            title: "이해 확인",
-            summary: "마지막으로 CAN ID와 버스 우선순위의 관계를 확인합니다.",
-            content: (
-              <LessonQuiz
-                question={quiz.question}
-                options={quiz.options}
-                correctIndex={quiz.answer}
-                selectedIndex={quizSelected}
-                submitted={quizSubmitted}
-                onSelect={setQuizSelected}
-                onSubmit={handleQuizSubmit}
-                onRetry={() => {
-                  setQuizSubmitted(false)
-                  setQuizSelected(null)
-                }}
-                successAction={
-                  <RouteAction
-                    primary
-                    onClick={() => navigate("can-basics/frame")}
-                  >
-                    CAN 프레임으로 이동
-                  </RouteAction>
-                }
-              />
-            ),
-            visual: <ProtocolConceptVisual kind="quiz" />,
-          },
-        ]}
+      <CanBasicsStory
+        onComplete={handleStoryComplete}
+        onContinue={() => navigate("can-basics/frame")}
       />
     )
   }

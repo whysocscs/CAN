@@ -4,10 +4,12 @@ import { designVersion } from "@/design/version"
 import RouteLesson from "@/components/learning/RouteLesson"
 import LessonQuiz, { RouteAction } from "@/components/learning/LessonQuiz"
 import {
-  FrameComparisonVisual,
-  FrameQuizVisual,
-  FrameStructureVisual,
-} from "@/components/learning/LessonVisuals"
+  classicalCanFields,
+  FrameApplicationVisual,
+  FrameAnatomyVisual,
+  FrameIntroductionVisual,
+  type FrameField,
+} from "@/components/learning/FrameAnatomyVisual"
 
 const standardFields = [
   {
@@ -27,16 +29,16 @@ const standardFields = [
   {
     name: "RTR",
     bits: 1,
-    desc: "Remote Transmission Request. 0=데이터, 1=원격.",
+    desc: "Remote Transmission Request. Data Frame에서는 Dominant(0).",
     color: "#34D399",
-    dominant: false,
+    dominant: true,
   },
   {
     name: "IDE",
     bits: 1,
-    desc: "Identifier Extension. Standard=0.",
+    desc: "Identifier Extension. Standard Frame에서는 Dominant(0).",
     color: "#FBBF24",
-    dominant: false,
+    dominant: true,
   },
   {
     name: "R0",
@@ -97,16 +99,45 @@ const standardFields = [
 ]
 
 const frameQuizOptions = [
-  "데이터 필드의 바이트 수(0~8)를 나타낸다",
-  "CAN ID를 나타낸다",
-  "오류 검출 코드를 저장한다",
-  "수신 노드의 주소를 나타낸다",
+  "SOF → Arbitration → Control → Data → CRC → ACK → EOF",
+  "SOF → Data → Identifier → ACK → CRC → EOF",
+  "Identifier → SOF → Data → ACK → Control",
+  "SOF → CRC → Data → Arbitration → EOF",
 ]
+
+const fieldGroupLabels: Record<FrameField["group"], string> = {
+  sof: "START",
+  arbitration: "ARBITRATION FIELD",
+  control: "CONTROL FIELD",
+  data: "DATA FIELD",
+  crc: "CRC FIELD",
+  ack: "ACK FIELD",
+  eof: "END",
+}
+
+function FrameFieldExplanation({ field }: { field: FrameField }) {
+  return (
+    <section className="frame-field-explanation" aria-live="polite">
+      <small>{fieldGroupLabels[field.group]}</small>
+      <header>
+        <strong>{field.name}</strong>
+        <code>{field.bitLabel}</code>
+      </header>
+      <p>{field.overviewDescription}</p>
+      {field.overviewValue && <strong className="frame-field-explanation__value">{field.overviewValue}</strong>}
+      <p className="frame-field-explanation__hint">
+        오른쪽 Frame에서 다른 Field를 선택해 계속 탐색하세요.
+      </p>
+    </section>
+  )
+}
 
 export default function FramePage() {
   const { navigate, completeItem, addScore, addNotification } = useApp()
   const [selectedField, setSelectedField] =
     useState<typeof standardFields[0] | null>(null)
+  const [selectedAnatomyField, setSelectedAnatomyField] =
+    useState<FrameField | null>(classicalCanFields[0])
   const [frameType, setFrameType] = useState<"standard" | "extended">(
     "standard",
   )
@@ -134,129 +165,144 @@ export default function FramePage() {
   if (designVersion === "ver4") {
     return (
       <RouteLesson
-        title="한 프레임을 비트 단위로 읽기"
-        introduction="프레임의 시작부터 종료까지 각 필드가 맡은 역할을 따라가고, Standard와 Extended 형식의 차이를 확인합니다."
-        objective="각 필드의 위치와 역할을 식별하고 DLC, ID, CRC, ACK의 의미를 설명할 수 있습니다."
+        snapScope="can-basics"
+        title="한 CAN Frame을 Bit 단위로 해부하기"
+        introduction="CAN Frame은 Identifier와 Data뿐 아니라 중재, 길이 정보, 오류 검출, 수신 확인을 위한 여러 필드로 구성됩니다. Standard Data Frame을 왼쪽에서 오른쪽으로 따라가며 실제 Bus에 전송되는 구조를 해석합니다."
+        objective="Standard CAN Data Frame의 전체 필드 순서를 설명하고, Identifier·RTR·IDE·DLC·CRC·ACK·EOF의 역할과 bit 수를 구분하며, Bit Stuffing과 Intermission까지 설명할 수 있습니다."
         chapters={[
           {
-            id: "frame-map",
-            title: "프레임 전체 보기",
+            id: "frame-notation",
+            title: "CAN은 정보를 Frame 단위로 전송합니다",
             summary:
-              "CAN 프레임은 시작, 중재, 제어, 데이터, 검증, 응답, 종료 필드가 정해진 순서로 이어집니다.",
-            content: (
-              <div className="lesson-segmented" aria-label="프레임 형식 선택">
-                <button
-                  type="button"
-                  className={frameType === "standard" ? "is-active" : ""}
-                  aria-pressed={frameType === "standard"}
-                  onClick={() => setFrameType("standard")}
-                >
-                  Standard <small>11-bit ID</small>
-                </button>
-                <button
-                  type="button"
-                  className={frameType === "extended" ? "is-active" : ""}
-                  aria-pressed={frameType === "extended"}
-                  onClick={() => setFrameType("extended")}
-                >
-                  Extended <small>29-bit ID</small>
-                </button>
-              </div>
-            ),
-            visual: (
-              <FrameStructureVisual
-                fields={standardFields}
-                selectedField={selectedField}
-                frameType={frameType}
-                onSelect={(field) =>
-                  setSelectedField(
-                    field
-                      ? (standardFields.find(
-                          (item) => item.name === field.name,
-                        ) ?? null)
-                      : null,
-                  )
-                }
-              />
-            ),
-          },
-          {
-            id: "frame-fields",
-            title: "필드 역할 확인",
-            summary:
-              "오른쪽 프레임에서 필드를 선택하면 비트 수, 역할, 고정 비트 상태를 같은 자리에서 확인할 수 있습니다.",
-            content: selectedField ? (
-              <div className="lesson-selected-detail">
-                <div>
-                  <strong>{selectedField.name.replace("\n", " ")}</strong>
-                  <code>
-                    {selectedField.bits} bit{selectedField.bits > 1 ? "s" : ""}
-                  </code>
-                </div>
-                <p>{selectedField.desc}</p>
-                {selectedField.dominant !== null && (
-                  <span>
-                    {selectedField.dominant ? "Dominant (0)" : "Recessive (1)"}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <p className="lesson-note">
-                SOF, ID, DLC, Data, CRC, ACK 중 하나를 선택해 세부 역할을
-                확인하세요.
-              </p>
-            ),
-            visual: (
-              <FrameStructureVisual
-                fields={standardFields}
-                selectedField={selectedField}
-                frameType={frameType}
-                onSelect={(field) =>
-                  setSelectedField(
-                    field
-                      ? (standardFields.find(
-                          (item) => item.name === field.name,
-                        ) ?? null)
-                      : null,
-                  )
-                }
-              />
-            ),
-          },
-          {
-            id: "frame-comparison",
-            title: "Standard와 Extended",
-            summary:
-              "두 형식의 핵심 차이는 ID 길이입니다. Extended Frame은 더 넓은 식별자 공간을 위해 중재 필드가 길어집니다.",
+              "CAN Bus에서 하나의 메시지는 여러 Field가 정해진 순서로 이어진 Frame 형태로 전송됩니다. 각 Field는 시작, 식별, 데이터 전달, 오류 검증, 수신 확인 등의 역할을 담당합니다.",
             content: (
               <dl className="lesson-comparison-list">
                 <div>
-                  <dt>ID 길이</dt>
-                  <dd>11-bit / 29-bit</dd>
+                  <dt>전송 단위</dt>
+                  <dd>CAN Frame</dd>
                 </div>
                 <div>
-                  <dt>최대 ID</dt>
-                  <dd>0x7FF / 0x1FFFFFFF</dd>
+                  <dt>구성</dt>
+                  <dd>여러 Field</dd>
                 </div>
                 <div>
-                  <dt>IDE 비트</dt>
-                  <dd>0 / 1</dd>
+                  <dt>순서</dt>
+                  <dd>정해진 구조</dd>
                 </div>
                 <div>
-                  <dt>주 용도</dt>
-                  <dd>일반 차량망 / 확장 ID 시스템</dd>
+                  <dt>역할</dt>
+                  <dd>시작 · 전달 · 검증 · 종료</dd>
                 </div>
               </dl>
             ),
-            visual: <FrameComparisonVisual />,
+            visual: <FrameIntroductionVisual />,
           },
           {
-            id: "frame-quiz",
-            title: "이해 확인",
-            summary: "DLC가 프레임 안에서 어떤 정보를 전달하는지 확인합니다.",
+            id: "frame-map",
+            title: "한 Frame은 여러 필드가 정해진 순서로 이어집니다",
+            summary:
+              "Standard CAN Data Frame은 SOF에서 시작해 Arbitration, Control, Data, CRC, ACK, EOF 순서로 구성됩니다. 오른쪽 Frame의 각 Field를 선택해 위치와 기본 역할을 먼저 확인하세요. 세부 동작은 다음 단계에서 영역별로 살펴봅니다.",
+            content: selectedAnatomyField ? (
+              <FrameFieldExplanation field={selectedAnatomyField} />
+            ) : (
+              <p className="lesson-note">
+                오른쪽 Frame strip의 필드를 선택해 bit 수와 역할을 확인하세요.
+              </p>
+            ),
+            visual: (
+              <FrameAnatomyVisual
+                focus="all"
+                selectedField={selectedAnatomyField}
+                onSelect={setSelectedAnatomyField}
+              />
+            ),
+          },
+          {
+            id: "frame-arbitration-field",
+            title: "Frame은 시작과 동시에 우선순위 정보를 보냅니다",
+            summary:
+              "SOF가 Frame의 시작을 알리고, Arbitration Field의 Identifier와 RTR이 메시지 종류와 Bus 중재에 필요한 정보를 전달합니다.",
+            content: (
+              <dl className="lesson-comparison-list">
+                <div><dt>SOF</dt><dd>1 bit · Dominant</dd></div>
+                <div><dt>Identifier</dt><dd>11 bits · 0x101</dd></div>
+                <div><dt>RTR</dt><dd>Data Frame = 0</dd></div>
+              </dl>
+            ),
+            visual: (
+              <FrameAnatomyVisual
+                focus="arbitration"
+                selectedField={selectedAnatomyField}
+                onSelect={setSelectedAnatomyField}
+              />
+            ),
+          },
+          {
+            id: "frame-control-data",
+            title: "Control Field가 길이를 알리고 Data가 실제 값을 전달합니다",
+            summary:
+              "Standard Frame의 Control Field에는 IDE, r0, DLC가 있으며, DLC가 뒤따르는 Data Field의 길이를 나타냅니다.",
+            content: (
+              <dl className="lesson-comparison-list">
+                <div><dt>IDE</dt><dd>Standard = 0</dd></div>
+                <div><dt>DLC</dt><dd>0001 = 1 byte</dd></div>
+                <div><dt>Data</dt><dd>01 = 00000001 · 8 bits</dd></div>
+              </dl>
+            ),
+            visual: (
+              <FrameAnatomyVisual
+                focus="control-data"
+                selectedField={selectedAnatomyField}
+                onSelect={setSelectedAnatomyField}
+              />
+            ),
+          },
+          {
+            id: "frame-integrity",
+            title: "Frame 후반부에서 오류 검증과 수신 확인이 이루어집니다",
+            summary:
+              "CRC는 전송 오류를 검출하고, ACK는 다른 노드의 정상 수신 여부를 확인하며, EOF가 Frame의 끝을 표시합니다.",
+            content: (
+              <p className="lesson-note">
+                ACK는 특정 ECU가 메시지 내용을 사용했다는 의미가 아닙니다. 하나 이상의 다른 CAN 노드가 Frame을 오류 없이 수신했음을 의미합니다.
+              </p>
+            ),
+            visual: (
+              <FrameAnatomyVisual
+                focus="integrity"
+                selectedField={selectedAnatomyField}
+                onSelect={setSelectedAnatomyField}
+              />
+            ),
+          },
+          {
+            id: "frame-stuffing",
+            title: "실제 Bus에는 Stuff Bit도 추가됩니다",
+            summary:
+              "CAN은 SOF부터 CRC Sequence까지 같은 값의 비트가 5개 연속되면 반대 값의 Stuff Bit를 자동으로 삽입합니다.",
+            content: (
+              <dl className="lesson-comparison-list">
+                <div><dt>적용 범위</dt><dd>SOF → CRC Sequence</dd></div>
+                <div><dt>Frame 길이</dt><dd>44 + 8N nominal bits</dd></div>
+                <div><dt>Intermission</dt><dd>3 Recessive · Frame 밖</dd></div>
+              </dl>
+            ),
+            visual: (
+              <FrameAnatomyVisual
+                focus="stuffing"
+                selectedField={selectedAnatomyField}
+                onSelect={setSelectedAnatomyField}
+              />
+            ),
+          },
+          {
+            id: "frame-comparison-quiz",
+            title: "이제 실제 CAN 표기를 Frame 구조와 연결합니다",
+            summary:
+              "CAN 분석 도구에서는 긴 Frame 전체를 Identifier와 Data 중심으로 간단하게 표시하기도 합니다. 0x101#01 예제를 실제 Frame 구조와 연결하고 Standard와 Extended 형식을 정리합니다.",
             content: (
               <LessonQuiz
-                question="CAN Standard Frame에서 DLC 필드의 역할은 무엇입니까?"
+                question="다음 중 Standard CAN Data Frame의 순서로 가장 올바른 것은?"
                 options={frameQuizOptions}
                 correctIndex={0}
                 selectedIndex={quizSelected}
@@ -277,7 +323,12 @@ export default function FramePage() {
                 }
               />
             ),
-            visual: <FrameQuizVisual />,
+            visual: (
+              <FrameApplicationVisual
+                frameType={frameType}
+                onChange={setFrameType}
+              />
+            ),
           },
         ]}
       />
