@@ -20,6 +20,7 @@ from server.labs.can_attack_basics import (
     ScriptResult,
     TerminalResult,
 )
+from server.labs.attack_flow_trace import make_flow_trace
 
 
 router = APIRouter(prefix="/labs/can-attacks", tags=["labs"])
@@ -124,7 +125,112 @@ def _capture_response(capture: CaptureRecord) -> dict[str, object]:
     }
 
 
-def _result_response(result: TerminalResult | ScriptResult) -> dict[str, object]:
+def _attempt_trace(
+    scenario: str,
+    command_label: str,
+    attempt: FrameAttempt,
+    sequence: int,
+    ids_status: str | None,
+) -> dict[str, object]:
+    spec = SCENARIO_SPECS[scenario]
+    accepted = attempt.accepted
+    route = ["terminal", *spec.route]
+    if accepted:
+        route.append(spec.effect_target)
+    return make_flow_trace(
+        trace_id=attempt.attempt_id,
+        attempt_id=attempt.attempt_id,
+        sequence=sequence,
+        kind="inject",
+        command_label=command_label,
+        command_index=1,
+        can_id=attempt.can_id,
+        data=attempt.data,
+        route=route,
+        stopped_at=None if accepted else spec.target_node,
+        outcome="EXECUTED" if accepted else "REJECTED",
+        ecu_verdict=attempt.verdict,
+        ids_verdict=ids_status,
+        effect_target=spec.effect_target if accepted else None,
+        effect_state="open" if accepted else None,
+        effect_applied=accepted,
+    )
+
+
+def _beginner_result_traces(
+    scenario: str,
+    command_label: str,
+    result: TerminalResult | ScriptResult,
+) -> list[dict[str, object]]:
+    if result.attempts:
+        return [
+            _attempt_trace(
+                scenario,
+                command_label,
+                attempt,
+                index + 1,
+                result.ids_status,
+            )
+            for index, attempt in enumerate(result.attempts)
+        ]
+
+    capture = result.captures[0] if result.captures else None
+    if command_label.startswith("cat "):
+        kind, route = "observe", ["terminal", "evidence"]
+    elif command_label.startswith("candump "):
+        kind = "capture" if ">" in command_label else "observe"
+        route = ["terminal", "obd", "monitor"]
+    elif not result.ok:
+        return [
+            make_flow_trace(
+                trace_id="result:" + result.code,
+                attempt_id=None,
+                sequence=1,
+                kind="local",
+                command_label=command_label,
+                command_index=None,
+                can_id=None,
+                data=[],
+                route=["terminal"],
+                stopped_at="terminal",
+                outcome="REJECTED",
+                ecu_verdict=result.code,
+                ids_verdict=result.ids_status,
+                effect_target=None,
+                effect_state=None,
+                effect_applied=False,
+            )
+        ]
+    else:
+        kind, route = "local", ["terminal"]
+
+    return [
+        make_flow_trace(
+            trace_id=capture.capture_id if capture else "result:" + result.code,
+            attempt_id=None,
+            sequence=1,
+            kind=kind,
+            command_label=command_label,
+            command_index=None,
+            can_id=capture.can_id if capture else None,
+            data=capture.data if capture else (),
+            route=route,
+            stopped_at=None,
+            outcome="LOCAL" if kind == "local" else "OBSERVED",
+            ecu_verdict=None,
+            ids_verdict=result.ids_status,
+            effect_target=None,
+            effect_state=None,
+            effect_applied=False,
+        )
+    ]
+
+
+def _result_response(
+    scenario: str,
+    command_label: str,
+    result: TerminalResult | ScriptResult,
+) -> dict[str, object]:
     return {
         "ok": result.ok,
         "code": result.code,
@@ -133,6 +239,11 @@ def _result_response(result: TerminalResult | ScriptResult) -> dict[str, object]
         "captures": [_capture_response(capture) for capture in result.captures],
         "state": result.state,
         "idsStatus": result.ids_status,
+        "flowTraces": _beginner_result_traces(
+            scenario,
+            command_label,
+            result,
+        ),
     }
 
 
@@ -231,7 +342,7 @@ async def terminal_command(
     for attempt in result.attempts:
         if attempt.accepted:
             await _emit_if_active(scenario, correlation, attempt, publish_event)
-    return _result_response(result)
+    return _result_response(scenario, request.command, result)
 
 @router.post("/{scenario}/sessions/{session_id}/run")
 async def run_script(
@@ -248,4 +359,4 @@ async def run_script(
     for attempt in result.attempts:
         if attempt.accepted:
             await _emit_if_active(scenario, correlation, attempt, publish_event)
-    return _result_response(result)
+    return _result_response(scenario, request.script, result)
