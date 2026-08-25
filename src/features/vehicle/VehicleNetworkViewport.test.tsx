@@ -26,6 +26,29 @@ interface MockLineProps extends Record<string, unknown> {
   }
 }
 
+interface MockResizeObserverRecord {
+  callback: ResizeObserverCallback
+  observed: Set<Element>
+  disconnected: boolean
+}
+
+interface MockHtmlLayout {
+  width: number
+  height: number
+  anchorX: number
+  anchorY: number
+}
+
+type MockCalculatePosition = (
+  object: THREE.Object3D,
+  camera: THREE.Camera,
+  size: { width: number; height: number },
+) => [number, number]
+
+const resizeObserverHarness = vi.hoisted(() => ({
+  records: [] as MockResizeObserverRecord[],
+}))
+
 const canvasState = vi.hoisted(() => ({
   mounts: 0,
   canvasProps: undefined as
@@ -50,6 +73,13 @@ const canvasState = vi.hoisted(() => ({
   } | undefined,
   frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
   lineProps: [] as Array<{ current: MockLineProps }>,
+  htmlLayout: {
+    width: 800,
+    height: 360,
+    anchorX: 400,
+    anchorY: 180,
+  } as MockHtmlLayout,
+  htmlRecalculations: [] as Array<() => void>,
   orbitProps: undefined as Record<string, unknown> | undefined,
   boundsRefit: undefined as (() => void) | undefined,
   overviewResets: [] as Array<{
@@ -131,11 +161,56 @@ vi.mock("@react-three/drei", async () => {
     children,
     className,
     style,
+    calculatePosition,
   }: {
     children?: ReactNode
     className?: string
     style?: CSSProperties
-  }) => React.createElement("div", { className, style }, children)
+    calculatePosition?: MockCalculatePosition
+  }) => {
+    const wrapperRef = React.useRef<HTMLDivElement>(null)
+    const object = React.useMemo(() => new THREE.Object3D(), [])
+    const camera = React.useMemo(() => {
+      const value = new THREE.Camera()
+      value.matrixWorldInverse.identity()
+      value.projectionMatrix.identity()
+      return value
+    }, [])
+    const recalculateRef = React.useRef<() => void>(() => undefined)
+    recalculateRef.current = () => {
+      if (!calculatePosition || !wrapperRef.current) return
+      const layout = canvasState.htmlLayout
+      const ndcX = layout.anchorX / layout.width * 2 - 1
+      const ndcY = 1 - layout.anchorY / layout.height * 2
+      object.matrixWorld.makeTranslation(ndcX, ndcY, 0)
+      const [left, top] = calculatePosition(object, camera, {
+        width: layout.width,
+        height: layout.height,
+      })
+      wrapperRef.current.style.left = `${left}px`
+      wrapperRef.current.style.top = `${top}px`
+    }
+    React.useLayoutEffect(() => {
+      if (!calculatePosition) return
+      const recalculate = () => recalculateRef.current()
+      canvasState.htmlRecalculations.push(recalculate)
+      recalculate()
+      return () => {
+        canvasState.htmlRecalculations = canvasState.htmlRecalculations.filter(
+          (registered) => registered !== recalculate,
+        )
+      }
+    }, [calculatePosition])
+    return React.createElement(
+      "div",
+      {
+        ref: wrapperRef,
+        className,
+        style: calculatePosition ? { ...style, position: "absolute" } : style,
+      },
+      children,
+    )
+  }
   const Bounds = ({ children }: { children?: ReactNode }) => {
     useEffect(() => {
       canvasState.boundsRefit = () => {
@@ -257,6 +332,135 @@ function renderDoorViewport(props: Partial<VehicleNetworkViewportProps> = {}) {
   )
 }
 
+function domRect(width: number, height: number): DOMRect {
+  return {
+    x: 0,
+    y: 0,
+    top: 0,
+    right: width,
+    bottom: height,
+    left: 0,
+    width,
+    height,
+    toJSON: () => ({}),
+  }
+}
+
+function installResizeObserverMock() {
+  class ResizeObserverMock {
+    private readonly record: MockResizeObserverRecord
+
+    constructor(callback: ResizeObserverCallback) {
+      this.record = {
+        callback,
+        observed: new Set<Element>(),
+        disconnected: false,
+      }
+      resizeObserverHarness.records.push(this.record)
+    }
+
+    observe(target: Element) {
+      this.record.observed.add(target)
+    }
+
+    unobserve(target: Element) {
+      this.record.observed.delete(target)
+    }
+
+    disconnect() {
+      this.record.disconnected = true
+      this.record.observed.clear()
+    }
+  }
+
+  vi.stubGlobal("ResizeObserver", ResizeObserverMock)
+}
+
+function mockFeedbackBoundingRect(measurement: { width: number; height: number }) {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      return this.matches('[data-testid="vehicle-flow-feedback"]')
+        ? domRect(measurement.width, measurement.height)
+        : domRect(0, 0)
+    })
+}
+
+function observedFeedbackRecord(callout: HTMLElement): MockResizeObserverRecord {
+  const record = resizeObserverHarness.records.find(({ observed }) =>
+    observed.has(callout),
+  )
+  if (!record) throw new Error("Dynamic feedback was not observed")
+  return record
+}
+
+function triggerFeedbackResize(record: MockResizeObserverRecord) {
+  act(() => {
+    record.callback([], undefined as unknown as ResizeObserver)
+  })
+}
+
+function recalculateHtmlPositions() {
+  act(() => {
+    canvasState.htmlRecalculations.forEach((recalculate) => recalculate())
+  })
+}
+
+function expectRenderedFeedbackGeometry(
+  callout: HTMLElement,
+  layout: MockHtmlLayout,
+) {
+  const layer = callout.closest(
+    ".vehicle-network-viewport__feedback-layer",
+  ) as HTMLElement | null
+  if (!layer) throw new Error("Missing dynamic feedback Html layer")
+  const rect = callout.getBoundingClientRect()
+  const centerX = Number.parseFloat(layer.style.left)
+  const centerY = Number.parseFloat(layer.style.top)
+  const left = centerX - rect.width / 2
+  const top = centerY - rect.height / 2
+  const right = centerX + rect.width / 2
+  const bottom = centerY + rect.height / 2
+
+  expect(left).toBeGreaterThanOrEqual(8)
+  expect(top).toBeGreaterThanOrEqual(8)
+  expect(right).toBeLessThanOrEqual(layout.width - 8)
+  expect(bottom).toBeLessThanOrEqual(layout.height - 8)
+
+  const leaderX = Number.parseFloat(
+    callout.style.getPropertyValue("--vehicle-feedback-leader-x"),
+  )
+  const leaderY = Number.parseFloat(
+    callout.style.getPropertyValue("--vehicle-feedback-leader-y"),
+  )
+  const leaderLength = Number.parseFloat(
+    callout.style.getPropertyValue("--vehicle-feedback-leader-length"),
+  )
+  const leaderAngle = Number.parseFloat(
+    callout.style.getPropertyValue("--vehicle-feedback-leader-angle"),
+  )
+  const boundaryX = left + leaderX
+  const boundaryY = top + leaderY
+  const boundaryOnBox = Math.abs(boundaryX - left) < 0.001
+    || Math.abs(boundaryX - right) < 0.001
+    || Math.abs(boundaryY - top) < 0.001
+    || Math.abs(boundaryY - bottom) < 0.001
+  expect(boundaryOnBox).toBe(true)
+
+  expect(boundaryX + Math.cos(leaderAngle) * leaderLength)
+    .toBeCloseTo(layout.anchorX, 3)
+  expect(boundaryY + Math.sin(leaderAngle) * leaderLength)
+    .toBeCloseTo(layout.anchorY, 3)
+  const pointPastBoundaryX = boundaryX + Math.cos(leaderAngle) * 2
+  const pointPastBoundaryY = boundaryY + Math.sin(leaderAngle) * 2
+  const leaderCrossesBox = pointPastBoundaryX > left
+    && pointPastBoundaryX < right
+    && pointPastBoundaryY > top
+    && pointPastBoundaryY < bottom
+  expect(leaderCrossesBox).toBe(false)
+
+  return { centerX, centerY }
+}
+
 function getCanvasMesh(name: string): Element {
   const mesh = screen
     .getByTestId("canvas-boundary")
@@ -317,6 +521,13 @@ describe("VehicleNetworkViewport", () => {
     canvasState.controls = { target: new THREE.Vector3(), update: vi.fn() }
     canvasState.frameCallbacks = []
     canvasState.lineProps = []
+    canvasState.htmlLayout = {
+      width: 800,
+      height: 360,
+      anchorX: 400,
+      anchorY: 180,
+    }
+    canvasState.htmlRecalculations = []
     canvasState.orbitProps = undefined
     canvasState.boundsRefit = undefined
     canvasState.overviewResets = []
@@ -326,6 +537,8 @@ describe("VehicleNetworkViewport", () => {
       position: [0, 0, 0],
       rotationY: 0,
     }
+    resizeObserverHarness.records = []
+    installResizeObserverMock()
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: false,
         addEventListener: vi.fn(),
@@ -1026,6 +1239,78 @@ describe("VehicleNetworkViewport", () => {
       .toBe("11px")
     expect(getComputedStyle(within(callouts[0]).getByText("Toy ECU")).fontSize)
       .toBe("10px")
+  })
+
+  it.each([
+    {
+      name: "split desktop",
+      layout: { width: 720, height: 300, anchorX: 704, anchorY: 18 },
+      measurement: { width: 220, height: 138 },
+    },
+    {
+      name: "narrow mobile",
+      layout: { width: 320, height: 300, anchorX: 12, anchorY: 286 },
+      measurement: { width: 160, height: 172 },
+    },
+  ])("uses the measured DOM rectangle for $name clamp and leader geometry", ({
+    layout,
+    measurement,
+  }) => {
+    canvasState.htmlLayout = layout
+    mockFeedbackBoundingRect(measurement)
+    const view = renderDoorViewport({
+      playback: {
+        playbackId: 12,
+        phase: "playing",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation(),
+    })
+    const callout = screen.getByTestId("vehicle-flow-feedback")
+    recalculateHtmlPositions()
+
+    const initial = expectRenderedFeedbackGeometry(callout, layout)
+    const observer = observedFeedbackRecord(callout)
+    measurement.height += 24
+    triggerFeedbackResize(observer)
+    recalculateHtmlPositions()
+
+    const resized = expectRenderedFeedbackGeometry(callout, layout)
+    expect(resized.centerY).not.toBe(initial.centerY)
+
+    view.unmount()
+    expect(observer.disconnected).toBe(true)
+  })
+
+  it("uses safe measured fallbacks when ResizeObserver is unavailable", () => {
+    vi.stubGlobal("ResizeObserver", undefined)
+    canvasState.htmlLayout = {
+      width: 480,
+      height: 300,
+      anchorX: 240,
+      anchorY: 150,
+    }
+    renderDoorViewport({
+      playback: {
+        playbackId: 12,
+        phase: "playing",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation(),
+    })
+    recalculateHtmlPositions()
+
+    const callout = screen.getByTestId("vehicle-flow-feedback")
+    expect(callout.style.getPropertyValue("--vehicle-feedback-leader-length"))
+      .toMatch(/px$/)
+    expect(callout.style.getPropertyValue("--vehicle-feedback-leader-angle"))
+      .toMatch(/rad$/)
   })
 
   it("moves one dynamic callout from target acceptance to endpoint effect", () => {

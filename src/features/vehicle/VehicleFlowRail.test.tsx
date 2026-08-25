@@ -150,7 +150,66 @@ describe("VehicleFlowRail", () => {
       .not.toBeInTheDocument()
   })
 
-  it("marks rejection with text and a stop state", () => {
+  it("keeps the final ECU rejection hidden from Terminal until Body ECU arrival", () => {
+    const terminalPresentation: VehicleFlowPresentation = {
+      ...structuredPresentation,
+      currentTransition: null,
+      currentNodeId: "terminal",
+      outcome: null,
+      stoppedAt: null,
+      ecuVerdict: null,
+      idsVerdict: null,
+      nodeFeedback: {
+        nodeId: "terminal",
+        title: "Lab Terminal",
+        status: "PROCESSING",
+        detail: "명령을 교육용 실행 흐름에 등록했습니다.",
+        source: "Terminal",
+        persist: false,
+      },
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 2,
+          phase: "playing",
+          trace: rejectedBodyTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 0,
+        }}
+        presentation={terminalPresentation}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
+    expect(screen.queryByText(/COUNTER_REJECTED/)).not.toBeInTheDocument()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 2,
+          phase: "playing",
+          trace: rejectedBodyTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 4,
+        }}
+        presentation={structuredPresentation}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText("ECU · COUNTER_REJECTED")).toBeInTheDocument()
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
+  })
+
+  it("marks a reached target rejection without duplicated trace outcome copy", () => {
     render(
       <VehicleFlowRail
         scenarioTitle="Door attack route"
@@ -163,10 +222,12 @@ describe("VehicleFlowRail", () => {
           traceCount: 1,
           segmentIndex: 4,
         }}
+        presentation={{ ...structuredPresentation, phase: "complete" }}
         accent="#d94b4b"
       />,
     )
-    expect(screen.getByText("Toy Body ECU에서 거부")).toBeInTheDocument()
+    expect(screen.getByText("ECU · COUNTER_REJECTED")).toBeInTheDocument()
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
     expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAttribute(
       "data-flow-state",
       "rejected",

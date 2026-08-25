@@ -4,7 +4,6 @@ import type {
   VehicleFlowNodeId,
   VehicleFlowPlaybackSnapshot,
   VehicleFlowPresentation,
-  VehicleFlowTrace,
 } from "./vehicleFlowTypes"
 
 type FlowNodeState =
@@ -89,11 +88,6 @@ function idsDisplay(verdict: "NORMAL" | "ALERT"): string {
     : "IDS ALERT · 관찰/탐지됨 · 차단 근거 없음"
 }
 
-function rejectionText(trace: VehicleFlowTrace | null): string | null {
-  if (trace?.outcome !== "REJECTED" || !trace.stoppedAt) return null
-  return `${flowNodeLabel(trace.stoppedAt)}에서 거부`
-}
-
 function FlowNode({
   node,
   state,
@@ -131,7 +125,6 @@ export default function VehicleFlowRail({
   presentation,
 }: VehicleFlowRailProps) {
   const trace = playback.trace
-  const rejection = rejectionText(trace)
   const displayRoute = trace
     ? trace.route.filter((nodeId) => nodeId !== "terminal")
     : route
@@ -179,7 +172,6 @@ export default function VehicleFlowRail({
             ) : null}
           </>
         ) : null}
-        {rejection ? <strong>{rejection}</strong> : null}
       </div>
     </section>
   )

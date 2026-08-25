@@ -56,7 +56,13 @@ const FLOW_PACKET_DURATION_MS = 600
 const FLOW_CALLOUT_INSET = 8
 const FLOW_CALLOUT_MAX_WIDTH = 220
 const FLOW_CALLOUT_MIN_WIDTH = 160
-const FLOW_CALLOUT_ESTIMATED_HEIGHT = 112
+const FLOW_CALLOUT_FALLBACK_HEIGHT = 112
+const FLOW_CALLOUT_PLACEMENT_DIRECTIONS = [
+  [1, -1],
+  [-1, -1],
+  [1, 1],
+  [-1, 1],
+] as const
 const IDLE_PLAYBACK: VehicleFlowPlaybackSnapshot = {
   playbackId: 0,
   phase: "idle",
@@ -154,6 +160,7 @@ const LOGICAL_CALLOUT_STYLE: CSSProperties = {
 
 const DYNAMIC_CALLOUT_STYLE: CSSProperties = {
   width: "clamp(160px, 22vw, 220px)",
+  maxWidth: "min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)))",
   whiteSpace: "normal",
 }
 const DYNAMIC_CALLOUT_TITLE_STYLE: CSSProperties = { fontSize: "12px" }
@@ -202,18 +209,39 @@ export function clampFlowCalloutPosition({
 }: FlowCalloutGeometryInput): FlowCalloutGeometry {
   const halfWidth = calloutWidth / 2
   const halfHeight = calloutHeight / 2
-  const preferredCenterX = anchorX + halfWidth + 24
-  const preferredCenterY = anchorY - halfHeight - 16
-  const centerX = clampNumber(
-    preferredCenterX,
-    inset + halfWidth,
-    canvasWidth - inset - halfWidth,
-  )
-  const centerY = clampNumber(
-    preferredCenterY,
-    inset + halfHeight,
-    canvasHeight - inset - halfHeight,
-  )
+  let centerX = anchorX
+  let centerY = anchorY
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const [horizontal, vertical] of FLOW_CALLOUT_PLACEMENT_DIRECTIONS) {
+    const preferredCenterX = anchorX + horizontal * (halfWidth + 24)
+    const preferredCenterY = anchorY + vertical * (halfHeight + 16)
+    const candidateCenterX = clampNumber(
+      preferredCenterX,
+      inset + halfWidth,
+      canvasWidth - inset - halfWidth,
+    )
+    const candidateCenterY = clampNumber(
+      preferredCenterY,
+      inset + halfHeight,
+      canvasHeight - inset - halfHeight,
+    )
+    const left = candidateCenterX - halfWidth
+    const top = candidateCenterY - halfHeight
+    const anchorInside = anchorX > left
+      && anchorX < left + calloutWidth
+      && anchorY > top
+      && anchorY < top + calloutHeight
+    const clampDistance = Math.hypot(
+      candidateCenterX - preferredCenterX,
+      candidateCenterY - preferredCenterY,
+    )
+    const score = clampDistance + (anchorInside ? 1_000_000 : 0)
+    if (score < bestScore) {
+      centerX = candidateCenterX
+      centerY = candidateCenterY
+      bestScore = score
+    }
+  }
   const left = centerX - halfWidth
   const top = centerY - halfHeight
   const deltaX = anchorX - centerX
@@ -231,32 +259,13 @@ export function clampFlowCalloutPosition({
   return { left, top, leaderEndX, leaderEndY }
 }
 
-const projectedPosition = new THREE.Vector3()
-
-function calculateFlowFeedbackPosition(
-  object: THREE.Object3D,
-  camera: THREE.Camera,
-  size: { width: number; height: number },
-): [number, number] {
-  projectedPosition.setFromMatrixPosition(object.matrixWorld).project(camera)
-  const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
-  const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
-  const calloutWidth = Math.min(
+function fallbackFlowCalloutWidth(): number {
+  if (typeof window === "undefined") return FLOW_CALLOUT_MAX_WIDTH
+  return clampNumber(
+    window.innerWidth * 0.22,
+    FLOW_CALLOUT_MIN_WIDTH,
     FLOW_CALLOUT_MAX_WIDTH,
-    Math.max(FLOW_CALLOUT_MIN_WIDTH, size.width * 0.22),
   )
-  const geometry = clampFlowCalloutPosition({
-    anchorX,
-    anchorY,
-    canvasWidth: size.width,
-    canvasHeight: size.height,
-    calloutWidth,
-    calloutHeight: FLOW_CALLOUT_ESTIMATED_HEIGHT,
-  })
-  return [
-    geometry.left + calloutWidth / 2,
-    geometry.top + FLOW_CALLOUT_ESTIMATED_HEIGHT / 2,
-  ]
 }
 
 function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
@@ -442,6 +451,127 @@ function VehicleRigAttachment({ immediate }: { immediate: boolean }) {
   return null
 }
 
+function DynamicTopologyFeedback({
+  node,
+  feedback,
+  truthQualifier,
+}: {
+  node: VehicleTopologyNode
+  feedback: VehicleFlowNodeFeedback
+  truthQualifier: string
+}) {
+  const elementRef = useRef<HTMLSpanElement | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
+  const measuredSizeRef = useRef({ width: 0, height: 0 })
+  const projectedPositionRef = useRef(new THREE.Vector3())
+  const setElementRef = useCallback((element: HTMLSpanElement | null) => {
+    observerRef.current?.disconnect()
+    observerRef.current = null
+    elementRef.current = element
+    if (!element) return
+
+    const measure = () => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        measuredSizeRef.current = {
+          width: rect.width,
+          height: rect.height,
+        }
+      }
+    }
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    observerRef.current = observer
+  }, [])
+  const calculatePosition = useCallback((
+    object: THREE.Object3D,
+    camera: THREE.Camera,
+    size: { width: number; height: number },
+  ): [number, number] => {
+    const projectedPosition = projectedPositionRef.current
+    projectedPosition.setFromMatrixPosition(object.matrixWorld).project(camera)
+    const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
+    const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
+    const availableWidth = Math.max(1, size.width - FLOW_CALLOUT_INSET * 2)
+    const measuredSize = measuredSizeRef.current
+    const calloutWidth = Math.min(
+      measuredSize.width || fallbackFlowCalloutWidth(),
+      availableWidth,
+    )
+    const calloutHeight = measuredSize.height || FLOW_CALLOUT_FALLBACK_HEIGHT
+    const geometry = clampFlowCalloutPosition({
+      anchorX,
+      anchorY,
+      canvasWidth: size.width,
+      canvasHeight: size.height,
+      calloutWidth,
+      calloutHeight,
+    })
+    const leaderX = geometry.leaderEndX - geometry.left
+    const leaderY = geometry.leaderEndY - geometry.top
+    const deltaX = anchorX - geometry.leaderEndX
+    const deltaY = anchorY - geometry.leaderEndY
+    const element = elementRef.current
+    if (element) {
+      element.style.setProperty(
+        "--vehicle-feedback-canvas-max-width",
+        `${availableWidth}px`,
+      )
+      element.style.setProperty("--vehicle-feedback-leader-x", `${leaderX}px`)
+      element.style.setProperty("--vehicle-feedback-leader-y", `${leaderY}px`)
+      element.style.setProperty(
+        "--vehicle-feedback-leader-length",
+        `${Math.hypot(deltaX, deltaY)}px`,
+      )
+      element.style.setProperty(
+        "--vehicle-feedback-leader-angle",
+        `${Math.atan2(deltaY, deltaX)}rad`,
+      )
+    }
+    return [
+      geometry.left + calloutWidth / 2,
+      geometry.top + calloutHeight / 2,
+    ]
+  }, [])
+
+  return (
+    <Html
+      position={node.anchor}
+      center
+      calculatePosition={calculatePosition}
+      className="vehicle-network-viewport__feedback-layer"
+      style={HTML_PIN_LAYER_STYLE}
+    >
+      <span
+        ref={setElementRef}
+        className="vehicle-network-viewport__feedback"
+        data-status={feedback.status}
+        data-testid="vehicle-flow-feedback"
+        style={DYNAMIC_CALLOUT_STYLE}
+      >
+        <span
+          className="vehicle-network-viewport__feedback-leader"
+          data-testid="vehicle-flow-feedback-leader"
+          aria-hidden="true"
+        />
+        <strong style={DYNAMIC_CALLOUT_TITLE_STYLE}>{feedback.title}</strong>
+        <b style={DYNAMIC_CALLOUT_STATUS_STYLE}>{feedback.status}</b>
+        <small style={DYNAMIC_CALLOUT_DETAIL_STYLE}>{feedback.detail}</small>
+        <em style={DYNAMIC_CALLOUT_META_STYLE}>{feedback.source}</em>
+        <span
+          className="vehicle-network-viewport__feedback-truth"
+          style={DYNAMIC_CALLOUT_META_STYLE}
+        >
+          {truthQualifier}
+        </span>
+      </span>
+    </Html>
+  )
+}
+
 function TopologyPin({
   node,
   accent,
@@ -558,36 +688,11 @@ function TopologyPin({
         </span>
       </Html>
       {feedback ? (
-        <Html
-          position={node.anchor}
-          center
-          calculatePosition={calculateFlowFeedbackPosition}
-          className="vehicle-network-viewport__feedback-layer"
-          style={HTML_PIN_LAYER_STYLE}
-        >
-          <span
-            className="vehicle-network-viewport__feedback"
-            data-status={feedback.status}
-            data-testid="vehicle-flow-feedback"
-            style={DYNAMIC_CALLOUT_STYLE}
-          >
-            <span
-              className="vehicle-network-viewport__feedback-leader"
-              data-testid="vehicle-flow-feedback-leader"
-              aria-hidden="true"
-            />
-            <strong style={DYNAMIC_CALLOUT_TITLE_STYLE}>{feedback.title}</strong>
-            <b style={DYNAMIC_CALLOUT_STATUS_STYLE}>{feedback.status}</b>
-            <small style={DYNAMIC_CALLOUT_DETAIL_STYLE}>{feedback.detail}</small>
-            <em style={DYNAMIC_CALLOUT_META_STYLE}>{feedback.source}</em>
-            <span
-              className="vehicle-network-viewport__feedback-truth"
-              style={DYNAMIC_CALLOUT_META_STYLE}
-            >
-              {truthQualifier}
-            </span>
-          </span>
-        </Html>
+        <DynamicTopologyFeedback
+          node={node}
+          feedback={feedback}
+          truthQualifier={truthQualifier}
+        />
       ) : null}
     </>
   )

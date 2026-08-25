@@ -559,11 +559,13 @@
 .vehicle-network-viewport__callout small { color: #d8e2ef; font-size: 8px; font-weight: 650; letter-spacing: .01em; }
 .vehicle-network-viewport__feedback-layer { pointer-events: none; }
 .vehicle-network-viewport__feedback {
+  --vehicle-feedback-border-left-width: 4px;
+  --vehicle-feedback-border-top-width: 1px;
   position: relative;
   z-index: 4;
   box-sizing: border-box;
   display: grid;
-  max-width: calc(100vw - 16px);
+  max-width: min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)));
   gap: 3px;
   border: 1px solid color-mix(in srgb, var(--vehicle-route-accent) 74%, #fff);
   border-left-width: 4px;
@@ -583,13 +585,13 @@
 .vehicle-network-viewport__feedback[data-status="EFFECT APPLIED"] { border-color: #287a52; }
 .vehicle-network-viewport__feedback-leader {
   position: absolute;
-  top: 100%;
-  left: 0;
-  width: 32px;
+  top: calc(var(--vehicle-feedback-leader-y, 100%) - var(--vehicle-feedback-border-top-width));
+  left: calc(var(--vehicle-feedback-leader-x, 0px) - var(--vehicle-feedback-border-left-width));
+  width: var(--vehicle-feedback-leader-length, 0px);
   height: 1px;
   background: currentColor;
   opacity: .72;
-  transform: rotate(34deg);
+  transform: rotate(var(--vehicle-feedback-leader-angle, 0rad));
   transform-origin: 0 50%;
 }
 .vehicle-network-viewport__feedback strong { font-size: 12px; font-weight: 850; }
