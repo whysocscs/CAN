@@ -1,7 +1,7 @@
 # CAN Attack Lab Guided Feedback and Legibility Design
 
 Date: 2026-08-26
-Status: User-approved direction; pending written-spec review
+Status: User-approved; purpose-alignment review incorporated
 Branch: `feat/can-attack-basics-expansion`
 
 ## 1. Relationship to the implemented baseline
@@ -55,6 +55,9 @@ a path to Body ECU even though no frame was available to inject.
 - Fix stage connectors, target-map text wrapping, tooltip size, and route-card
   alignment at common zoom levels and viewport widths.
 - Preserve the existing answer-secrecy boundary and instructor-only solutions.
+- Distinguish Toy scenario success from learning completion: a vehicle effect can
+  prove that the Toy contract was satisfied, but it cannot prove that the learner
+  understood the evidence.
 - Preserve reset, cancellation, stale-result rejection, reduced motion, Docker
   isolation, and existing Toy ECU/IDS behavior unless this design explicitly
   corrects a presentation or preflight-flow defect.
@@ -161,8 +164,8 @@ claiming that the text came from the terminal. It contains:
 Example for a rejected Door frame:
 
 ```text
-터미널 오류       없음
-CAN 프레임 전송   성공
+터미널 오류        없음
+가상 CAN 경로 입력 성공
 중단 지점         Toy Body ECU
 ECU 판정          COUNTER_REJECTED
 차량 영향         없음
@@ -192,6 +195,12 @@ validated `flowTraces` remain the route and outcome authority.
 A Door script with multiple `cansend` lines plays one trace per attempt in
 source order. The HUD displays `Frame n/N`. `interval_ms` and comments configure
 the script and do not create vehicle packets.
+
+Only the final Door attempt carries the whole-script Toy IDS verdict. Earlier
+attempt traces use `idsVerdict=null`, so Frame 1/3 cannot reveal a final
+`NORMAL` or `ALERT` result before the sequence has been observed. Script grammar
+and other local validation failures also use `idsStatus=null`; they did not
+reach the Toy IDS.
 
 ## 8. Replay preflight correction
 
@@ -241,6 +250,15 @@ Visual requirements:
 - Only one dynamic feedback callout is shown at a time.
 - The final result callout persists after playback until the next command,
   reset, scenario change, or new session.
+- Feedback is progressively disclosed from the playback snapshot. A target ECU
+  verdict is not shown before the target ECU node is reached, an IDS verdict is
+  not shown before the IDS node is reached, and a vehicle effect is not shown
+  before the effect endpoint is reached.
+- The current multi-frame command label remains visible so the learner can tie
+  each animation to the exact script line being processed.
+- Normal playback keeps each node readable for 600 ms and keeps a completed
+  trace visible for 900 ms before moving to the next trace. Reduced-motion mode
+  skips travel while preserving the same final semantic evidence.
 - `prefers-reduced-motion` replaces packet travel and pulsing with strong static
   node/edge states and the same final explanation.
 - Logical ECU anchors use markers and halos. Only known GLB effect geometry for
@@ -267,14 +285,32 @@ The command HUD must show, when available:
 - ECU verdict;
 - IDS verdict with `detected, not blocked` wording when applicable.
 
+The UI must not describe an in-memory Toy injection as observed physical CAN
+transmission or CAN ACK. `가상 CAN 경로 입력 성공` means only that the
+allowlisted teaching interpreter accepted the frame into the Toy flow. It does
+not mean that a physical bus acknowledged the frame or that a target ECU
+accepted its application semantics.
+
+Toy IDS uses the following fixed learner-facing meanings:
+
+- `NORMAL`: `관찰됨 · Toy 규칙 경보 없음`
+- `ALERT`: `관찰/탐지됨 · 차단 근거 없음`
+
+The Toy IDS marker is an educational observation point. It must not be drawn or
+described as an inline blocker unless a future backend contract explicitly
+reports a blocking action.
+
 The Binary Inspector highlights the learner-submitted bytes relevant to the
 verdict. The default feedback may reveal the reason category and received
 values, but must not automatically reveal an unobserved correct ID, payload,
 checksum formula, or solution command.
 
-An explicitly requested advanced hint may show expected-versus-received data
-only after the learner has produced the relevant evidence and made at least one
-failed attempt. Exact full solution commands remain in instructor documentation.
+This implementation does not add an expected-value advanced hint. Existing
+general hints may remain, but the frontend must not derive or bundle an expected
+counter, checksum formula, private ID, payload, or complete solution command.
+An expected-versus-received advanced hint is deferred until a future backend
+contract can enforce relevant evidence, at least one failed attempt, and an
+explicit learner request.
 
 ## 11. Shared feedback boundaries
 
@@ -284,8 +320,8 @@ it in the Door page and Beginner page.
 Expected shared responsibilities:
 
 - A pure feedback classifier maps command results and `VehicleFlowTrace` values
-  into terminal presentation, feedback status, explanation rows, and safe hint
-  detail.
+  into terminal presentation, feedback status, progressively disclosed
+  explanation rows, and bounded Activity evidence.
 - A shared feedback panel renders the causal explanation and evidence source.
 - `VehicleNetworkViewport` renders dynamic node callouts and stronger 3D states
   from a read-only playback snapshot and the classified feedback.
@@ -293,6 +329,13 @@ Expected shared responsibilities:
   with the same connector geometry and accessibility contract.
 - Door and Beginner pages keep request ownership, session guards, evidence
   selection, and final authoritative state reconciliation.
+- A bounded activity record keeps the last 20 authoritative actions, including
+  script and Replay preflight results that correctly do not belong in Network
+  Monitor. It is cleared on reset, scenario/session replacement, and unmount.
+- A shared learning-check card separates `공격 조건 충족` from `학습 확인 완료`.
+  The latter is a local self-check, not an AI or semantic grade: it requires a
+  prediction saved before the relevant action, selected evidence from that
+  action, and a learner-written comparison/explanation.
 
 The classifier must not infer security truth solely from localized output text.
 It uses structured result codes, attempts, and parsed authoritative traces.
@@ -316,6 +359,10 @@ Required structure and behavior:
   specified minimum.
 - The five-step Spoofing/Replay rail and seven-step Door rail use the same shared
   behavior.
+- Backend `stage` remains authoritative curriculum state, while live playback
+  temporarily drives the visible action stage. Spoofing must visibly enter
+  `ECU 수락`, Replay must visibly enter `재전송`, and `증거` must not appear as
+  current until the authoritative playback completes.
 
 ## 13. Target-map card and tooltip legibility
 
@@ -353,6 +400,8 @@ Required structure and behavior:
   panel, final callout, or vehicle effect.
 - Repeated run/reset cycles must not increase panel height or accumulate
   unbounded feedback elements.
+- Network Monitor contains only observed/emitted CAN frames. Local and preflight
+  actions belong to the bounded Activity record, never fabricated monitor rows.
 
 ## 15. Accessibility and responsive requirements
 
@@ -394,6 +443,8 @@ Required structure and behavior:
 ### 16.3 Components
 
 - Door, Spoofing, and Replay all use the same feedback policy.
+- The shared policy reveals IDS, ECU, and effect rows only when playback has
+  reached their authoritative nodes.
 - Active, passed, rejected, effect, and idle 3D states render correctly.
 - The final feedback callout persists and clears on every required lifecycle
   transition.
@@ -428,6 +479,9 @@ Required structure and behavior:
   `docs/instructors/can-attack-lab-quick-pass.md` with exact terminal, feedback,
   route, monitor, IDS, and effect evidence locations.
 - Keep exact completion commands in instructor documentation only.
+- Remove direct instructor-solution links from learner guides. Document that an
+  open repository cannot provide strong assessment secrecy, while ensuring the
+  production frontend bundle does not contain instructor completion commands.
 
 ## 18. Completion criteria
 
@@ -448,6 +502,10 @@ The work is complete when all of the following are observable:
 9. No private solution is exposed before the configured evidence/hint gate.
 10. Relevant backend tests, frontend tests, typecheck, production build, diff
     check, and browser QA all pass.
+11. `공격 조건 충족` and `학습 확인 완료` are separately visible; backend
+    `completed` is never presented as proof of learner understanding.
+12. Activity history is bounded, Network Monitor contains frames only, and
+    Spoofing/Replay do not skip their live attack stage.
 
 ## 19. Known limitations
 
@@ -459,3 +517,27 @@ The work is complete when all of the following are observable:
   implementation; unverified text must remain labelled as virtual-lab output.
 - A future runnable DoS lab requires a bus-load/frequency flow model and is not
   covered by this single-operation effect design.
+- Natural-language explanations are not automatically graded or persisted in
+  SQLite in this delta.
+
+## 20. Purpose-alignment review decisions
+
+The backend/security, learning-feedback, and visual/accessibility reviewers
+agreed on the following binding corrections before implementation:
+
+1. Say `message identifier 재사용`, not `송신자 ID/identity 사칭`. A CAN
+   identifier identifies message meaning and participates in arbitration; it is
+   not an authenticated sender address.
+2. Say `가상 CAN 경로 입력`, not observed physical transmission or ACK.
+3. Separate terminal acceptance, Toy IDS observation, Toy ECU application
+   verdict, vehicle effect, Toy scenario completion, and learner completion.
+4. Reveal authoritative facts in playback order and keep the exact active
+   command visible for multi-frame scripts.
+5. Preserve logical-location qualifiers in dynamic callouts; only known GLB
+   Left Door and Tailgate geometry may be presented as physical effects.
+6. Keep feedback and terminal histories bounded and keep local/preflight events
+   out of Network Monitor.
+7. Fix the live curriculum stage as well as connector geometry, so the rail is
+   both visually and semantically correct.
+8. Keep advanced expected-value hints, natural-language auto-grading, runnable
+   DoS, physical CAN, and production-vehicle claims outside this delta.
