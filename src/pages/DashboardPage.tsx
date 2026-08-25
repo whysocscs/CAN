@@ -48,6 +48,27 @@ const recentActivity = [
   },
 ]
 
+const visibleCourses = [
+  {
+    key: "can-basics",
+    label: "CAN 기초",
+    accent: "var(--course-basics-accent)",
+    bg: "var(--course-basics-bg)",
+  },
+  {
+    key: "practice",
+    label: "CAN 실습",
+    accent: "var(--course-practice-accent)",
+    bg: "var(--course-practice-bg)",
+  },
+  {
+    key: "attacks",
+    label: "공격 실습",
+    accent: "var(--course-attacks-accent)",
+    bg: "var(--course-attacks-bg)",
+  },
+] as const
+
 interface ActivityIconProps {
   kind: string
   legacy: string
@@ -118,7 +139,10 @@ function DashboardArrow() {
 export default function DashboardPage() {
   const { progress, navigate, devMode } = useApp()
   const overallProgress = Math.round(
-    Object.values(progress.courseProgress).reduce((a, b) => a + b, 0) / 4,
+    visibleCourses.reduce(
+      (total, course) => total + (progress.courseProgress[course.key] || 0),
+      0,
+    ) / visibleCourses.length,
   )
   const allContentOpen = previewAccessOpen || devMode
 
@@ -328,32 +352,7 @@ export default function DashboardPage() {
           <p style={{ fontSize: 13, fontWeight: 700, margin: "0 0 14px" }}>
             과정별 진행률
           </p>
-          {[
-            {
-              key: "can-basics",
-              label: "CAN 기초",
-              accent: "var(--course-basics-accent)",
-              bg: "var(--course-basics-bg)",
-            },
-            {
-              key: "practice",
-              label: "CAN 실습",
-              accent: "var(--course-practice-accent)",
-              bg: "var(--course-practice-bg)",
-            },
-            {
-              key: "attacks",
-              label: "공격 실습",
-              accent: "var(--course-attacks-accent)",
-              bg: "var(--course-attacks-bg)",
-            },
-            {
-              key: "ids",
-              label: "IDS 실습",
-              accent: "var(--course-ids-accent)",
-              bg: "var(--course-ids-bg)",
-            },
-          ].map((c) => {
+          {visibleCourses.map((c) => {
             const pct = progress.courseProgress[c.key] || 0
             return (
               <div key={c.key} style={{ marginBottom: 12 }}>
