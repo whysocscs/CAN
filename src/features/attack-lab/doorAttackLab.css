@@ -602,12 +602,15 @@
 
 .door-attack-lab__secondary { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .7fr); gap: 12px; margin-top: 12px; }
 .door-attack-lab__terminal { min-height: 230px; }
-.door-attack-lab__terminal-output { height: 145px; overflow: auto; padding: 10px 12px; background: #151b27; color: #cfd8e8; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; }
+.door-attack-lab__terminal-output { height: 145px; min-height: 145px; max-height: 145px; overflow: auto; padding: 10px 12px; background: #151b27; color: #cfd8e8; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; }
 .door-attack-lab__terminal-output > p { margin: 0; color: #91a0b8; }
 .door-attack-lab__terminal-output code { color: #94b9ff; }
 .door-attack-lab__terminal-output > div { margin-top: 9px; }
 .door-attack-lab__terminal-output strong { display: block; color: #80aaff; }
-.door-attack-lab__terminal-output div[data-ok="false"] strong { color: #f09a94; }
+.attack-lab-terminal__entry[data-stream="stdout"] strong,
+.attack-lab-terminal__entry[data-stream="silent"] strong { color: #80aaff; }
+.attack-lab-terminal__entry[data-stream="stderr"] strong,
+.attack-lab-terminal__entry[data-stream="stderr"] pre { color: #f09a94; }
 .door-attack-lab__terminal-output pre { margin: 3px 0 0; overflow-wrap: anywhere; color: #d6deeb; font: inherit; white-space: pre-wrap; }
 .door-attack-lab__terminal form { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: 7px; height: 37px; padding: 0 8px 0 12px; border-top: 1px solid #30394a; background: #151b27; color: #7da4ee; font-family: "JetBrains Mono Variable", monospace; }
 .door-attack-lab__terminal input { min-width: 0; border: 0; outline: 0; background: transparent; color: #edf3ff; font-family: inherit; font-size: 10px; }
@@ -624,6 +627,52 @@
 .door-attack-lab__learning dt { color: var(--dal-muted); }
 .door-attack-lab__learning dd { margin: 0; font-family: "JetBrains Mono Variable", monospace; font-weight: 700; }
 .door-attack-lab__learning ul { margin: 8px 0 0; padding-left: 16px; color: var(--dal-muted); font-size: 9px; }
+
+.attack-lab-feedback h2,
+.attack-lab-activity h2,
+.attack-lab-learning-check h2 { margin: 0; color: var(--dal-text); font-size: 11px; }
+.attack-lab-feedback dl,
+.attack-lab-learning-check dl { margin: 9px 0 0; }
+.attack-lab-feedback dl > div,
+.attack-lab-learning-check dl > div { display: flex; justify-content: space-between; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--dal-line); font-size: 9px; }
+.attack-lab-feedback dd { display: grid; justify-items: end; gap: 2px; }
+.attack-lab-feedback dd small { color: var(--dal-muted); font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif; font-size: 8px; }
+
+.attack-lab-activity__scroll {
+  height: 180px;
+  min-height: 180px;
+  max-height: 180px;
+  margin-top: 8px;
+  overflow: auto;
+  outline: 0;
+}
+.attack-lab-activity__scroll:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--dal-accent) 65%, #fff); }
+.attack-lab-activity__scroll > p { margin: 0; padding: 12px 4px; }
+.attack-lab-activity__scroll ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.door-attack-lab__learning .attack-lab-activity__scroll button {
+  display: grid;
+  width: 100%;
+  gap: 2px;
+  border: 1px solid var(--dal-line);
+  padding: 7px 8px;
+  background: #fff;
+  color: var(--dal-text);
+  text-align: left;
+}
+.door-attack-lab__learning .attack-lab-activity__scroll button[aria-current="true"] {
+  border-color: var(--dal-accent);
+  background: color-mix(in srgb, var(--dal-accent) 7%, #fff);
+}
+.attack-lab-activity__scroll button span,
+.attack-lab-activity__scroll button small { overflow-wrap: anywhere; color: var(--dal-muted); font-size: 8px; }
+
+.attack-lab-learning-check header { justify-content: space-between; }
+.attack-lab-learning-check header > span { color: var(--dal-muted); font-size: 8px; font-weight: 700; }
+.attack-lab-learning-check label { display: grid; gap: 4px; margin-top: 8px; color: var(--dal-muted); font-size: 9px; font-weight: 700; }
+.attack-lab-learning-check textarea { width: 100%; min-height: 58px; resize: vertical; border: 1px solid var(--dal-line); padding: 7px; background: #fff; color: var(--dal-text); font: inherit; line-height: 1.55; }
+.attack-lab-learning-check > p { display: grid; gap: 3px; border-left: 2px solid var(--dal-accent); padding-left: 7px; }
+.attack-lab-learning-check > p strong { color: var(--dal-text); font-size: 9px; }
+.attack-lab-learning-check > p span { overflow-wrap: anywhere; }
 
 .door-attack-lab__spin { animation: door-attack-lab-spin .8s linear infinite; }
 @keyframes door-attack-lab-spin { to { transform: rotate(360deg); } }

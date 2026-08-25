@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import { useCanVehicleStream } from "../vehicle/useCanVehicleStream"
 import {
   applyVehicleFlowEffect,
   parseVehicleFlowTraces,
+  type VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { useVehicleFlowPlayback } from "../vehicle/useVehicleFlowPlayback"
 import { vehicle } from "../vehicle/vehicleStore"
@@ -41,6 +43,20 @@ import type {
   DoorLabVehicleState,
 } from "./doorLabTypes"
 import { formatFrameData, frameBits, parseTerminalFrames } from "./doorLabUtils"
+import {
+  appendAttackLabActivity,
+  appendAttackLabTranscript,
+  classifyAttackLabFeedback,
+  classifyTerminalTranscript,
+  type AttackLabActionOrigin,
+  type AttackLabActionResult,
+  type AttackLabActivityEntry,
+  type AttackLabTerminalTranscript as TranscriptEntry,
+} from "./attackLabFeedback"
+import AttackLabActivityLog from "./AttackLabActivityLog"
+import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
+import AttackLabLearningCheck from "./AttackLabLearningCheck"
+import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import DoorAttackVehicle from "./DoorAttackVehicle"
 import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
@@ -81,18 +97,14 @@ interface MonitorFrame {
   source: "CAN stream" | "terminal" | "run"
 }
 
-interface TerminalEntry {
-  id: number
-  command: string
-  output: string
-  ok: boolean
-}
-
 interface ActionRequest {
   controller: AbortController
   generation: number
   sessionId: string
   sessionGeneration: number
+  origin: AttackLabActionOrigin
+  actionId: string
+  predictionBeforeAction: string
 }
 
 interface CreateFlight {
@@ -167,7 +179,7 @@ function applyVehicleState(state: DoorLabVehicleState) {
 
 function eventToMonitorFrame(event: CanEvent): MonitorFrame {
   return {
-    key: `event:${event.eventId}`,
+    key: `event:${event.lab?.attemptId ?? event.eventId}`,
     timestamp: event.timestamp,
     channel: event.channel,
     canId: event.frame.canId,
@@ -244,7 +256,14 @@ export default function DoorAttackLabPage() {
   const [script, setScript] = useState(INITIAL_SCRIPT)
   const [monitor, dispatchMonitor] = useReducer(monitorReducer, EMPTY_MONITOR)
   const [terminalCommand, setTerminalCommand] = useState("")
-  const [terminalEntries, setTerminalEntries] = useState<TerminalEntry[]>([])
+  const [terminalEntries, setTerminalEntries] = useState<TranscriptEntry[]>([])
+  const [activity, setActivity] = useState<AttackLabActivityEntry[]>([])
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
+  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(null)
+  const [predictionDraft, setPredictionDraft] = useState("")
+  const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
+  const [explanation, setExplanation] = useState("")
+  const [confirmed, setConfirmed] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
@@ -260,7 +279,6 @@ export default function DoorAttackLabPage() {
   const createFlightRef = useRef<CreateFlight | null>(null)
   const actionControllerRef = useRef<AbortController | null>(null)
   const busyRef = useRef<typeof busy>(null)
-  const terminalEntryIdRef = useRef(0)
   const pendingFlowRef = useRef<PendingDoorFlow | null>(null)
   const flow = useVehicleFlowPlayback({
     onEffect: applyVehicleFlowEffect,
@@ -280,10 +298,22 @@ export default function DoorAttackLabPage() {
     },
   })
 
+  const clearLearningState = useCallback(() => {
+    setTerminalEntries([])
+    setActivity([])
+    setSelectedActivityId(null)
+    setLastAction(null)
+    setPredictionDraft("")
+    setPredictionBeforeAction("")
+    setExplanation("")
+    setConfirmed(false)
+  }, [])
+
   const loadSession = useCallback(() => {
     if (createFlightRef.current) return createFlightRef.current.promise
     flow.clear()
     pendingFlowRef.current = null
+    clearLearningState()
 
     const controller = new AbortController()
     const generation = lifecycleGenerationRef.current
@@ -322,7 +352,7 @@ export default function DoorAttackLabPage() {
 
     createFlightRef.current = { controller, promise }
     return promise
-  }, [flow.clear])
+  }, [clearLearningState, flow.clear])
 
   useEffect(() => {
     mountedRef.current = true
@@ -398,11 +428,21 @@ export default function DoorAttackLabPage() {
     if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
     const generation = ++actionGenerationRef.current
+    const origin: AttackLabActionOrigin = kind === "run" ? "script" : "terminal"
+    const actionId = `door:${sessionId}:${sessionGeneration}:${origin}:${generation}`
     actionControllerRef.current = controller
     busyRef.current = kind
     setBusy(kind)
     setActionError(null)
-    return { controller, generation, sessionId, sessionGeneration }
+    return {
+      controller,
+      generation,
+      sessionId,
+      sessionGeneration,
+      origin,
+      actionId,
+      predictionBeforeAction: predictionDraft,
+    }
   }
 
   const isActionCurrent = (request: ActionRequest) =>
@@ -427,12 +467,43 @@ export default function DoorAttackLabPage() {
     setBusy(null)
   }
 
-  const playResult = (
-    actionKey: "run" | "terminal",
+  const playAction = (
+    action: AttackLabActionResult,
+    traces: VehicleFlowTrace[],
     request: ActionRequest,
-    rawTraces: unknown,
     finalState: DoorLabVehicleState,
   ) => {
+    pendingFlowRef.current = {
+      runKey: action.actionId,
+      sessionId: request.sessionId,
+      sessionGeneration: request.sessionGeneration,
+      actionGeneration: request.generation,
+      state: finalState,
+    }
+    if (!flow.play({ runKey: action.actionId, traces })) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(finalState)
+    }
+  }
+
+  const recordAction = ({
+    request,
+    commandLabel,
+    ok,
+    resultCode,
+    rawOutput,
+    rawTraces,
+    finalState,
+  }: {
+    request: ActionRequest
+    commandLabel: string
+    ok: boolean
+    resultCode: string
+    rawOutput: string
+    rawTraces: unknown
+    finalState: DoorLabVehicleState
+  }) => {
     const traces = parseVehicleFlowTraces(rawTraces)
     if (!traces) {
       flow.clear()
@@ -441,27 +512,30 @@ export default function DoorAttackLabPage() {
       setActionError(
         "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
       )
-      return
+      return false
     }
 
-    const runKey = [
-      request.sessionId,
-      request.sessionGeneration,
-      actionKey,
-      request.generation,
-    ].join(":")
-    pendingFlowRef.current = {
-      runKey,
-      sessionId: request.sessionId,
-      sessionGeneration: request.sessionGeneration,
-      actionGeneration: request.generation,
-      state: finalState,
+    const action: AttackLabActionResult = {
+      actionId: request.actionId,
+      scenario: "door",
+      origin: request.origin,
+      commandLabel,
+      ok,
+      resultCode,
+      rawOutput,
+      traces,
     }
-    if (!flow.play({ runKey, traces })) {
-      flow.clear()
-      pendingFlowRef.current = null
-      applyVehicleState(finalState)
-    }
+    setLastAction(action)
+    setTerminalEntries((entries) =>
+      appendAttackLabTranscript(entries, classifyTerminalTranscript(action)),
+    )
+    setActivity((entries) => appendAttackLabActivity(entries, action))
+    setSelectedActivityId(null)
+    setPredictionBeforeAction(request.predictionBeforeAction)
+    setExplanation("")
+    setConfirmed(false)
+    playAction(action, traces, request, finalState)
+    return true
   }
 
   const handleRun = async () => {
@@ -483,8 +557,19 @@ export default function DoorAttackLabPage() {
       setIdsStatus(result.idsStatus)
       setLastRunAttempts(result.attempts)
       appendMonitorFrames(attemptsToMonitorFrames(result.attempts, "run"))
-      if (result.error) setActionError(result.error)
-      playResult("run", request, result.flowTraces, result.state.vehicleState)
+      const resultCode = result.error
+        ?? result.attempts.at(-1)?.verdict
+        ?? (result.state.completed ? "EXECUTED" : "OK")
+      recordAction({
+        request,
+        commandLabel: "Door lab script",
+        ok: result.error === null
+          && result.attempts.every((attempt) => attempt.verdict === "EXECUTED"),
+        resultCode,
+        rawOutput: result.error ?? "",
+        rawTraces: result.flowTraces,
+        finalState: result.state.vehicleState,
+      })
     } catch (error) {
       if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
@@ -499,6 +584,7 @@ export default function DoorAttackLabPage() {
     flow.cancel()
     if (!wasPlaying) flow.clear()
     pendingFlowRef.current = null
+    clearLearningState()
     applyVehicleState({ leftDoor: "closed", rightDoor: "closed" })
     try {
       const next = await resetDoorLabSession(
@@ -516,7 +602,7 @@ export default function DoorAttackLabPage() {
       applyVehicleState(next.vehicleState)
       setSession(next)
       dispatchMonitor({ type: "clear" })
-      setTerminalEntries([])
+      clearLearningState()
       setTerminalCommand("")
       setCommandHistory([])
       setHistoryIndex(-1)
@@ -551,17 +637,6 @@ export default function DoorAttackLabPage() {
         return
       setSession(result.state)
       if (result.idsStatus !== null) setIdsStatus(result.idsStatus)
-      setTerminalEntries((existing) =>
-        [
-          ...existing,
-          {
-            id: ++terminalEntryIdRef.current,
-            command,
-            output: result.output,
-            ok: result.ok,
-          },
-        ].slice(-30),
-      )
       setCommandHistory((existing) => [...existing, command].slice(-50))
       setHistoryIndex(-1)
       setTerminalCommand("")
@@ -581,12 +656,15 @@ export default function DoorAttackLabPage() {
         )
       }
       appendMonitorFrames(incoming)
-      playResult(
-        "terminal",
+      recordAction({
         request,
-        result.flowTraces,
-        result.state.vehicleState,
-      )
+        commandLabel: command,
+        ok: result.ok,
+        resultCode: result.code,
+        rawOutput: result.output,
+        rawTraces: result.flowTraces,
+        finalState: result.state.vehicleState,
+      })
     } catch (error) {
       if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
@@ -616,12 +694,59 @@ export default function DoorAttackLabPage() {
   const selectedBits = selectedFrame
     ? frameBits(selectedFrame.data).split(" ")
     : []
+  const feedback = useMemo(
+    () => lastAction
+      ? classifyAttackLabFeedback({ result: lastAction, playback: flow.snapshot })
+      : null,
+    [flow.snapshot, lastAction],
+  )
+  const latestActivity = useMemo(
+    () => activity.find((entry) => entry.id === lastAction?.actionId) ?? null,
+    [activity, lastAction?.actionId],
+  )
+  const latestAttemptIds = useMemo(
+    () => lastAction?.traces.flatMap((trace) =>
+      trace.attemptId ? [trace.attemptId] : []
+    ) ?? [],
+    [lastAction],
+  )
+  const technicalComplete = useMemo(
+    () => lastAction?.traces.some((trace) => trace.effectApplied) ?? false,
+    [lastAction],
+  )
+  const evidenceSelected = useMemo(() => {
+    const monitorMatches = Boolean(
+      selectedFrame
+        && latestAttemptIds.some((attemptId) => selectedFrame.key.includes(attemptId)),
+    )
+    const activityMatches = Boolean(
+      latestActivity
+        && !latestActivity.frameEmitted
+        && selectedActivityId === latestActivity.id,
+    )
+    return monitorMatches || activityMatches
+  }, [latestActivity, latestAttemptIds, selectedActivityId, selectedFrame])
+  const resultSummary = useMemo(
+    () => lastAction
+      ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
+      : "",
+    [lastAction],
+  )
+  const selectMonitorFrame = useCallback((key: string) => {
+    dispatchMonitor({ type: "select", key })
+    setConfirmed(false)
+  }, [])
+  const selectActivity = useCallback((id: string) => {
+    setSelectedActivityId(id)
+    setConfirmed(false)
+  }, [])
 
   return (
     <section
       className="door-attack-lab"
       aria-labelledby="door-attack-lab-title"
     >
+      <p className="sr-only" aria-live="polite">{resultSummary}</p>
       <header className="door-attack-lab__header">
         <div>
           <p>BLACK-BOX CAN · 격리된 Toy ECU 실습</p>
@@ -831,9 +956,7 @@ export default function DoorAttackLabPage() {
                         <button
                           type="button"
                           aria-label={`${frame.canId} ${formatFrameData(frame.data)} frame 선택`}
-                          onClick={() =>
-                            dispatchMonitor({ type: "select", key: frame.key })
-                          }
+                          onClick={() => selectMonitorFrame(frame.key)}
                         >
                           {frame.canId}
                         </button>
@@ -866,18 +989,10 @@ export default function DoorAttackLabPage() {
             </div>
             <span>vcan0 sandbox</span>
           </header>
-          <div className="door-attack-lab__terminal-output" aria-live="polite">
-            <p>
-              허용 명령으로 기록을 관찰하세요. 예: <code>ls</code>,{" "}
-              <code>cat baseline.log</code>, <code>candump -L vcan0</code>
-            </p>
-            {terminalEntries.map((entry) => (
-              <div key={entry.id} data-ok={entry.ok ? "true" : "false"}>
-                <strong>$ {entry.command}</strong>
-                <pre>{entry.output}</pre>
-              </div>
-            ))}
-          </div>
+          <AttackLabTerminalTranscript
+            entries={terminalEntries}
+            emptyMessage="허용 명령으로 기록을 관찰하세요. 실제 host shell은 실행되지 않습니다."
+          />
           <form onSubmit={(event) => void handleTerminalSubmit(event)}>
             <span aria-hidden="true">$</span>
             <input
@@ -945,8 +1060,8 @@ export default function DoorAttackLabPage() {
                 <dd>{session?.attemptCount ?? 0}</dd>
               </div>
               <div>
-                <dt>Proof</dt>
-                <dd>{session?.completed ? "COMPLETE" : "NOT YET"}</dd>
+                <dt>Toy 기술 결과 달성</dt>
+                <dd>{technicalComplete ? "달성" : "미달성"}</dd>
               </div>
             </dl>
             {session?.evidence.length ? (
@@ -970,6 +1085,29 @@ export default function DoorAttackLabPage() {
               </ul>
             ) : null}
           </section>
+          <AttackLabFeedbackPanel feedback={feedback} />
+          <AttackLabActivityLog
+            entries={activity}
+            selectedId={selectedActivityId}
+            onSelect={selectActivity}
+          />
+          <AttackLabLearningCheck
+            predictionDraft={predictionDraft}
+            predictionBeforeAction={predictionBeforeAction}
+            explanation={explanation}
+            technicalComplete={technicalComplete}
+            evidenceSelected={evidenceSelected}
+            confirmed={confirmed}
+            onPredictionChange={(value) => {
+              setPredictionDraft(value)
+              setConfirmed(false)
+            }}
+            onExplanationChange={(value) => {
+              setExplanation(value)
+              setConfirmed(false)
+            }}
+            onConfirm={() => setConfirmed(true)}
+          />
         </aside>
       </div>
     </section>

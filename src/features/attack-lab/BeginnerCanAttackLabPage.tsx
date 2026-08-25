@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
@@ -25,6 +26,7 @@ import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
 import {
   applyVehicleFlowEffect,
   parseVehicleFlowTraces,
+  type VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { VEHICLE_ROUTES } from "../vehicle/vehicleTopology"
 import { useVehicleFlowPlayback } from "../vehicle/useVehicleFlowPlayback"
@@ -44,7 +46,6 @@ import type {
   BeginnerCanAttackScenario,
   BeginnerCanAttackStage,
   BeginnerCanAttackState,
-  BeginnerCanAttackTerminalEntry,
   BeginnerCanAttackUiConfig,
 } from "./beginnerCanAttackTypes"
 import {
@@ -58,6 +59,20 @@ import {
   parseBeginnerTerminalFrames,
   vehicleRatiosFromBeginnerState,
 } from "./beginnerCanAttackUtils"
+import {
+  appendAttackLabActivity,
+  appendAttackLabTranscript,
+  classifyAttackLabFeedback,
+  classifyTerminalTranscript,
+  type AttackLabActionOrigin,
+  type AttackLabActionResult,
+  type AttackLabActivityEntry,
+  type AttackLabTerminalTranscript as TranscriptEntry,
+} from "./attackLabFeedback"
+import AttackLabActivityLog from "./AttackLabActivityLog"
+import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
+import AttackLabLearningCheck from "./AttackLabLearningCheck"
+import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
 
@@ -127,6 +142,9 @@ interface ActionRequest {
   sessionId: string
   sessionGeneration: number
   scenario: BeginnerCanAttackScenario
+  origin: AttackLabActionOrigin
+  actionId: string
+  predictionBeforeAction: string
 }
 
 interface CreateFlight {
@@ -217,7 +235,14 @@ export default function BeginnerCanAttackLabPage({
   const [script, setScript] = useState(config.initialScript)
   const [monitor, dispatchMonitor] = useReducer(monitorReducer, EMPTY_MONITOR)
   const [terminalCommand, setTerminalCommand] = useState("")
-  const [terminalEntries, setTerminalEntries] = useState<BeginnerCanAttackTerminalEntry[]>([])
+  const [terminalEntries, setTerminalEntries] = useState<TranscriptEntry[]>([])
+  const [activity, setActivity] = useState<AttackLabActivityEntry[]>([])
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
+  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(null)
+  const [predictionDraft, setPredictionDraft] = useState("")
+  const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
+  const [explanation, setExplanation] = useState("")
+  const [confirmed, setConfirmed] = useState(false)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
@@ -231,7 +256,6 @@ export default function BeginnerCanAttackLabPage({
   const createFlightRef = useRef<CreateFlight | null>(null)
   const actionControllerRef = useRef<AbortController | null>(null)
   const busyRef = useRef<BusyState>(null)
-  const terminalIdRef = useRef(0)
   const monitorSequenceRef = useRef(0)
   const pendingFlowRef = useRef<PendingBeginnerFlow | null>(null)
   const flow = useVehicleFlowPlayback({
@@ -253,10 +277,21 @@ export default function BeginnerCanAttackLabPage({
     },
   })
 
+  const clearLearningState = useCallback(() => {
+    setTerminalEntries([])
+    setActivity([])
+    setSelectedActivityId(null)
+    setLastAction(null)
+    setPredictionDraft("")
+    setPredictionBeforeAction("")
+    setExplanation("")
+    setConfirmed(false)
+  }, [])
+
   const nextMonitorSequence = useCallback(() => ++monitorSequenceRef.current, [])
   const clearLocalWorkbench = useCallback((nextConfig: BeginnerCanAttackUiConfig) => {
     dispatchMonitor({ type: "clear" })
-    setTerminalEntries([])
+    clearLearningState()
     setCommandHistory([])
     setHistoryIndex(-1)
     setTerminalCommand("")
@@ -268,7 +303,7 @@ export default function BeginnerCanAttackLabPage({
     setBusy(null)
     busyRef.current = null
     monitorSequenceRef.current = 0
-  }, [])
+  }, [clearLearningState])
 
   const loadSession = useCallback(() => {
     const existing = createFlightRef.current
@@ -280,6 +315,7 @@ export default function BeginnerCanAttackLabPage({
 
     flow.clear()
     pendingFlowRef.current = null
+    clearLearningState()
 
     const controller = new AbortController()
     const lifecycleGeneration = lifecycleGenerationRef.current
@@ -315,7 +351,7 @@ export default function BeginnerCanAttackLabPage({
     })()
     createFlightRef.current = { scenario, controller, promise }
     return promise
-  }, [flow.clear, scenario])
+  }, [clearLearningState, flow.clear, scenario])
 
   useEffect(() => {
     const changedScenario = scenarioRef.current !== scenario
@@ -388,12 +424,17 @@ export default function BeginnerCanAttackLabPage({
     ) return null
     if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
+    const actionGeneration = ++actionGenerationRef.current
+    const origin: AttackLabActionOrigin = kind === "run" ? "script" : "terminal"
     const request = {
       controller,
-      actionGeneration: ++actionGenerationRef.current,
+      actionGeneration,
       sessionId: current.sessionId,
       sessionGeneration: current.generation,
       scenario: current.scenario,
+      origin,
+      actionId: `${current.scenario}:${current.sessionId}:${current.generation}:${origin}:${actionGeneration}`,
+      predictionBeforeAction: predictionDraft,
     }
     actionControllerRef.current = controller
     busyRef.current = kind
@@ -427,39 +468,21 @@ export default function BeginnerCanAttackLabPage({
     setBusy(null)
   }
 
-  const playResult = (
-    source: "terminal" | "run",
+  const playAction = (
+    action: AttackLabActionResult,
+    traces: VehicleFlowTrace[],
     request: ActionRequest,
-    rawTraces: unknown,
     finalState: BeginnerCanAttackState["vehicleState"],
   ) => {
-    const traces = parseVehicleFlowTraces(rawTraces)
-    if (!traces) {
-      flow.clear()
-      pendingFlowRef.current = null
-      applyVehicleState(finalState)
-      setActionError(
-        "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
-      )
-      return
-    }
-
-    const runKey = [
-      request.scenario,
-      request.sessionId,
-      request.sessionGeneration,
-      source,
-      request.actionGeneration,
-    ].join(":")
     pendingFlowRef.current = {
-      runKey,
+      runKey: action.actionId,
       scenario: request.scenario,
       sessionId: request.sessionId,
       sessionGeneration: request.sessionGeneration,
       actionGeneration: request.actionGeneration,
       state: finalState,
     }
-    if (!flow.play({ runKey, traces })) {
+    if (!flow.play({ runKey: action.actionId, traces })) {
       flow.clear()
       pendingFlowRef.current = null
       applyVehicleState(finalState)
@@ -470,6 +493,7 @@ export default function BeginnerCanAttackLabPage({
     request: ActionRequest,
     result: BeginnerCanAttackResult,
     source: "terminal" | "run",
+    commandLabel: string,
   ) => {
     if (
       !isActionCurrent(request) ||
@@ -477,6 +501,7 @@ export default function BeginnerCanAttackLabPage({
       result.state.sessionId !== request.sessionId ||
       result.state.generation !== request.sessionGeneration
     ) return false
+    const traces = parseVehicleFlowTraces(result.flowTraces)
     sessionRef.current = result.state
     setSession(result.state)
     setLastResult(result)
@@ -489,8 +514,36 @@ export default function BeginnerCanAttackLabPage({
       type: "append",
       frames: sequenceFrames(restFrames, nextMonitorSequence),
     })
-    playResult(source, request, result.flowTraces, result.state.vehicleState)
-    if (!result.ok) setActionError(result.output || result.code)
+    if (!traces) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(result.state.vehicleState)
+      setActionError(
+        "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+      )
+      return true
+    }
+
+    const action: AttackLabActionResult = {
+      actionId: request.actionId,
+      scenario: request.scenario,
+      origin: request.origin,
+      commandLabel,
+      ok: result.ok,
+      resultCode: result.code,
+      rawOutput: result.output,
+      traces,
+    }
+    setLastAction(action)
+    setTerminalEntries((entries) =>
+      appendAttackLabTranscript(entries, classifyTerminalTranscript(action)),
+    )
+    setActivity((entries) => appendAttackLabActivity(entries, action))
+    setSelectedActivityId(null)
+    setPredictionBeforeAction(request.predictionBeforeAction)
+    setExplanation("")
+    setConfirmed(false)
+    playAction(action, traces, request, result.state.vehicleState)
     return true
   }
 
@@ -504,7 +557,7 @@ export default function BeginnerCanAttackLabPage({
         script,
         request.controller.signal,
       )
-      acceptResult(request, result, "run")
+      acceptResult(request, result, "run", "Lab script")
     } catch (error) {
       if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
@@ -519,6 +572,7 @@ export default function BeginnerCanAttackLabPage({
     flow.cancel()
     if (!wasPlaying) flow.clear()
     pendingFlowRef.current = null
+    clearLearningState()
     applyVehicleState({
       leftDoor: "closed",
       rightDoor: "closed",
@@ -561,13 +615,7 @@ export default function BeginnerCanAttackLabPage({
         command,
         request.controller.signal,
       )
-      if (!acceptResult(request, result, "terminal")) return
-      setTerminalEntries((entries) => [...entries, {
-        id: ++terminalIdRef.current,
-        command,
-        output: result.output,
-        ok: result.ok,
-      }].slice(-30))
+      if (!acceptResult(request, result, "terminal", command)) return
       setCommandHistory((history) => [...history, command].slice(-50))
       setHistoryIndex(-1)
       setTerminalCommand("")
@@ -611,9 +659,56 @@ export default function BeginnerCanAttackLabPage({
     : session && session.stage !== "RECON"
       ? "OBSERVED"
       : "UNKNOWN"
+  const feedback = useMemo(
+    () => lastAction
+      ? classifyAttackLabFeedback({ result: lastAction, playback: flow.snapshot })
+      : null,
+    [flow.snapshot, lastAction],
+  )
+  const latestActivity = useMemo(
+    () => activity.find((entry) => entry.id === lastAction?.actionId) ?? null,
+    [activity, lastAction?.actionId],
+  )
+  const latestAttemptIds = useMemo(
+    () => lastAction?.traces.flatMap((trace) =>
+      trace.attemptId ? [trace.attemptId] : []
+    ) ?? [],
+    [lastAction],
+  )
+  const technicalComplete = useMemo(
+    () => lastAction?.traces.some((trace) => trace.effectApplied) ?? false,
+    [lastAction],
+  )
+  const evidenceSelected = useMemo(() => {
+    const monitorMatches = Boolean(
+      selectedFrame
+        && latestAttemptIds.some((attemptId) => selectedFrame.key.includes(attemptId)),
+    )
+    const activityMatches = Boolean(
+      latestActivity
+        && !latestActivity.frameEmitted
+        && selectedActivityId === latestActivity.id,
+    )
+    return monitorMatches || activityMatches
+  }, [latestActivity, latestAttemptIds, selectedActivityId, selectedFrame])
+  const resultSummary = useMemo(
+    () => lastAction
+      ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
+      : "",
+    [lastAction],
+  )
+  const selectMonitorFrame = useCallback((key: string) => {
+    dispatchMonitor({ type: "select", key })
+    setConfirmed(false)
+  }, [])
+  const selectActivity = useCallback((id: string) => {
+    setSelectedActivityId(id)
+    setConfirmed(false)
+  }, [])
 
   return (
     <section className="door-attack-lab beginner-can-attack-lab" aria-labelledby="beginner-can-attack-title">
+      <p className="sr-only" aria-live="polite">{resultSummary}</p>
       <header className="door-attack-lab__header">
         <div>
           <p>CAN ATTACK BASICS · 격리된 Toy ECU 실습</p>
@@ -696,7 +791,7 @@ export default function BeginnerCanAttackLabPage({
           <header className="door-attack-lab__panel-heading"><div><Radio size={18} aria-hidden="true" /><span><strong>Network monitor</strong><small>REST rejected/capture + accepted live stream</small></span></div><span>{monitor.frames.length} / 300</span></header>
           <div className="door-attack-lab__monitor-scroll">
             <table><caption className="sr-only">Beginner CAN lab observed frames</caption><thead><tr><th>Time</th><th>ID</th><th>DATA</th><th>Source</th><th>Verdict</th></tr></thead><tbody>
-              {monitor.frames.length === 0 ? <tr><td colSpan={5}>아직 관찰된 프레임이 없습니다.</td></tr> : monitor.frames.map((frame) => <tr key={frame.key} data-selected={frame.key === monitor.selectedKey}><td>{MONITOR_TIME_FORMATTER.format(new Date(frame.timestamp))}</td><td><button type="button" aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`} onClick={() => dispatchMonitor({ type: "select", key: frame.key })}>{frame.canId}</button></td><td>{formatBeginnerFrameData(frame.data)}</td><td>{frame.source}</td><td>{frame.verdict}</td></tr>)}
+              {monitor.frames.length === 0 ? <tr><td colSpan={5}>아직 관찰된 프레임이 없습니다.</td></tr> : monitor.frames.map((frame) => <tr key={frame.key} data-selected={frame.key === monitor.selectedKey}><td>{MONITOR_TIME_FORMATTER.format(new Date(frame.timestamp))}</td><td><button type="button" aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`} onClick={() => selectMonitorFrame(frame.key)}>{frame.canId}</button></td><td>{formatBeginnerFrameData(frame.data)}</td><td>{frame.source}</td><td>{frame.verdict}</td></tr>)}
             </tbody></table>
           </div>
         </section>
@@ -705,16 +800,40 @@ export default function BeginnerCanAttackLabPage({
       <div className="door-attack-lab__secondary">
         <section className="door-attack-lab__terminal" role="region" aria-label="Virtual terminal">
           <header className="door-attack-lab__panel-heading"><div><TerminalWindow size={18} aria-hidden="true" /><span><strong>Virtual terminal</strong><small>allowlisted in-memory interpreter</small></span></div><span>{busy === "terminal" ? "RUNNING" : "READY"}</span></header>
-          <div className="door-attack-lab__terminal-output" aria-live="polite">
-            {terminalEntries.length === 0 ? <p>관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다.</p> : terminalEntries.map((entry) => <div key={entry.id} data-ok={entry.ok}><code>$ {entry.command}</code><pre>{entry.output}</pre></div>)}
-          </div>
+          <AttackLabTerminalTranscript
+            entries={terminalEntries}
+            emptyMessage="관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다."
+          />
           <form className="beginner-can-attack-lab__terminal-form" onSubmit={(event) => void handleTerminalSubmit(event)}><span aria-hidden="true">$</span><input aria-label="제한 터미널 명령" value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} onKeyDown={handleTerminalKeyDown} disabled={!session || busy !== null || flow.isPlaying} autoComplete="off" /><button type="submit" disabled={!session || busy !== null || flow.isPlaying}>명령 실행</button></form>
         </section>
 
         <div className="door-attack-lab__learning">
           <section role="region" aria-label="Hints"><header><Lightbulb size={17} aria-hidden="true" /><strong>Hints</strong></header><p>{hintIndex < 0 ? "힌트는 정답을 대신하지 않습니다." : config.hints[hintIndex]}</p><button type="button" onClick={() => setHintIndex((index) => Math.min(index + 1, config.hints.length - 1))}>다음 힌트</button></section>
           <section role="region" aria-label="Learning objective"><header><ShieldCheck size={17} aria-hidden="true" /><strong>Learning objective</strong></header><p>{config.objective}</p><p>물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만 검증합니다.</p></section>
-          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Completed</dt><dd>{session?.completed ? "YES" : "NO"}</dd></div></dl></section>
+          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Toy 기술 결과 달성</dt><dd>{technicalComplete ? "달성" : "미달성"}</dd></div></dl></section>
+          <AttackLabFeedbackPanel feedback={feedback} />
+          <AttackLabActivityLog
+            entries={activity}
+            selectedId={selectedActivityId}
+            onSelect={selectActivity}
+          />
+          <AttackLabLearningCheck
+            predictionDraft={predictionDraft}
+            predictionBeforeAction={predictionBeforeAction}
+            explanation={explanation}
+            technicalComplete={technicalComplete}
+            evidenceSelected={evidenceSelected}
+            confirmed={confirmed}
+            onPredictionChange={(value) => {
+              setPredictionDraft(value)
+              setConfirmed(false)
+            }}
+            onExplanationChange={(value) => {
+              setExplanation(value)
+              setConfirmed(false)
+            }}
+            onConfirm={() => setConfirmed(true)}
+          />
         </div>
       </div>
     </section>

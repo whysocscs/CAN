@@ -143,10 +143,3 @@ export interface BeginnerCanAttackUiConfig {
   objective: string
   accent: string
 }
-
-export interface BeginnerCanAttackTerminalEntry {
-  id: number
-  command: string
-  output: string
-  ok: boolean
-}

@@ -5,6 +5,7 @@ import { StrictMode } from "react"
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -275,6 +276,28 @@ const blockedRun: DoorLabScriptResult = {
   idsStatus: "ALERT",
   state: { ...initialSession, stage: "Replay 실패", attemptCount: 1 },
   error: null,
+  flowTraces: [rejectedDoorTrace],
+}
+
+const rejectedTerminalResult: DoorLabTerminalResult = {
+  ok: false,
+  code: "COUNTER_REJECTED",
+  output: "COUNTER_REJECTED",
+  frames: [
+    {
+      attemptId: "attempt-rejected",
+      timestamp: MONITOR_TIMESTAMP,
+      canId: "0x456",
+      data: ["01", "01", "10", "B5"],
+      verdict: "COUNTER_REJECTED",
+    },
+  ],
+  state: {
+    ...initialSession,
+    stage: "Replay 실패",
+    attemptCount: 1,
+  },
+  idsStatus: "ALERT",
   flowTraces: [rejectedDoorTrace],
 }
 
@@ -1372,4 +1395,169 @@ describe("DoorAttackLabPage", () => {
     expect(vehicle.isOpen("doorL")).toBe(false)
     expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
   })
+
+  it("keeps an emitted Door rejection silent and progressively discloses Why and Activity evidence", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabCommand.mockResolvedValueOnce(rejectedTerminalResult)
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+    const terminalInput = screen.getByRole("textbox", {
+      name: "제한 터미널 명령",
+    })
+    await waitFor(() => expect(terminalInput).toBeEnabled())
+
+    await user.type(
+      terminalInput,
+      rejectedDoorTrace.commandLabel,
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledOnce())
+    expect(api.runDoorLabCommand.mock.calls[0]?.[1])
+      .toBe(rejectedDoorTrace.commandLabel)
+
+    const transcript = await screen.findByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(
+      await within(transcript).findByText(`$ ${rejectedDoorTrace.commandLabel}`),
+    ).toBeInTheDocument()
+    expect(within(transcript).queryByText("COUNTER_REJECTED"))
+      .not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+
+    const why = screen
+      .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
+      .closest("section")
+    expect(why).not.toBeNull()
+    expect(within(why!).queryByText("가상 CAN 경로 입력"))
+      .not.toBeInTheDocument()
+    expect(within(why!).queryByText("Toy ECU")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /COUNTER_REJECTED/ }))
+      .toBeInTheDocument()
+
+    act(() => vi.advanceTimersByTime(220))
+    expect(within(why!).getByText("가상 CAN 경로 입력")).toBeInTheDocument()
+    expect(within(why!).queryByText("Toy ECU")).not.toBeInTheDocument()
+
+    act(() => vi.advanceTimersByTime(660))
+    expect(within(why!).getByText("Toy ECU")).toBeInTheDocument()
+    expect(within(why!).getByText("COUNTER_REJECTED")).toBeInTheDocument()
+  })
+
+  it("captures the pre-request prediction and requires matching latest-action evidence before confirmation", async () => {
+    const request = deferred<DoorLabTerminalResult>()
+    api.runDoorLabCommand.mockReturnValueOnce(request.promise)
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    const prediction = screen.getByLabelText("실행 전 예상")
+    await user.type(prediction, "왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "cansend vcan0 555#0001",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await user.clear(prediction)
+    await user.type(prediction, "요청 후에 바꾼 예상입니다.")
+
+    await act(async () => request.resolve(acceptedTerminalResult))
+
+    expect(screen.getByText("실행 시 기록된 예상").parentElement)
+      .toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    expect(screen.getByText("공격 조건 충족").parentElement)
+      .toHaveTextContent("달성")
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("미완료")
+
+    const explanation = screen.getByLabelText("선택한 근거와 결과 비교")
+    await user.type(
+      explanation,
+      "선택한 프레임과 Toy ECU 결과가 같은 실행에 속한다고 확인했습니다.",
+    )
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "session-1-attempt-terminal",
+          frame: { canId: "0x555", dlc: 2, data: ["00", "01"] },
+        }),
+      ),
+    )
+    await flushCanEvents()
+
+    const confirm = screen.getByRole("button", { name: "학습 확인" })
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("완료")
+  })
+
+  it("does not create terminal transcript rows for a Door script action", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
+
+    const transcript = screen.getByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(within(transcript).queryByTestId("attack-terminal-entry"))
+      .not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /CHECKSUM_INVALID/ }))
+      .toBeInTheDocument()
+  })
+
+  it("caps terminal at 100 and Activity at 20 and clears both on reset", async () => {
+    let resultIndex = 0
+    api.runDoorLabCommand.mockImplementation(
+      (_sessionId: string, command: string) => {
+        resultIndex += 1
+        return Promise.resolve<DoorLabTerminalResult>({
+          ok: true,
+          code: "OK",
+          output: `local-output-${resultIndex}`,
+          frames: [],
+          state: initialSession,
+          idsStatus: null,
+          flowTraces: [{
+            ...localDoorTrace,
+            traceId: `local-${resultIndex}`,
+            commandLabel: command,
+          }],
+        })
+      },
+    )
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+    const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    const form = input.closest("form")
+    expect(form).not.toBeNull()
+
+    for (let index = 0; index < 101; index += 1) {
+      fireEvent.change(input, { target: { value: `pwd-${index}` } })
+      fireEvent.submit(form!)
+      await act(async () => undefined)
+    }
+
+    const transcript = screen.getByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(within(transcript).getAllByTestId("attack-terminal-entry"))
+      .toHaveLength(100)
+    expect(within(transcript).queryByText("$ pwd-0")).not.toBeInTheDocument()
+    expect(within(transcript).getByText("$ pwd-100")).toBeInTheDocument()
+    const activity = screen.getByRole("region", { name: "Activity log" })
+    expect(within(activity).getAllByRole("button")).toHaveLength(20)
+
+    fireEvent.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalledOnce())
+    expect(within(transcript).queryByTestId("attack-terminal-entry"))
+      .not.toBeInTheDocument()
+    expect(within(activity).queryByRole("button")).not.toBeInTheDocument()
+  }, 30_000)
 })

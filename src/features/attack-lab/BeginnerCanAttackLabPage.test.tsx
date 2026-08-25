@@ -145,6 +145,51 @@ function captureTrace(): VehicleFlowTrace {
   }
 }
 
+function localTrace(
+  commandLabel: string,
+  traceId = "local-1",
+): VehicleFlowTrace {
+  return {
+    traceId,
+    attemptId: null,
+    sequence: 1,
+    kind: "local",
+    commandLabel,
+    commandIndex: null,
+    canId: null,
+    data: [],
+    route: ["terminal"],
+    stoppedAt: "terminal",
+    outcome: "REJECTED",
+    ecuVerdict: null,
+    idsVerdict: null,
+    effectTarget: null,
+    effectState: null,
+    effectApplied: false,
+  }
+}
+
+function rejectedBeginnerTrace(
+  scenario: BeginnerCanAttackScenario,
+): VehicleFlowTrace {
+  const spoofing = scenario === "spoofing"
+  return {
+    ...executedBeginnerTrace(scenario),
+    traceId: `${scenario}-rejected-1`,
+    attemptId: `${scenario}-rejected-1`,
+    route: spoofing
+      ? ["terminal", "obd", "ids", "gateway", "rear"]
+      : ["terminal", "obd", "ids", "gateway", "body"],
+    stoppedAt: spoofing ? "rear" : "body",
+    outcome: "REJECTED",
+    ecuVerdict: "STATE_INVALID",
+    idsVerdict: "ALERT",
+    effectTarget: null,
+    effectState: null,
+    effectApplied: false,
+  }
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (reason: unknown) => void
@@ -162,6 +207,19 @@ async function flushStream() {
     frames = []
     pending.forEach((callback) => callback(0))
   })
+}
+
+function stubReducedMotion(matches: boolean) {
+  vi.stubGlobal("matchMedia", () => ({
+    matches,
+    media: "(prefers-reduced-motion: reduce)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  }))
 }
 
 describe("BeginnerCanAttackLabPage", () => {
@@ -690,12 +748,253 @@ describe("BeginnerCanAttackLabPage", () => {
     const user = userEvent.setup()
     render(<BeginnerCanAttackLabPage scenario="spoofing" />)
     await screen.findByText("REAR ECU")
-    await user.type(screen.getByRole("textbox", { name: "제한 터미널 명령" }), "candump -L vcan0")
+    const terminalInput = screen.getByRole("textbox", {
+      name: "제한 터미널 명령",
+    })
+    await waitFor(() => expect(terminalInput).toBeEnabled())
+    await user.type(terminalInput, "candump -L vcan0")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     const monitor = screen.getByRole("region", { name: "Network monitor" })
     await within(monitor).findByText("0x701")
     await user.click(screen.getByRole("button", { name: "실습 초기화" }))
     await waitFor(() => expect(within(monitor).queryByText("0x701")).not.toBeInTheDocument())
     expect(screen.getByRole("textbox", { name: "제한 터미널 명령" })).toHaveValue("")
+  })
+
+  it("routes local syntax and Replay preflight failure to stderr and Activity without OBD or ECU feedback", async () => {
+    stubReducedMotion(true)
+    const current = session("replay")
+    api.runBeginnerCanAttackTerminal.mockResolvedValueOnce(result(current, {
+      ok: false,
+      code: "CAPTURE_REQUIRED",
+      output: "virtual canplayer preflight failed: CAPTURE_REQUIRED",
+      flowTraces: [localTrace("canplayer learner input")],
+    }))
+    const user = userEvent.setup()
+    render(<BeginnerCanAttackLabPage scenario="replay" />)
+    await screen.findByText("BODY ECU")
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "canplayer learner input",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    const transcript = screen.getByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(within(transcript).getByText(/virtual canplayer preflight failed/))
+      .toBeInTheDocument()
+    expect(within(transcript).getByTestId("attack-terminal-entry"))
+      .toHaveAttribute("data-stream", "stderr")
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /CAPTURE_REQUIRED/ }))
+      .toHaveTextContent("차량 경로 없음")
+    const why = screen
+      .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
+      .closest("section")
+    expect(why).not.toBeNull()
+    expect(within(why!).queryByText("가상 CAN 경로 입력"))
+      .not.toBeInTheDocument()
+    expect(within(why!).queryByText("Toy ECU")).not.toBeInTheDocument()
+  })
+
+  it("keeps an emitted ECU rejection silent and out of the application alert", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const current = session("spoofing")
+    const trace = rejectedBeginnerTrace("spoofing")
+    api.runBeginnerCanAttackTerminal.mockResolvedValueOnce(result(current, {
+      ok: false,
+      code: "STATE_INVALID",
+      output: "STATE_INVALID",
+      attempts: [{
+        attemptId: trace.attemptId!,
+        timestamp: 10,
+        sessionId: current.sessionId,
+        generation: current.generation,
+        canId: trace.canId!,
+        data: trace.data,
+        verdict: "STATE_INVALID",
+      }],
+      idsStatus: "ALERT",
+      flowTraces: [trace],
+    }))
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await screen.findByText("REAR ECU")
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      trace.commandLabel,
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    act(() => vi.runAllTimers())
+
+    const transcript = screen.getByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(within(transcript).getByTestId("attack-terminal-entry"))
+      .toHaveAttribute("data-stream", "silent")
+    expect(within(transcript).queryByText("STATE_INVALID"))
+      .not.toBeInTheDocument()
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    const why = screen
+      .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
+      .closest("section")
+    expect(within(why!).getByText("Toy ECU")).toBeInTheDocument()
+    expect(within(why!).getByText("STATE_INVALID")).toBeInTheDocument()
+  })
+
+  it("keeps capture redirection silent while Activity and Why identify Evidence capture", async () => {
+    stubReducedMotion(true)
+    const current = session("replay")
+    const trace = captureTrace()
+    api.runBeginnerCanAttackTerminal.mockResolvedValueOnce(result(
+      { ...current, stage: "CAPTURE" },
+      {
+        code: "CAPTURED",
+        output: "captured output that is redirected",
+        captures: [{
+          captureId: "capture-1",
+          timestamp: 10,
+          sessionId: current.sessionId,
+          generation: current.generation,
+          fileName: "learner.log",
+          canId: trace.canId!,
+          data: trace.data,
+          verdict: "CAPTURED",
+        }],
+        flowTraces: [trace],
+      },
+    ))
+    const user = userEvent.setup()
+    render(<BeginnerCanAttackLabPage scenario="replay" />)
+    await screen.findByText("BODY ECU")
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      trace.commandLabel,
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    const transcript = screen.getByRole("region", {
+      name: "Virtual terminal transcript",
+    })
+    expect(within(transcript).getByTestId("attack-terminal-entry"))
+      .toHaveAttribute("data-stream", "silent")
+    expect(within(transcript).queryByText("captured output that is redirected"))
+      .not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /CAPTURED/ })).toBeInTheDocument()
+    const why = screen
+      .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
+      .closest("section")
+    expect(within(why!).getByText("Evidence")).toBeInTheDocument()
+  })
+
+  it.each([
+    ["spoofing", "tailgate"],
+    ["replay", "doorL"],
+  ] as const)(
+    "does not let a previous successful %s session make the latest failed action pass",
+    async (scenarioName, part) => {
+      stubReducedMotion(true)
+      const current = session(scenarioName)
+      const executed = executedBeginnerTrace(scenarioName)
+      const completed: BeginnerCanAttackState = {
+        ...current,
+        stage: "EVIDENCE",
+        completed: true,
+        vehicleState: {
+          ...current.vehicleState,
+          [part === "doorL" ? "leftDoor" : "tailgate"]: "open",
+        },
+      }
+      api.runBeginnerCanAttackTerminal
+        .mockResolvedValueOnce(result(completed, {
+          code: "EXECUTED",
+          attempts: [{
+            attemptId: executed.attemptId!,
+            timestamp: 10,
+            sessionId: current.sessionId,
+            generation: current.generation,
+            canId: executed.canId!,
+            data: executed.data,
+            verdict: "EXECUTED",
+          }],
+          idsStatus: "NORMAL",
+          flowTraces: [executed],
+        }))
+        .mockResolvedValueOnce(result(completed, {
+          ok: false,
+          code: "COMMAND_REJECTED",
+          output: "virtual syntax error",
+          flowTraces: [localTrace("bad learner command", `${scenarioName}-local-fail`)],
+        }))
+      const user = userEvent.setup()
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      await screen.findByText(scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU")
+
+      await user.type(screen.getByLabelText("실행 전 예상"), "차량 효과가 적용될 것으로 예상합니다.")
+      const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+      await user.type(terminal, executed.commandLabel)
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      expect(screen.getByText("공격 조건 충족").parentElement)
+        .toHaveTextContent("달성")
+
+      await user.type(terminal, "bad learner command")
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+      expect(screen.getByText("공격 조건 충족").parentElement)
+        .toHaveTextContent("미달성")
+      expect(screen.getByText("학습 확인 완료").parentElement)
+        .toHaveTextContent("미완료")
+      expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+    },
+  )
+
+  it("clears transcript, Activity, prediction, and reflection on scenario change and reset", async () => {
+    stubReducedMotion(true)
+    let call = 0
+    api.runBeginnerCanAttackTerminal.mockImplementation(
+      (currentScenario: BeginnerCanAttackScenario) => {
+        call += 1
+        const current = session(currentScenario)
+        return Promise.resolve(result(current, {
+          ok: false,
+          code: "COMMAND_REJECTED",
+          output: `local error ${call}`,
+          flowTraces: [localTrace(`bad-${call}`, `local-${call}`)],
+        }))
+      },
+    )
+    const user = userEvent.setup()
+    const view = render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await screen.findByText("REAR ECU")
+
+    await user.type(screen.getByLabelText("실행 전 예상"), "첫 시나리오 예상")
+    await user.type(screen.getByLabelText("선택한 근거와 결과 비교"), "첫 시나리오에서 작성한 충분히 긴 비교 설명입니다.")
+    await user.type(screen.getByRole("textbox", { name: "제한 터미널 명령" }), "bad-1")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: /COMMAND_REJECTED/ })).toBeInTheDocument()
+
+    view.rerender(<BeginnerCanAttackLabPage scenario="replay" />)
+    await screen.findByText("BODY ECU")
+    expect(screen.queryByTestId("attack-terminal-entry")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /COMMAND_REJECTED/ }))
+      .not.toBeInTheDocument()
+    expect(screen.getByLabelText("실행 전 예상")).toHaveValue("")
+    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+
+    await user.type(screen.getByRole("textbox", { name: "제한 터미널 명령" }), "bad-2")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetBeginnerCanAttackSession).toHaveBeenCalled())
+    expect(screen.queryByTestId("attack-terminal-entry")).not.toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /COMMAND_REJECTED/ }))
+      .not.toBeInTheDocument()
   })
 })
