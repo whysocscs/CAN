@@ -15,7 +15,7 @@
     "build:ver3": "vite build --mode ver3 --outDir dist/ver3",
     "build:ver4": "vite build --mode ver4 --outDir dist/ver4",
     "preview": "vite preview",
-    "terminal:server": ".venv/bin/python -m uvicorn server.main:app --host 127.0.0.1 --port 8010",
+    "terminal:server": ".\\.venv\\Scripts\\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8010",
     "format": "oxfmt",
     "typecheck": "tsc --noEmit"
   },

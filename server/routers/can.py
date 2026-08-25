@@ -25,7 +25,7 @@ from typing import Any, Final, Literal
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from pydantic import BaseModel, Field
 
-from server.routers.terminal import ALLOWED_ORIGINS
+from server.routers.terminal import is_allowed_origin
 
 
 router = APIRouter()
@@ -293,7 +293,7 @@ async def clear_snapshot() -> dict[str, Any]:
 @router.websocket("/ws/can")
 async def can_socket(websocket: WebSocket) -> None:
     origin = websocket.headers.get("origin")
-    if origin and origin not in ALLOWED_ORIGINS:
+    if not is_allowed_origin(origin):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

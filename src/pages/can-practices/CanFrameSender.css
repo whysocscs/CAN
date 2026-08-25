@@ -1,0 +1,2346 @@
+/* CAN Frame Sender page-only styles */
+
+/* Keep the shared guide shell while making the sender's active mission compact. */
+.senderlab__learning-steps article > button:disabled {
+  cursor: default;
+  opacity: .48;
+}
+
+.senderlab__current-mission {
+  padding-top: 13px;
+}
+
+.senderlab__current-mission article {
+  margin-top: 0;
+}
+
+.senderlab__current-mission article > div {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.senderlab__current-mission article > div > p {
+  margin: 0;
+}
+
+.senderlab__current-mission article > div > p:first-child > strong {
+  color: #1e293b;
+  font-size: 11px;
+}
+
+.senderlab__mission-task {
+  display: grid;
+  gap: 7px;
+  padding: 10px;
+  border: 1px solid #dbe5f1;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.senderlab__mission-task p,
+.senderlab__mission-task small {
+  margin: 0;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.senderlab__mission-task > strong {
+  color: #334155;
+  font-size: 10px;
+  line-height: 1.55;
+}
+
+.senderlab__mission-task code {
+  color: #1d4ed8;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 10px;
+}
+
+.senderlab__mission-complete {
+  margin: 0;
+  padding: 7px 9px;
+  border-radius: 6px;
+  background: #f0fdf4;
+  color: #15803d;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.senderlab__mission-options {
+  display: grid;
+  gap: 6px;
+}
+
+.senderlab__mission-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 1px solid #dbe5f1;
+  border-radius: 7px;
+  background: #fff;
+  color: #475569;
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+button.senderlab__mission-option {
+  cursor: pointer;
+}
+
+.senderlab__mission-option:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.senderlab__mission-option:disabled {
+  cursor: not-allowed;
+  opacity: .52;
+}
+
+.senderlab__mission-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.senderlab__mission-chip {
+  padding: 6px 8px;
+  border: 1px solid #dbe5f1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.senderlab__mission-chip:hover:not(:disabled) {
+  border-color: #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.senderlab__mission-chip:disabled {
+  opacity: .52;
+}
+
+/* STEP 1 keeps one set of command tokens mounted while their positions change. */
+.senderlab__command-flow {
+  position: absolute;
+  inset: 0;
+  display: block;
+  min-height: 0;
+  overflow: hidden;
+  color: #000;
+}
+
+.senderlab__command-flow,
+.senderlab__command-flow * {
+  color: #000 !important;
+}
+
+/* Override the generic scene fade/translate rule for the STEP 1 timeline. */
+.senderlab__command-flow .senderlab__flow-source {
+  opacity: 1 !important;
+  transform: translateX(calc(-50% - 15px)) !important;
+}
+
+.senderlab__command-flow .senderlab__flow-source-word {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+.senderlab__command-flow .senderlab__flow-token > code,
+.senderlab__command-flow .senderlab__flow-expression > span {
+  opacity: 1 !important;
+  transform: none !important;
+}
+.senderlab__flow-source {
+  position: absolute;
+  top: 43%;
+  left: 50%;
+  color: #000;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: clamp(20px, 2.8vw, 34px);
+  font-weight: 800;
+  line-height: 1;
+  opacity: 1;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  transition: top 2s ease-in-out, opacity .35s ease;
+}
+
+.senderlab__flow-source-word {
+  display: inline-block;
+  opacity: 1;
+  transition: transform 2s ease-in-out;
+}
+
+.senderlab__flow-token {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 18px;
+  color: #000;
+  opacity: 0;
+  transition: top 2s ease-in-out, left 2s ease-in-out, opacity 2s ease-in-out;
+}
+
+.senderlab__flow-token > code {
+  color: #000;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: clamp(20px, 2.8vw, 34px);
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.senderlab__flow-token--command { transform: translateX(calc(-100% - .5rem)); }
+.senderlab__flow-token--interface { transform: translateX(-50%); }
+.senderlab__flow-token--frame { transform: translateX(.5rem); }
+
+.senderlab__flow-guide {
+  display: grid;
+  justify-items: center;
+  gap: 9px;
+  min-width: 152px;
+  opacity: 0;
+  transform: translateY(-12px);
+  transition: opacity .5s ease, transform .5s ease;
+}
+
+.senderlab__flow-guide i {
+  display: block;
+  width: 1px;
+  height: 0;
+  background: rgba(125, 211, 252, .75);
+  transition: height .5s ease;
+}
+
+.senderlab__flow-guide span {
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  opacity: 0;
+  white-space: nowrap;
+  transition: opacity .35s ease, transform .35s ease;
+  transform: translateY(-6px);
+}
+
+.senderlab__flow-expression,
+.senderlab__flow-id,
+.senderlab__flow-divider,
+.senderlab__flow-data {
+  display: inline-block;
+}
+
+.senderlab__flow-id,
+.senderlab__flow-data {
+  transition: transform 2s ease-in-out;
+}
+
+.senderlab__flow-result,
+.senderlab__flow-complete {
+  position: absolute;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  opacity: 0;
+  transform: translateY(14px);
+  pointer-events: none;
+  transition: opacity .5s ease, transform .5s ease;
+}
+
+.senderlab__flow-result {
+  top: 70%;
+  color: #000;
+}
+
+.senderlab__flow-result strong {
+  color: #000;
+  font-size: 15px;
+}
+
+.senderlab__flow-result code {
+  color: #000;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.senderlab__flow-result--id { left: 23%; }
+.senderlab__flow-result--data { right: 23%; }
+
+.senderlab__flow-complete {
+  right: 20px;
+  bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(125, 211, 252, .32);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .88);
+}
+
+.senderlab__flow-complete strong {
+  color: #000;
+  font-size: 12px;
+}
+
+.senderlab__flow-complete button {
+  padding: 7px 11px;
+  border: 1px solid #000;
+  border-radius: 8px;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  font-weight: 800;
+  pointer-events: auto;
+}
+
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token {
+  top: 20%;
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token--command { left: 18%; transform: translateX(-50%); }
+.senderlab__command-flow.is-phase-2 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token--interface { left: 50%; }
+.senderlab__command-flow.is-phase-2 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token--frame { left: 82%; transform: translateX(-50%); }
+
+.senderlab__command-flow.is-phase-4 .senderlab__flow-guide {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-source {
+  opacity: 0;
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-source {
+  opacity: 0 !important;
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-token,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-token--frame {
+  opacity: 1;
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source-word--command,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source-word--command,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source-word--command {
+  transform: translateX(-clamp(84px, 15vw, 178px));
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source-word--command,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source-word--command,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source-word--command {
+  transform: translateX(-clamp(84px, 15vw, 178px)) !important;
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source-word--frame,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source-word--frame,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source-word--frame {
+  transform: translateX(clamp(84px, 15vw, 178px));
+}
+
+.senderlab__command-flow.is-phase-2 .senderlab__flow-source-word--frame,
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source-word--frame,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source-word--frame {
+  transform: translateX(clamp(84px, 15vw, 178px)) !important;
+}
+
+.senderlab__command-flow.is-phase-3 .senderlab__flow-source,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-source {
+  top: 20%;
+}
+
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token > code,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token > code {
+  opacity: 1;
+}
+
+.senderlab__command-flow.is-phase-3 .senderlab__flow-token > code,
+.senderlab__command-flow.is-phase-4 .senderlab__flow-token > code {
+  opacity: 1 !important;
+}
+
+.senderlab__command-flow.is-phase-4 .senderlab__flow-guide i { height: 44px; }
+
+.senderlab__command-flow.is-phase-4 .senderlab__flow-guide span {
+  opacity: 1 !important;
+  transform: translateY(0);
+  transition-delay: 1s;
+}
+
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--command .senderlab__flow-guide,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--interface .senderlab__flow-guide,
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--frame .senderlab__flow-guide,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-token--interface,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-token--command,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-token--interface { opacity: 0; }
+
+.senderlab__command-flow.is-phase-5 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-6 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-7 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-8 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-token--frame {
+  top: 43%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.senderlab__command-flow.is-phase-7 .senderlab__flow-id { transform: translateX(-24px) !important; }
+.senderlab__command-flow.is-phase-7 .senderlab__flow-data { transform: translateX(24px) !important; }
+.senderlab__command-flow.is-phase-8 .senderlab__flow-id,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-id { transform: translateX(-clamp(180px, 25vw, 520px)) !important; }
+.senderlab__command-flow.is-phase-8 .senderlab__flow-data,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-data { transform: translateX(clamp(180px, 25vw, 520px)) !important; }
+
+/* Final parse layout: place each part directly above its explanation column. */
+.senderlab__command-flow.is-phase-8 .senderlab__flow-token--frame,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-token--frame {
+  left: 0;
+  width: 100%;
+  transform: none;
+}
+
+.senderlab__command-flow.is-phase-8 .senderlab__flow-expression,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-expression {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 48px;
+}
+
+.senderlab__command-flow.is-phase-8 .senderlab__flow-id,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-id {
+  position: absolute;
+  left: 26%;
+  transform: translateX(-50%) !important;
+}
+
+.senderlab__command-flow.is-phase-8 .senderlab__flow-divider,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-divider {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%) !important;
+}
+
+.senderlab__command-flow.is-phase-8 .senderlab__flow-data,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-data {
+  position: absolute;
+  left: 75%;
+  transform: translateX(-50%) !important;
+}
+
+.senderlab__command-flow.is-phase-9 .senderlab__flow-result,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-complete {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.senderlab__command-flow.is-phase-9 .senderlab__flow-result,
+.senderlab__command-flow.is-phase-9 .senderlab__flow-result * {
+  opacity: 1 !important;
+  transform: none !important;
+}
+
+/* Sender viewport: every stage uses the canvas as its absolute coordinate system. */
+.senderlab-page .senderstage__canvas > .senderstage__title {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  z-index: 3;
+}
+
+.senderlab-page .senderstage__canvas > .senderlab__scene:not(.senderlab__command-flow) {
+  position: absolute;
+  inset: 0;
+  display: block;
+  min-height: 0;
+}
+
+.senderlab-page .senderlab__scene--frame > *,
+.senderlab-page .senderlab__scene--filter > *,
+.senderlab-page .senderlab__scene--message > *,
+.senderlab-page .senderlab__scene--payload > *,
+.senderlab-page .senderlab__scene--result > *,
+.senderlab-page .senderlab__scene--socket > * {
+  position: absolute;
+}
+
+/* STEP 2 */
+.senderlab-page .senderlab__frame-build-row { top: 20%; left: 50%; transform: translateX(-50%); }
+.senderlab-page .senderlab__mini-frame { top: 31%; left: 8%; width: 84%; }
+.senderlab-page .senderlab__dlc-calc { top: 54%; left: 50%; transform: translateX(-50%); }
+.senderlab-page .senderlab__frame-lesson { top: 18%; left: 5%; width: 90%; }
+.senderlab-page .senderlab__frame-emphasis { right: 5%; bottom: 8%; max-width: 48ch; }
+
+/* STEP 3 */
+.senderlab-page .senderlab__socket-stack {
+  top: 14%;
+  left: 50%;
+  width: min(520px, 76%);
+  height: 430px;
+  transform: translateX(-50%);
+}
+
+.senderlab-page .senderlab__socket-stack > div:not(.senderlab__frame-token) {
+  position: absolute;
+  left: 0;
+  width: 100%;
+}
+
+.senderlab-page .senderlab__socket-stack > div:nth-child(1) { top: 0; }
+.senderlab-page .senderlab__socket-stack > div:nth-child(2) { top: 80px; }
+.senderlab-page .senderlab__socket-stack > div:nth-child(3) { top: 160px; }
+.senderlab-page .senderlab__socket-stack > div:nth-child(4) { top: 240px; }
+.senderlab-page .senderlab__socket-stack > div:nth-child(5) { top: 320px; }
+.senderlab-page .senderlab__scene--socket > .senderlab__scene-note {
+  bottom: 7%;
+  left: 50%;
+  width: min(620px, 78%);
+  transform: translateX(-50%);
+}
+
+/* STEP 4 */
+.senderlab-page .senderlab__incoming-frame { top: 16%; left: 50%; transform: translateX(-50%); }
+.senderlab-page .senderlab__filter-lanes { top: 30%; left: 7%; width: 86%; height: 250px; }
+.senderlab-page .senderlab__filter-lanes > div { position: absolute; top: 0; width: 30%; }
+.senderlab-page .senderlab__filter-lanes > div:nth-child(1) { left: 0; }
+.senderlab-page .senderlab__filter-lanes > div:nth-child(2) { left: 35%; }
+.senderlab-page .senderlab__filter-lanes > div:nth-child(3) { right: 0; }
+.senderlab-page .senderlab__filter-summary { bottom: 12%; left: 50%; transform: translateX(-50%); }
+
+/* STEP 5 and STEP 6 */
+.senderlab-page .senderlab__message-incoming,
+.senderlab-page .senderlab__payload-incoming { top: 16%; left: 50%; transform: translateX(-50%); }
+.senderlab-page .senderlab__message-table,
+.senderlab-page .senderlab__payload-table { top: 31%; left: 15%; width: 70%; min-height: 230px; }
+.senderlab-page .senderlab__message-table > strong,
+.senderlab-page .senderlab__payload-table > strong { position: absolute; top: 0; left: 0; }
+.senderlab-page .senderlab__message-table > div,
+.senderlab-page .senderlab__payload-table > div { position: absolute; left: 0; width: 100%; }
+.senderlab-page .senderlab__message-table > div:nth-child(2),
+.senderlab-page .senderlab__payload-table > div:nth-child(2) { top: 54px; }
+.senderlab-page .senderlab__message-table > div:nth-child(3),
+.senderlab-page .senderlab__payload-table > div:nth-child(3) { top: 128px; }
+.senderlab-page .senderlab__payload-result,
+.senderlab-page .senderlab__message-result { right: 8%; bottom: 10%; }
+
+/* STEP 7 */
+.senderlab-page .senderlab__process-complete { top: 18%; left: 8%; width: 84%; }
+.senderlab-page .senderlab__result-summary { position: relative; height: 180px; }
+.senderlab-page .senderlab__result-summary > div { position: absolute; width: 30%; }
+.senderlab-page .senderlab__result-summary > div:nth-child(1) { top: 0; left: 0; }
+.senderlab-page .senderlab__result-summary > div:nth-child(2) { top: 0; left: 35%; }
+.senderlab-page .senderlab__result-summary > div:nth-child(3) { top: 0; right: 0; }
+.senderlab-page .senderlab__result-summary > div:nth-child(4) { bottom: 0; left: 18%; }
+.senderlab-page .senderlab__result-summary > div:nth-child(5) { bottom: 0; right: 18%; }
+.senderlab-page .senderlab__result-final { bottom: 17%; left: 50%; transform: translateX(-50%); }
+.senderlab-page .senderlab__result-note { bottom: 8%; left: 50%; width: min(680px, 78%); transform: translateX(-50%); }
+
+/* Keep absolute x-axis placement when an element receives the is-on state. */
+.senderlab-page .senderlab__frame-build-row,
+.senderlab-page .senderlab__dlc-calc,
+.senderlab-page .senderlab__socket-stack,
+.senderlab-page .senderlab__scene--socket > .senderlab__scene-note,
+.senderlab-page .senderlab__incoming-frame,
+.senderlab-page .senderlab__filter-summary,
+.senderlab-page .senderlab__message-incoming,
+.senderlab-page .senderlab__payload-incoming,
+.senderlab-page .senderlab__result-final,
+.senderlab-page .senderlab__result-note {
+  transform: translateX(-50%) !important;
+}
+
+.senderlab-page .senderlab__idle-stage,
+.senderlab-page .senderlab__stopped-box {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(620px, 78%);
+  min-height: 0;
+  transform: translate(-50%, -50%) !important;
+}
+
+@media (max-width: 760px) {
+  .senderlab__command-flow { min-height: 360px; }
+  .senderlab__flow-token > code { font-size: 17px; }
+  .senderlab__command-flow.is-phase-2 .senderlab__flow-token--command,
+  .senderlab__command-flow.is-phase-3 .senderlab__flow-token--command,
+  .senderlab__command-flow.is-phase-4 .senderlab__flow-token--command { left: 16%; }
+  .senderlab__command-flow.is-phase-2 .senderlab__flow-token--frame,
+  .senderlab__command-flow.is-phase-3 .senderlab__flow-token--frame,
+  .senderlab__command-flow.is-phase-4 .senderlab__flow-token--frame { left: 84%; }
+  .senderlab__flow-guide span { font-size: 10px; }
+  .senderlab__flow-result--id { left: 12%; }
+  .senderlab__flow-result--data { right: 12%; }
+}
+
+/* Keep the frame expression's three inline spans on the same baseline.
+   The generic scene-intro animation must not offset these persistent tokens. */
+.senderlab__command-timeline .senderlab__timeline-token,
+.senderlab__command-timeline .senderlab__timeline-id,
+.senderlab__command-timeline .senderlab__timeline-divider,
+.senderlab__command-timeline .senderlab__timeline-data {
+  opacity: 1;
+}
+
+/* STEP 1 command timeline: all tokens remain mounted; phases only alter style. */
+.senderlab__command-timeline {
+  /* STEP 1 presentation controls: adjust this block for the timeline only. */
+  --step1-command-font-size: clamp(20px, 2.8vw, 34px);
+  --step1-frame-font-size: var(--step1-command-font-size);
+  --step1-command-gap: 28px;
+  --step1-field-clearance: 84px;
+  --step1-frame-peek: 16px;
+  --step1-move-up-ratio: .24;
+  --step1-move-up-max: 120px;
+  --step1-guide-offset: 54px;
+  --step1-guide-gap: 8px;
+  --step1-guide-line-length: 42px;
+  --step1-field-offset: 38px;
+  --step1-field-label-gap: 7px;
+  --step1-field-line-length: 54px;
+  --step1-arrow-size: 7px;
+  --step1-move-duration: 1.2s;
+  --step1-fade-duration: 1.4s;
+  --step1-label-duration: .35s;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.senderlab__timeline-token {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: inline-block;
+  color: #0f172a;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: var(--step1-command-font-size);
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  filter: brightness(1);
+  transition: transform var(--step1-move-duration) cubic-bezier(.22, .61, .36, 1), opacity var(--step1-fade-duration) ease, filter var(--step1-fade-duration) ease;
+}
+
+.senderlab__timeline-token--frame { font-size: var(--step1-frame-font-size); }
+
+.senderlab__timeline-id,
+.senderlab__timeline-data,
+.senderlab__timeline-divider {
+  display: inline-block;
+  transition: transform var(--step1-move-duration) cubic-bezier(.22, .61, .36, 1), opacity var(--step1-fade-duration) ease;
+}
+
+.senderlab__timeline-guide {
+  position: absolute;
+  top: calc(50% + var(--step1-guide-offset));
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: var(--step1-guide-gap);
+  min-width: 130px;
+  opacity: 0;
+  filter: brightness(1);
+  pointer-events: none;
+  transition: transform var(--step1-move-duration) cubic-bezier(.22, .61, .36, 1), opacity var(--step1-fade-duration) ease, filter var(--step1-fade-duration) ease;
+}
+
+.senderlab__timeline-guide i,
+.senderlab__timeline-field i {
+  display: block;
+  width: 1px;
+  height: 0;
+  background: #7dd3fc;
+  transition: height var(--step1-fade-duration) ease;
+}
+
+.senderlab__timeline-guide span,
+.senderlab__timeline-field strong,
+.senderlab__timeline-field code {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity var(--step1-label-duration) ease, transform var(--step1-label-duration) ease;
+}
+
+.senderlab__command-timeline.is-phase-4 .senderlab__timeline-guide {
+  opacity: 1;
+}
+
+.senderlab__command-timeline.is-phase-4 .senderlab__timeline-guide i {
+  height: var(--step1-guide-line-length);
+}
+
+.senderlab__command-timeline.is-phase-4 .senderlab__timeline-guide span {
+  opacity: 1;
+  transform: translateY(0);
+  transition-delay: .45s;
+}
+
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-6 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-6 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-6 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-7 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-7 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-7 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-guide,
+.senderlab__command-timeline.is-phase-11 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-11 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-11 .senderlab__timeline-guide {
+  opacity: 0;
+}
+
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide i {
+  height: var(--step1-guide-line-length);
+  transition: none;
+}
+
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide span {
+  opacity: 1;
+  transform: translateY(0);
+  transition: none;
+}
+
+@keyframes step1-phase-5-fade-out {
+  0% {
+    opacity: 1;
+    filter: brightness(1);
+  }
+
+  35% {
+    opacity: .72;
+    filter: brightness(.88);
+  }
+
+  70% {
+    opacity: .35;
+    filter: brightness(.65);
+  }
+
+  100% {
+    opacity: 0;
+    filter: brightness(.35);
+  }
+}
+
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--command,
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--interface,
+.senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide {
+  animation: step1-phase-5-fade-out 3s linear forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-design-version='ver2'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--command,
+  html[data-design-version='ver2'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--interface,
+  html[data-design-version='ver2'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide,
+  html[data-design-version='ver3'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--command,
+  html[data-design-version='ver3'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--interface,
+  html[data-design-version='ver3'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide,
+  html[data-design-version='ver4'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--command,
+  html[data-design-version='ver4'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-token--interface,
+  html[data-design-version='ver4'] .senderlab__command-timeline.is-phase-5 .senderlab__timeline-guide {
+    animation-duration: 3s !important;
+    animation-timing-function: linear !important;
+  }
+}
+
+.senderlab__command-timeline.is-phase-6 .senderlab__timeline-id { transform: translateX(calc(var(--step1-frame-peek) * -1)); }
+.senderlab__command-timeline.is-phase-6 .senderlab__timeline-data { transform: translateX(var(--step1-frame-peek)); }
+
+.senderlab__timeline-field {
+  position: absolute;
+  top: calc(50% + var(--step1-field-offset));
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: var(--step1-field-label-gap);
+  min-width: 120px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .4s ease;
+}
+
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-field,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-field,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-field {
+  opacity: 1;
+}
+
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-field i,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-field i,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-field i {
+  height: var(--step1-field-line-length);
+}
+
+.senderlab__timeline-field i {
+  position: relative;
+}
+
+.senderlab__timeline-field i::after {
+  position: absolute;
+  bottom: -1px;
+  left: 50%;
+  width: var(--step1-arrow-size);
+  height: var(--step1-arrow-size);
+  border-right: 1px solid #7dd3fc;
+  border-bottom: 1px solid #7dd3fc;
+  content: "";
+  transform: translateX(-50%) rotate(45deg);
+}
+
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-field strong,
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-field code,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-field strong,
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-field code,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-field strong,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-field code {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__command-timeline.is-phase-8 .senderlab__timeline-field strong {
+  font-weight: 500;
+}
+
+.senderlab__command-timeline.is-phase-9 .senderlab__timeline-field strong,
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-field strong {
+  font-weight: 800;
+}
+
+.senderlab__timeline-complete {
+  position: absolute;
+  right: 20px;
+  bottom: 10px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--step1-label-duration) ease, transform var(--step1-label-duration) ease;
+  transform: translateY(12px);
+}
+
+.senderlab__command-timeline.is-phase-10 .senderlab__timeline-complete {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* CAN frame sender page -------------------------------------------------- */
+
+.senderlab {
+  display: grid;
+  gap: 20px;
+  min-height: 100%;
+  padding: 24px;
+  color: #d9e2ec;
+  background:
+    radial-gradient(circle at top right, rgba(37, 99, 235, .14), transparent 24%),
+    linear-gradient(180deg, #0b1220 0%, #10182a 100%);
+}
+
+.senderlab *,
+.senderlab *::before,
+.senderlab *::after {
+  box-sizing: border-box;
+}
+
+.senderlab code,
+.senderlab input,
+.senderlab button {
+  font-family: "JetBrains Mono Variable", monospace;
+}
+
+.senderlab__hero,
+.senderlab__terminal,
+.senderlab__stage-panel,
+.senderlab__guide-card {
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 20px;
+  background: rgba(15, 23, 42, .72);
+  box-shadow: 0 18px 46px rgba(2, 6, 23, .24);
+  backdrop-filter: blur(12px);
+}
+
+.senderlab__hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px;
+}
+
+.senderlab__eyebrow {
+  margin: 0 0 8px;
+  color: #7dd3fc;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.senderlab__hero h1 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(28px, 2.8vw, 38px);
+  line-height: 1.18;
+}
+
+.senderlab__summary {
+  max-width: 86ch;
+  margin: 14px 0 0;
+  color: #b7c4d3;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.senderlab__summary code {
+  color: #fde68a;
+}
+
+.senderlab__status {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.senderlab__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 999px;
+  color: #d9e2ec;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.senderlab__badge--active {
+  border-color: rgba(110, 231, 183, .34);
+  color: #bbf7d0;
+}
+
+.senderlab__terminal {
+  padding: 18px;
+}
+
+.senderlab__section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.senderlab__section-heading strong {
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.senderlab__section-heading span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.senderlab__input-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.senderlab__input-row label {
+  color: #7dd3fc;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.senderlab__input-row input {
+  width: 100%;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid rgba(148, 163, 184, .2);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .82);
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.senderlab__input-row input::placeholder {
+  color: #64748b;
+}
+
+.senderlab__primary,
+.senderlab__secondary,
+.senderlab__preset {
+  border: 0;
+  cursor: pointer;
+}
+
+.senderlab__primary,
+.senderlab__secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.senderlab__primary {
+  background: linear-gradient(135deg, #38bdf8 0%, #2563eb 100%);
+  color: #eff6ff;
+}
+
+.senderlab__secondary {
+  border: 1px solid rgba(148, 163, 184, .22);
+  background: rgba(30, 41, 59, .72);
+  color: #d9e2ec;
+}
+
+.senderlab__primary:hover,
+.senderlab__secondary:hover:not(:disabled),
+.senderlab__preset:hover {
+  transform: translateY(-1px);
+}
+
+.senderlab__secondary:disabled {
+  cursor: not-allowed;
+  opacity: .4;
+}
+
+.senderlab__preset-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.senderlab__preset {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, .48);
+  text-align: left;
+}
+
+.senderlab__preset strong {
+  color: #e2e8f0;
+  font-size: 12px;
+}
+
+.senderlab__preset code {
+  color: #7dd3fc;
+  font-size: 11px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.senderlab__error {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid rgba(248, 113, 113, .3);
+  border-radius: 14px;
+  background: rgba(127, 29, 29, .18);
+  color: #fecaca;
+}
+
+.senderlab__error strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.senderlab__error p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.senderlab__main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 20px;
+  align-items: start;
+}
+
+.senderlab__stage-panel {
+  padding: 18px;
+}
+
+.senderlab__stage-topbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.senderlab__stage-headline {
+  display: grid;
+  gap: 5px;
+}
+
+.senderlab__stage-headline strong {
+  color: #f8fafc;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.senderlab__stage-headline span {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.senderlab__stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.senderlab__step-strip {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.senderlab__step-strip > div {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 1px solid rgba(148, 163, 184, .12);
+  border-radius: 14px;
+  background: rgba(15, 23, 42, .3);
+  color: #64748b;
+  text-align: center;
+}
+
+.senderlab__step-strip > div span {
+  line-height: 1;
+}
+
+.senderlab__step-strip > div b {
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.senderlab__step-strip > div.is-reached {
+  color: #93c5fd;
+}
+
+.senderlab__step-strip > div.is-active {
+  border-color: rgba(56, 189, 248, .38);
+  background: rgba(8, 47, 73, .28);
+  color: #e0f2fe;
+}
+
+.senderlab__stage-canvas {
+  min-height: 620px;
+  margin-top: 16px;
+  padding: 24px;
+  border: 1px solid rgba(148, 163, 184, .12);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at top left, rgba(125, 211, 252, .06), transparent 30%),
+    rgba(2, 6, 23, .44);
+}
+
+.senderlab__idle-stage {
+  display: grid;
+  min-height: 480px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.senderlab__idle-stage strong {
+  color: #0f172a;
+  font-size: 24px;
+}
+
+.senderlab__idle-stage p {
+  max-width: 54ch;
+  margin: 0;
+  color: #475569;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.senderlab__idle-stage code {
+  color: #2563eb;
+}
+
+.senderlab__scene {
+  display: grid;
+  min-height: 480px;
+  align-content: start;
+  justify-items: center;
+  gap: 24px;
+}
+
+.senderlab__scene code,
+.senderlab__scene b,
+.senderlab__scene small,
+.senderlab__scene span,
+.senderlab__scene strong,
+.senderlab__scene p {
+  opacity: .24;
+  transform: translateY(10px);
+  transition: opacity .28s ease, transform .28s ease, border-color .28s ease, background-color .28s ease;
+}
+
+.senderlab__scene .is-on,
+.senderlab__scene .is-on code,
+.senderlab__scene .is-on b,
+.senderlab__scene .is-on small,
+.senderlab__scene .is-on span,
+.senderlab__scene .is-on strong,
+.senderlab__scene .is-on p {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__command-line,
+.senderlab__command-intro,
+.senderlab__command-fade,
+.senderlab__command-guides,
+.senderlab__expression-focus,
+.senderlab__expression-guides,
+.senderlab__parse-summary,
+.senderlab__command-complete,
+.senderlab__frame-build-row,
+.senderlab__mini-frame,
+.senderlab__dlc-calc,
+.senderlab__frame-emphasis,
+.senderlab__frame-lesson,
+.senderlab__incoming-frame,
+.senderlab__filter-summary,
+.senderlab__message-incoming,
+.senderlab__message-result,
+.senderlab__payload-incoming,
+.senderlab__payload-result,
+.senderlab__process-complete,
+.senderlab__result-final,
+.senderlab__result-note,
+.senderlab__scene-note {
+  opacity: .24;
+  transform: translateY(10px);
+  transition: opacity .28s ease, transform .28s ease;
+}
+
+.senderlab__command-line.is-on,
+.senderlab__command-intro.is-on,
+.senderlab__command-fade.is-on,
+.senderlab__command-guides.is-on,
+.senderlab__expression-focus.is-on,
+.senderlab__expression-guides.is-on,
+.senderlab__parse-summary.is-on,
+.senderlab__command-complete.is-on,
+.senderlab__frame-build-row.is-on,
+.senderlab__mini-frame.is-on,
+.senderlab__dlc-calc.is-on,
+.senderlab__frame-emphasis.is-on,
+.senderlab__frame-lesson.is-on,
+.senderlab__incoming-frame.is-on,
+.senderlab__filter-summary.is-on,
+.senderlab__message-incoming.is-on,
+.senderlab__message-result.is-on,
+.senderlab__payload-incoming.is-on,
+.senderlab__payload-result.is-on,
+.senderlab__process-complete.is-on,
+.senderlab__result-final.is-on,
+.senderlab__result-note.is-on,
+.senderlab__scene-note.is-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__scene--command {
+  justify-items: stretch;
+}
+
+.senderlab__scene--command-single {
+  align-content: center;
+}
+
+.senderlab__command-intro {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+.senderlab__command-intro small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.senderlab__command-intro code {
+  color: #0f172a;
+  font-size: 34px;
+  font-weight: 900;
+  text-align: center;
+}
+
+.senderlab__command-intro--bridge {
+  animation: senderlab-command-rise .5s ease forwards;
+}
+
+.senderlab__command-bridge {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.senderlab__command-bridge-arrow {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  min-height: 72px;
+  opacity: 0;
+  font-size: 56px;
+  line-height: 1;
+  animation: senderlab-command-show .22s ease forwards;
+  animation-delay: .18s;
+  transform: translateY(18px);
+}
+
+.senderlab__command-line {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 28px;
+}
+
+.senderlab__command-line--delayed,
+.senderlab__command-guides--delayed {
+  opacity: 0;
+  transform: translateY(18px);
+  animation: senderlab-command-show .28s ease forwards;
+  animation-delay: .56s;
+}
+
+.senderlab__chunk {
+  display: block;
+  animation-duration: .42s;
+  animation-timing-function: ease;
+  animation-fill-mode: forwards;
+}
+
+.senderlab__chunk--left {
+  animation-name: senderlab-split-left;
+  transform-origin: center center;
+}
+
+.senderlab__chunk--center {
+  animation-name: senderlab-split-center;
+  transform-origin: center center;
+}
+
+.senderlab__chunk--right {
+  animation-name: senderlab-split-right;
+  transform-origin: center center;
+}
+
+.senderlab__command-line code,
+.senderlab__expression-focus code,
+.senderlab__parse-summary code,
+.senderlab__frame-build-row code,
+.senderlab__mini-frame code,
+.senderlab__dlc-calc code,
+.senderlab__incoming-frame code,
+.senderlab__message-incoming code,
+.senderlab__message-table code,
+.senderlab__payload-incoming code,
+.senderlab__payload-table code,
+.senderlab__process-complete code,
+.senderlab__result-final code {
+  color: #7dd3fc;
+  font-size: 22px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.senderlab__command-guides {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.senderlab__command-guides b,
+.senderlab__expression-guides span {
+  display: block;
+  color: #94a3b8;
+  font-size: 12px;
+  text-align: center;
+}
+
+.senderlab__command-fade {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+
+.senderlab__command-fade > div {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 14px 10px;
+  border-radius: 16px;
+  transition: opacity .28s ease, transform .28s ease, background-color .28s ease;
+}
+
+.senderlab__focus-lane {
+  animation-duration: .42s;
+  animation-timing-function: ease;
+  animation-fill-mode: forwards;
+}
+
+.senderlab__command-fade > div.is-dimmed {
+  opacity: .38;
+  background: rgba(148, 163, 184, .08);
+}
+
+.senderlab__command-fade > div.is-focused {
+  border: 1px solid rgba(37, 99, 235, .18);
+  background: rgba(239, 246, 255, .78);
+  box-shadow: 0 10px 30px rgba(37, 99, 235, .08);
+}
+
+.senderlab__command-fade code {
+  color: #0f172a;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.senderlab__command-fade small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.senderlab__focus-lane--left {
+  animation-name: senderlab-refocus-left;
+}
+
+.senderlab__focus-lane--center {
+  animation-name: senderlab-refocus-center;
+}
+
+.senderlab__focus-lane--right {
+  animation-name: senderlab-refocus-right;
+}
+
+.senderlab__expression-focus {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin-top: 12px;
+}
+
+.senderlab__expression-focus span {
+  color: #64748b;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.senderlab__expression-part {
+  display: inline-block;
+  animation-duration: .42s;
+  animation-timing-function: ease;
+  animation-fill-mode: forwards;
+}
+
+.senderlab__expression-part--id {
+  animation-name: senderlab-expression-left;
+}
+
+.senderlab__expression-part--data {
+  animation-name: senderlab-expression-right;
+}
+
+.senderlab__expression-divider {
+  display: inline-block;
+  animation: senderlab-divider-show .28s ease forwards;
+}
+
+.senderlab__expression-guides {
+  display: flex;
+  justify-content: center;
+  gap: 110px;
+}
+
+.senderlab__parse-summary,
+.senderlab__mini-frame,
+.senderlab__result-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.senderlab__parse-summary > div,
+.senderlab__mini-frame > div,
+.senderlab__dlc-calc,
+.senderlab__message-result,
+.senderlab__payload-result,
+.senderlab__result-summary > div {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, .32);
+}
+
+.senderlab__parse-summary small,
+.senderlab__mini-frame span,
+.senderlab__dlc-calc span,
+.senderlab__message-result span,
+.senderlab__payload-result span,
+.senderlab__result-summary span {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.senderlab__command-complete {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 16px;
+  border: 1px solid rgba(37, 99, 235, .18);
+  border-radius: 18px;
+  background: rgba(239, 246, 255, .72);
+}
+
+.senderlab__command-complete strong {
+  color: #1d4ed8;
+  font-size: 16px;
+}
+
+.senderlab__command-complete p {
+  margin: 0;
+  color: #0f172a;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.senderlab__command-complete button {
+  padding: 8px 14px;
+  border: 1px solid #2563eb;
+  border-radius: 10px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+@keyframes senderlab-command-rise {
+  from {
+    transform: translateY(64px) scale(1.06);
+  }
+  to {
+    transform: translateY(-88px) scale(.88);
+  }
+}
+
+@keyframes senderlab-command-show {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes senderlab-split-left {
+  from {
+    opacity: 0;
+    transform: translateX(130px) scale(1.18);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes senderlab-split-center {
+  from {
+    opacity: 0;
+    transform: scale(1.18);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes senderlab-split-right {
+  from {
+    opacity: 0;
+    transform: translateX(-130px) scale(1.18);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes senderlab-refocus-left {
+  from {
+    opacity: 1;
+    transform: translateX(52px) scale(1);
+  }
+  to {
+    opacity: .38;
+    transform: translateX(-8px) scale(.9);
+  }
+}
+
+@keyframes senderlab-refocus-center {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: .38;
+    transform: scale(.9);
+  }
+}
+
+@keyframes senderlab-refocus-right {
+  from {
+    opacity: 1;
+    transform: translateX(-52px) scale(1);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1.16);
+  }
+}
+
+@keyframes senderlab-expression-left {
+  from {
+    opacity: 0;
+    transform: translateX(58px) scale(1.14);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes senderlab-expression-right {
+  from {
+    opacity: 0;
+    transform: translateX(-58px) scale(1.14);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes senderlab-divider-show {
+  from {
+    opacity: 0;
+    transform: scale(.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.senderlab__scene--frame {
+  justify-items: center;
+}
+
+.senderlab__frame-build-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.senderlab__frame-build-row svg {
+  color: #64748b;
+}
+
+.senderlab__mini-frame {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+
+.senderlab__dlc-calc {
+  justify-items: center;
+  min-width: 220px;
+}
+
+.senderlab__dlc-calc small {
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.senderlab__dlc-calc b,
+.senderlab__message-result b,
+.senderlab__payload-result b,
+.senderlab__result-summary b {
+  color: #f8fafc;
+  font-size: 16px;
+}
+
+.senderlab__frame-lesson {
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid rgba(148, 163, 184, .18);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(96, 165, 250, .08), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, .98) 0%, rgba(248, 250, 255, .98) 100%);
+}
+
+.senderlab__frame-lesson .lesson-visual--frame {
+  min-height: auto;
+}
+
+.senderlab__frame-lesson .lesson-frame-detail {
+  min-height: 106px;
+  margin-top: 18px;
+  padding-top: 14px;
+}
+
+.senderlab__can20 {
+  display: grid;
+  width: 100%;
+  grid-template-columns: repeat(9, minmax(0, 1fr));
+  gap: 8px;
+  opacity: .24;
+  transform: translateY(10px);
+  transition: opacity .28s ease, transform .28s ease;
+}
+
+.senderlab__can20.is-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__can20 > div {
+  display: grid;
+  gap: 8px;
+  min-height: 106px;
+  padding: 12px 8px;
+  border: 1px solid rgba(148, 163, 184, .12);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, .26);
+  align-content: space-between;
+}
+
+.senderlab__can20 > div.is-strong {
+  border-color: rgba(56, 189, 248, .34);
+  background: rgba(8, 47, 73, .26);
+}
+
+.senderlab__can20 span {
+  color: #94a3b8;
+  font-size: 11px;
+  text-align: center;
+}
+
+.senderlab__can20 code {
+  color: #dbeafe;
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: center;
+  word-break: break-word;
+}
+
+.senderlab__frame-emphasis {
+  display: inline-flex;
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(30, 41, 59, .72);
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.senderlab__scene--socket {
+  justify-items: center;
+}
+
+.senderlab__socket-stack {
+  position: relative;
+  display: grid;
+  width: min(520px, 100%);
+  gap: 18px;
+  margin-top: 10px;
+}
+
+.senderlab__socket-stack > div {
+  display: grid;
+  min-height: 62px;
+  place-items: center;
+  border: 1px solid rgba(148, 163, 184, .16);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, .32);
+  opacity: .24;
+  transform: translateY(10px);
+  transition: opacity .28s ease, transform .28s ease, border-color .28s ease;
+}
+
+.senderlab__socket-stack > div.is-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__socket-stack span {
+  color: #e2e8f0;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.senderlab__frame-token {
+  position: absolute;
+  left: 50%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(56, 189, 248, .34);
+  border-radius: 999px;
+  background: rgba(8, 47, 73, .92);
+  transform: translateX(-50%);
+  transition: top .34s ease;
+  z-index: 2;
+}
+
+.senderlab__frame-token code,
+.senderlab__frame-token small {
+  opacity: 1;
+  transform: none;
+}
+
+.senderlab__frame-token code {
+  color: #e0f2fe;
+  font-size: 14px;
+}
+
+.senderlab__frame-token small {
+  color: #93c5fd;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.senderlab__frame-token.is-app { top: 18px; }
+.senderlab__frame-token.is-struct { top: 98px; }
+.senderlab__frame-token.is-socket { top: 178px; }
+.senderlab__frame-token.is-kernel { top: 258px; }
+.senderlab__frame-token.is-vcan { top: 338px; }
+
+.senderlab__scene-note {
+  max-width: 62ch;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.senderlab__scene--filter,
+.senderlab__scene--message,
+.senderlab__scene--payload,
+.senderlab__scene--result {
+  justify-items: stretch;
+}
+
+.senderlab__incoming-frame,
+.senderlab__message-incoming,
+.senderlab__payload-incoming,
+.senderlab__result-final {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+}
+
+.senderlab__incoming-frame span,
+.senderlab__message-incoming span,
+.senderlab__payload-incoming span {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.senderlab__filter-lanes,
+.senderlab__message-table,
+.senderlab__payload-table {
+  display: grid;
+  gap: 12px;
+  opacity: .24;
+  transform: translateY(10px);
+  transition: opacity .28s ease, transform .28s ease;
+}
+
+.senderlab__filter-lanes.is-on,
+.senderlab__message-table.is-on,
+.senderlab__payload-table.is-on {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.senderlab__filter-lanes {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.senderlab__filter-lanes > div,
+.senderlab__message-table > div,
+.senderlab__payload-table > div {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid rgba(148, 163, 184, .14);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, .3);
+}
+
+.senderlab__filter-lanes strong,
+.senderlab__message-table strong,
+.senderlab__payload-table strong {
+  color: #f8fafc;
+  font-size: 14px;
+}
+
+.senderlab__filter-lanes small,
+.senderlab__message-table small,
+.senderlab__payload-table small {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+.senderlab__filter-lanes b,
+.senderlab__message-table b,
+.senderlab__payload-table b {
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.senderlab__filter-lanes > div.is-accept {
+  border-color: rgba(74, 222, 128, .3);
+  background: rgba(20, 83, 45, .24);
+}
+
+.senderlab__filter-lanes > div.is-drop {
+  border-color: rgba(248, 113, 113, .2);
+}
+
+.senderlab__message-table > div.is-match,
+.senderlab__payload-table > div.is-match {
+  border-color: rgba(56, 189, 248, .34);
+  background: rgba(8, 47, 73, .24);
+}
+
+.senderlab__stopped-box {
+  display: grid;
+  min-height: 540px;
+  place-items: center;
+  align-content: center;
+  gap: 10px;
+  text-align: center;
+}
+
+.senderlab__stopped-box strong {
+  color: #f8fafc;
+  font-size: 24px;
+  opacity: 1;
+  transform: none;
+}
+
+.senderlab__stopped-box p {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1.7;
+  opacity: 1;
+  transform: none;
+}
+
+.senderlab__process-complete {
+  display: grid;
+  gap: 14px;
+}
+
+.senderlab__process-complete strong {
+  color: #bbf7d0;
+  font-size: 18px;
+  text-align: center;
+}
+
+.senderlab__result-summary {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.senderlab__result-final {
+  justify-content: center;
+  margin-top: 6px;
+}
+
+.senderlab__result-final code {
+  color: #fde68a;
+  font-size: clamp(26px, 3vw, 38px);
+}
+
+.senderlab__result-note {
+  display: flex;
+  justify-content: center;
+}
+
+.senderlab__result-note span {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
+
+.senderlab__guide {
+  display: block;
+}
+
+.senderlab__guide-card {
+  padding: 18px;
+}
+
+.senderlab__guide-card h2 {
+  margin: 0 0 12px;
+  color: #f8fafc;
+  font-size: 15px;
+}
+
+.senderlab__guide-card p,
+.senderlab__guide-card li,
+.senderlab__guide-card small {
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.senderlab__guide-card ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.senderlab__guide-card li + li {
+  margin-top: 8px;
+}
+
+.senderlab__guide-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.senderlab__guide-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(15, 23, 42, .34);
+}
+
+.senderlab__guide-card dt {
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.senderlab__guide-card dd {
+  margin: 0;
+  color: #f8fafc;
+  font-size: 12px;
+  text-align: right;
+}
+
+html[data-design-version='ver4'] .senderlab {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--route-active) 14%, transparent), transparent 24%),
+    linear-gradient(180deg, #09111e 0%, #0f172a 100%);
+}
+
+.senderlab-page .canlab__vehicle-stage {
+  height: 710px;
+  background:
+    radial-gradient(circle at 14% 18%, rgba(167, 139, 250, .16), transparent 26%),
+    radial-gradient(circle at 82% 22%, rgba(96, 165, 250, .16), transparent 24%),
+    radial-gradient(circle at 30% 78%, rgba(248, 113, 113, .14), transparent 24%),
+    radial-gradient(circle at 72% 72%, rgba(163, 230, 53, .12), transparent 22%),
+    linear-gradient(180deg, #f7f9fd 0%, #eef4fb 52%, #e9f1fb 100%);
+}
+
+.senderstage {
+  position: relative;
+}
+
+.senderstage__canvas {
+  position: absolute;
+  inset: 14px 14px 14px;
+  padding: 18px 18px 76px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, .12);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .94) 0%, rgba(249, 251, 255, .96) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .55);
+}
+
+.senderstage__canvas--single {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.senderstage__canvas.is-clickable {
+  cursor: pointer;
+}
+
+.senderstage__title {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+.senderstage__title .senderlab__stage-headline strong {
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.senderstage__title .senderlab__stage-headline span {
+  color: #475569;
+  font-size: 12px;
+}
+
+.senderlab-page .canlab__vehicle-actions {
+  top: auto;
+  right: 14px;
+  bottom: 48px;
+}
+
+.senderlab-page .canlab__vehicle-badge {
+  z-index: 2;
+}
+
+.senderlab-page .canlab__guide {
+  padding-bottom: 16px;
+}
+
+.senderlab-page .canlab__guide-top > span small {
+  display: block;
+}
+
+.senderlab__command-form {
+  border-top: 1px solid #e2e8f0;
+}
+
+.senderlab__terminal-output .senderlab__command-form {
+  grid-template-columns: auto minmax(0, 1fr);
+  height: auto;
+  padding: 4px 0 0;
+  border-top: 0;
+  background: transparent;
+}
+
+.senderlab__terminal-output .senderlab__command-form label,
+.senderlab__terminal-output .senderlab__command-form input {
+  color: #d8fbe3;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 11px;
+}
+
+.senderlab__terminal-output .senderlab__command-form input::placeholder {
+  color: rgba(216, 251, 227, .52);
+}
+
+.senderlab__terminal-output {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  padding: 12px 14px;
+  background:
+    radial-gradient(circle at top left, rgba(34, 197, 94, .08), transparent 24%),
+    #08111d;
+  color: #d8fbe3;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 11px;
+}
+
+.senderlab-page .canlab__console {
+  flex: 0 0 auto;
+}
+
+.senderlab__terminal-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.55;
+}
+
+.senderlab__terminal-line--error {
+  color: #fda4af;
+}
+
+html[data-design-version='ver4'] .senderstage__canvas {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, .95) 0%, rgba(248, 250, 255, .98) 100%);
+}
+
+@media (max-width: 1200px) {
+  .senderlab__main {
+    grid-template-columns: 1fr;
+  }
+
+  .senderlab__guide {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .senderlab {
+    padding: 18px;
+  }
+
+  .senderlab__hero,
+  .senderlab__stage-topbar,
+  .senderlab__input-row {
+    display: grid;
+  }
+
+  .senderlab__preset-list,
+  .senderlab__guide,
+  .senderlab__step-strip,
+  .senderlab__filter-lanes,
+  .senderlab__result-summary,
+  .senderlab__can20 {
+    grid-template-columns: 1fr;
+  }
+
+  .senderlab__mini-frame,
+  .senderlab__parse-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .senderlab__stage-actions {
+    justify-content: flex-start;
+  }
+
+  .senderlab__stage-canvas {
+    min-height: 0;
+  }
+
+  .senderlab__scene,
+  .senderlab__stopped-box,
+  .senderlab__idle-stage {
+    min-height: 0;
+  }
+
+  .senderlab__socket-stack {
+    width: 100%;
+  }
+
+  .senderlab__frame-token {
+    position: static;
+    transform: none;
+    justify-self: center;
+    margin-top: 8px;
+  }
+
+  .senderlab__frame-token.is-app,
+  .senderlab__frame-token.is-struct,
+  .senderlab__frame-token.is-socket,
+  .senderlab__frame-token.is-kernel,
+  .senderlab__frame-token.is-vcan {
+    top: auto;
+  }
+
+  .canlab__mock-command-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .senderstage__canvas {
+    inset: 10px 10px 10px;
+    padding-bottom: 110px;
+  }
+
+  .senderlab-page .canlab__guide-top > span small { display: none; }
+}
+
+/* Persistent STEP 1 tokens stay aligned despite generic scene intro styles. */
+.senderlab__command-timeline .senderlab__timeline-token,
+.senderlab__command-timeline .senderlab__timeline-id,
+.senderlab__command-timeline .senderlab__timeline-divider,
+.senderlab__command-timeline .senderlab__timeline-data {
+  opacity: 1;
+}

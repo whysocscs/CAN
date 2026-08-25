@@ -37,20 +37,19 @@ import {
   CAN_COMMAND_CATALOG,
   CAN_MESSAGE_CATALOG,
   CAN_NODE_LABELS,
-  NORMAL_CAN_COMMANDS,
 } from "@/features/can/events/catalog"
-import { mockEventProvider } from "@/features/can/events/mockProvider"
-import type { CanCommand, CanEvent, CanNodeId } from "@/features/can/events/types"
+import type { CanEvent, CanNodeId } from "@/features/can/events/types"
+import { useCanVehicleStream, useVehicleRig } from "@/features/vehicle"
 
 const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
+const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
+  ?? (typeof window === "undefined" || window.location.hostname === "localhost"
+    ? "http://127.0.0.1:8010"
+    : `${window.location.protocol}//${window.location.hostname}:8010`)
 
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
-type TerminalConnectionStatus = "connecting" | "connected" | "offline"
 type EcuModuleId = CanNodeId
-
-const TERMINAL_WS_URL =
-  import.meta.env.VITE_TERMINAL_WS_URL ?? "ws://127.0.0.1:8010/ws/terminal"
 
 const guideSteps: Array<{
   id: GuideStep
@@ -73,8 +72,8 @@ const guideSteps: Array<{
   {
     id: "3-1",
     label: "3-1",
-    title: "도어 잠금 메시지 송신",
-    body: '정상 명령 "cansend vcan0 101#01"에 해당하는 이벤트를 발생시켜 Body ECU 경로를 확인합니다.',
+    title: "도어 열기 메시지 송신",
+    body: '정상 명령 "cansend vcan0 101#00"에 해당하는 이벤트를 발생시켜 Body ECU 경로를 확인합니다.',
   },
   {
     id: "3-2",
@@ -97,6 +96,25 @@ const guideSteps: Array<{
 ]
 
 const stepOrder: GuideStep[] = ["1", "2", "3-1", "3-2", "4", "5"]
+
+function enrichBackendEvent(event: CanEvent): CanEvent {
+  const definition = Object.values(CAN_COMMAND_CATALOG).find(
+    (candidate) => candidate.frame.canId === event.frame.canId,
+  )
+  if (!definition) return event
+
+  const isDoorOpen = event.frame.canId === "0x101" && event.frame.data[0] === "00"
+
+  return {
+    ...event,
+    context: {
+      ...definition.context,
+      action: isDoorOpen ? "DOOR_OPEN" : definition.context.action,
+    },
+    processing: definition.processing,
+    monitoring: definition.monitoring,
+  }
+}
 
 const quizQuestions = [
   {
@@ -397,7 +415,7 @@ function getEventUi(event: CanEvent | null) {
 
 function getVisualizationFromEvent(event: CanEvent | null): PreviewScenario | null {
   const definition = getEventUi(event)
-  if (!definition) return null
+  if (!event || !definition) return null
 
   const activeModules = Array.from(
     new Set(
@@ -411,8 +429,8 @@ function getVisualizationFromEvent(event: CanEvent | null): PreviewScenario | nu
   )
 
   return {
-    title: definition.ui.title,
-    vehicleStatus: definition.ui.vehicleStatus,
+    title: event.frame.canId === "0x101" && event.frame.data[0] === "00" ? "Body control route" : definition.ui.title,
+    vehicleStatus: event.frame.canId === "0x101" && event.frame.data[0] === "00" ? "도어 열림" : definition.ui.vehicleStatus,
     busStatus: definition.ui.busStatus,
     effects: definition.ui.effects,
     activeModules,
@@ -434,6 +452,7 @@ function getFrameSummary(event: CanEvent) {
 function VehicleModel({ xray }: { xray: boolean }) {
   const gltf = useGLTF(MODEL_PATH)
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
+  useVehicleRig(scene)
 
   useMemo(() => {
     scene.traverse((object) => {
@@ -820,18 +839,21 @@ function useReducedMotion() {
   return reducedMotion
 }
 
-function LocalShellTerminal({
+function CanCommandTerminal({
   clearSignal,
-  onConnectionChange,
+  onCommand,
 }: {
   clearSignal: number
-  onConnectionChange: (status: TerminalConnectionStatus) => void
+  onCommand: (command: string) => Promise<string[]>
 }) {
   const mountRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Xterm | null>(null)
+  const onCommandRef = useRef(onCommand)
+  onCommandRef.current = onCommand
 
   useEffect(() => {
     terminalRef.current?.clear()
+    terminalRef.current?.write("$ ")
   }, [clearSignal])
 
   useEffect(() => {
@@ -871,75 +893,76 @@ function LocalShellTerminal({
       },
     })
     const fitAddon = new FitAddon()
-    const decoder = new TextDecoder()
-    let disposed = false
+    let commandLine = ""
+    let running = false
 
     terminal.loadAddon(fitAddon)
     terminal.open(mount)
     terminalRef.current = terminal
-    terminal.writeln("\x1b[38;2;153;171;163mCANLite local shell · 연결 중...\x1b[0m")
+    terminal.writeln("\x1b[38;2;132;183;157mCANLite 교육용 CAN Terminal\x1b[0m")
+    terminal.writeln("\x1b[38;2;153;171;163m명령 예: cansend vcan0 101#00\x1b[0m")
+    terminal.write("$ ")
 
-    const socket = new WebSocket(TERMINAL_WS_URL)
-    socket.binaryType = "arraybuffer"
-
-    const fitAndResize = () => {
+    const fitTerminal = () => {
       try {
         fitAddon.fit()
       } catch {
         return
       }
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }))
-      }
     }
 
     const inputSubscription = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }))
+      if (running) return
+
+      if (data === "\r") {
+        const command = commandLine.trim()
+        terminal.write("\r\n")
+        commandLine = ""
+        if (!command) {
+          terminal.write("$ ")
+          return
+        }
+
+        running = true
+        void onCommandRef.current(command)
+          .then((lines) => lines.forEach((line) => terminal.writeln(line)))
+          .catch(() => terminal.writeln("\x1b[31m[error] 명령 처리 중 오류가 발생했습니다.\x1b[0m"))
+          .finally(() => {
+            running = false
+            terminal.write("$ ")
+          })
+        return
+      }
+
+      if (data === "\u007f") {
+        if (commandLine.length > 0) {
+          commandLine = commandLine.slice(0, -1)
+          terminal.write("\b \b")
+        }
+        return
+      }
+
+      if (data >= " ") {
+        commandLine += data
+        terminal.write(data)
       }
     })
-    const resizeObserver = new ResizeObserver(fitAndResize)
+    const resizeObserver = new ResizeObserver(fitTerminal)
     resizeObserver.observe(mount)
-
-    socket.onopen = () => {
-      if (disposed) return
-      onConnectionChange("connected")
-      terminal.writeln("\x1b[38;2;132;183;157m로컬 Linux 셸에 연결되었습니다.\x1b[0m")
-      fitAndResize()
+    window.requestAnimationFrame(() => {
+      fitTerminal()
       terminal.focus()
-    }
-    socket.onmessage = (event) => {
-      if (typeof event.data === "string") {
-        terminal.write(event.data)
-      } else {
-        terminal.write(decoder.decode(new Uint8Array(event.data), { stream: true }))
-      }
-    }
-    socket.onerror = () => {
-      if (!disposed) onConnectionChange("offline")
-    }
-    socket.onclose = () => {
-      if (disposed) return
-      onConnectionChange("offline")
-      terminal.writeln(
-        "\r\n\x1b[38;2;206;145;130m연결이 끊겼습니다. 다른 터미널에서 pnpm terminal:server를 실행한 뒤 새로고침하세요.\x1b[0m",
-      )
-    }
-
-    onConnectionChange("connecting")
-    window.requestAnimationFrame(fitAndResize)
+    })
 
     return () => {
-      disposed = true
       resizeObserver.disconnect()
       inputSubscription.dispose()
-      socket.close()
       terminal.dispose()
       if (terminalRef.current === terminal) terminalRef.current = null
     }
-  }, [onConnectionChange])
+  }, [])
 
-  return <div className="canlab__shell-terminal" aria-label="로컬 Linux 터미널" ref={mountRef} />
+  return <div className="canlab__shell-terminal" aria-label="교육용 CAN 명령 터미널" ref={mountRef} />
 }
 
 useGLTF.preload(MODEL_PATH)
@@ -953,7 +976,6 @@ export default function CanPracticeOnlyPage() {
   const [autoRotate, setAutoRotate] = useState(false)
   const [viewKey, setViewKey] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
-  const [terminalStatus, setTerminalStatus] = useState<TerminalConnectionStatus>("connecting")
   const [terminalClearSignal, setTerminalClearSignal] = useState(0)
   const [hintOpen, setHintOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
@@ -979,6 +1001,18 @@ export default function CanPracticeOnlyPage() {
     (question) => quizAnswers[question.id] === question.answer,
   ).length
   const quizPassed = quizSubmitted && quizScore === quizQuestions.length
+
+  const canStreamStatus = useCanVehicleStream({
+    onEvent: (incomingEvents) => {
+      const receivedEvents = incomingEvents.map(enrichBackendEvent)
+      setEvents((current) => [...current, ...receivedEvents])
+      const latestEvent = receivedEvents.at(-1)
+      if (latestEvent) {
+        setSelectedEventId(latestEvent.eventId)
+        setPreviewModuleId(null)
+      }
+    },
+  })
 
   useEffect(() => {
     if (reducedMotion) setAutoRotate(false)
@@ -1014,22 +1048,60 @@ export default function CanPracticeOnlyPage() {
     }
   }
 
-  const emitCanEvent = (command: CanCommand) => {
-    const event = mockEventProvider.emit(command)
-    setEvents((current) => [...current, event])
-    setSelectedEventId(event.eventId)
-    setPreviewModuleId(null)
-    setActiveTab("monitor")
+  const submitTerminalCommand = async (command: string): Promise<string[]> => {
+    const normalized = command.trim().replace(/\s+/g, " ").toLowerCase()
 
-    if (command === "DOOR_LOCK") {
-      markStepCompleted("3-1")
+    if (normalized === "ip link show vcan0") {
+      markStepCompleted("1")
+      return ["[ok] vcan0: <UP,LOWER_UP> mtu 72", "[info] 가상 CAN 인터페이스가 준비되었습니다."]
     }
-    if (command === "TRUNK_OPEN") {
+
+    if (normalized === "candump vcan0") {
+      markStepCompleted("2")
+      return ["[ok] vcan0 수신 대기 상태입니다.", "[info] 다음 cansend 명령을 입력하세요."]
+    }
+
+    const match = normalized.match(/^cansend vcan0 ([0-9a-f]{3})#([0-9a-f]{2})$/i)
+    if (!match) {
+      return ["\x1b[31m[error] 교육용 명령 형식만 사용할 수 있습니다. 예: cansend vcan0 101#00\x1b[0m"]
+    }
+
+    const [, canId, payload] = match
+    const frame = `${canId}#${payload}`
+    if (frame !== "101#00" && frame !== "200#01") {
+      return ["\x1b[31m[error] 현재 실습 단계에서 허용되지 않은 CAN Frame입니다.\x1b[0m"]
+    }
+
+    let response: Response
+    try {
+      response = await fetch(`${CAN_API_BASE}/can/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ can_id: canId, data: [payload.toUpperCase()] }),
+      })
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "unknown network error"
+      return [`\x1b[31m[error] CAN API 요청 실패: ${detail}\x1b[0m`]
+    }
+
+    if (!response.ok) {
+      return ["\x1b[31m[error] CAN API에 연결하지 못했습니다. FastAPI 서버 상태를 확인하세요.\x1b[0m"]
+    }
+
+    if (frame === "101#00") {
+      markStepCompleted("3-1")
+    } else {
       markStepCompleted("3-2")
     }
-    if (command === "DASHBOARD_SYNC" || command === "DIAGNOSTIC_SESSION") {
-      markStepCompleted("4")
-    }
+
+    const target = frame === "101#00" ? "Body ECU" : "Rear Module"
+    const action = frame === "101#00" ? "DOOR_OPEN" : "TRUNK_OPEN"
+    return [
+      `[sent] vcan0 ${frame}`,
+      `[parse] CAN ID 0x${canId.toUpperCase()} / DLC 1 / DATA ${payload.toUpperCase()}`,
+      `[filter] ${target} ACCEPT`,
+      `[result] ${action}`,
+    ]
   }
 
   const handleSelectModule = (id: EcuModuleId) => {
@@ -1230,46 +1302,19 @@ export default function CanPracticeOnlyPage() {
                 >
                   <div className="canlab__console-toolbar">
                     <strong>Terminal</strong>
-                    <span className={`canlab__terminal-status is-${terminalStatus}`}>
+                    <span className={`canlab__terminal-status is-${canStreamStatus === "open" ? "connected" : "connecting"}`}>
                       <i />
-                      {terminalStatus === "connected"
-                        ? "로컬 Linux 셸 연결됨"
-                        : terminalStatus === "connecting"
-                          ? "로컬 Linux 셸 연결 중"
-                          : "로컬 Linux 셸 오프라인"}
+                      {canStreamStatus === "open" ? "CAN 이벤트 스트림 연결됨" : "CAN 이벤트 스트림 연결 중"}
                     </span>
                     <button type="button" onClick={() => setTerminalClearSignal((value) => value + 1)}>
                       화면 비우기
                     </button>
                   </div>
 
-                  <LocalShellTerminal
+                  <CanCommandTerminal
                     clearSignal={terminalClearSignal}
-                    onConnectionChange={setTerminalStatus}
+                    onCommand={submitTerminalCommand}
                   />
-
-                  <div className="canlab__mock-commands">
-                    <div className="canlab__mock-commands-head">
-                      <strong>내부 제어 / 외부 진단</strong>
-                      <span>FastAPI 연동 전에는 아래 버튼이 공통 CAN Event를 생성합니다.</span>
-                    </div>
-                    <div className="canlab__mock-command-grid">
-                      {NORMAL_CAN_COMMANDS.map((command) => {
-                        const definition = CAN_COMMAND_CATALOG[command]
-                        return (
-                          <button
-                            key={command}
-                            type="button"
-                            className="canlab__mock-command"
-                            onClick={() => emitCanEvent(command)}
-                          >
-                            <strong>{definition.label}</strong>
-                            <code>{definition.terminalCommand}</code>
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
                 </div>
               )}
 
@@ -1332,38 +1377,51 @@ export default function CanPracticeOnlyPage() {
                 >
                   {inspectorEvent ? (
                     <>
-                      <div>
+                      <header className="canlab__inspector-header">
                         <strong>Frame {inspectorEvent.frame.canId}</strong>
                         <span>{getEventUi(inspectorEvent)?.ui.title ?? "Selected CAN Event"}</span>
-                      </div>
-                      <div className="canlab__inspector-section">
+                      </header>
+                      <section className="canlab__inspector-section canlab__inspector-frame">
                         <h3>CAN Frame</h3>
-                        <dl>
-                          <div><dt>CAN ID</dt><dd>{inspectorEvent.frame.canId}</dd></div>
-                          <div><dt>DLC</dt><dd>{inspectorEvent.frame.dlc}</dd></div>
-                          <div><dt>DATA</dt><dd>{formatData(inspectorEvent.frame.data)}</dd></div>
-                          <div><dt>Channel</dt><dd>{inspectorEvent.channel}</dd></div>
-                        </dl>
-                      </div>
-                      <div className="canlab__inspector-section">
+                        <div className="canlab__inspector-summary" aria-label="CAN frame summary">
+                          <div><span>CAN ID</span><strong>{inspectorEvent.frame.canId}</strong></div>
+                          <div><span>DLC</span><strong>{inspectorEvent.frame.dlc}</strong></div>
+                          <div><span>DATA</span><strong>{formatData(inspectorEvent.frame.data)}</strong></div>
+                          <div><span>Channel</span><strong>{inspectorEvent.channel}</strong></div>
+                        </div>
+                        <div className="canlab__frame-layout" aria-label="Classical CAN Frame structure">
+                          <span>SOF</span>
+                          <strong>{inspectorEvent.frame.canId}</strong>
+                          <span>RTR</span>
+                          <span>IDE</span>
+                          <strong>{inspectorEvent.frame.dlc}</strong>
+                          <strong>{formatData(inspectorEvent.frame.data)}</strong>
+                          <span>CRC</span>
+                          <span>ACK</span>
+                          <span>EOF</span>
+                        </div>
+                      </section>
+                      <section className="canlab__inspector-section canlab__inspector-context">
                         <h3>Simulation Context</h3>
-                        <dl>
-                          <div><dt>Source</dt><dd>{getNodeLabel(inspectorEvent.context.source)}</dd></div>
-                          <div><dt>Target</dt><dd>{getNodeLabel(inspectorEvent.context.target)}</dd></div>
-                          <div><dt>Route</dt><dd>{inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</dd></div>
-                          <div><dt>Meaning</dt><dd>{inspectorEvent.context.meaning ?? "-"}</dd></div>
-                          <div><dt>Action</dt><dd>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</dd></div>
-                        </dl>
-                      </div>
-                      <div className="canlab__inspector-section">
+                        <div className="canlab__route-diagram">
+                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.source)}</div>
+                          <div className="canlab__route-link"><span>CAN Bus</span></div>
+                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.target)}</div>
+                        </div>
+                        <div className="canlab__route-action">
+                          <strong>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</strong>
+                          <span>{inspectorEvent.context.meaning ?? "-"} · {inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</span>
+                        </div>
+                      </section>
+                      <section className="canlab__inspector-section canlab__inspector-processing">
                         <h3>Processing</h3>
-                        <dl>
-                          <div><dt>Filter</dt><dd>{inspectorEvent.processing?.filterResult ?? "-"}</dd></div>
-                          <div><dt>Result</dt><dd>{inspectorEvent.processing?.executionResult ?? "-"}</dd></div>
-                          <div><dt>IDS</dt><dd>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</dd></div>
-                          <div><dt>Origin</dt><dd>{inspectorEvent.origin}</dd></div>
-                        </dl>
-                      </div>
+                        <div className="canlab__processing-status">
+                          <span>Filter <strong>{inspectorEvent.processing?.filterResult ?? "-"}</strong></span>
+                          <span>IDS <strong>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</strong></span>
+                          <span>Result <strong>{inspectorEvent.processing?.executionResult ?? "-"}</strong></span>
+                          <span>Origin <strong>{inspectorEvent.origin}</strong></span>
+                        </div>
+                      </section>
                     </>
                   ) : (
                     <div className="canlab__inspector-placeholder">
