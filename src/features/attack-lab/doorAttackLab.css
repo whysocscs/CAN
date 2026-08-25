@@ -463,6 +463,10 @@
 
 .vehicle-network-viewport__canvas canvas { touch-action: none; }
 .vehicle-network-viewport__marker {
+  --vehicle-pin-offset-x: var(--vehicle-pin-wide-offset-x);
+  --vehicle-pin-offset-y: var(--vehicle-pin-wide-offset-y);
+  --vehicle-pin-leader-length: var(--vehicle-pin-wide-leader-length);
+  --vehicle-pin-leader-angle: var(--vehicle-pin-wide-leader-angle);
   position: relative;
   display: grid;
   width: 22px;
@@ -507,7 +511,11 @@
 }
 .vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% + 29px); text-align: right; }
 .vehicle-network-viewport__callout[data-placement="effect-high-right"] { bottom: calc(100% + 23px); left: calc(50% - 9px); }
-.vehicle-network-viewport__callout[data-placement="logical-compact"] { bottom: calc(100% + 10px); left: calc(50% + 11px); }
+.vehicle-network-viewport__callout--logical {
+  box-sizing: border-box;
+  min-width: 0;
+}
+.vehicle-network-viewport__callout[data-placement="logical-right"] { bottom: calc(100% + 10px); left: calc(50% - 4px); }
 .vehicle-network-viewport__callout[data-visible="true"] {
   opacity: 1;
   transform: scale(1);
@@ -525,7 +533,7 @@
 }
 .vehicle-network-viewport__callout[data-placement="target-far-left"]::after { right: -49px; width: 56px; transform: rotate(13deg); transform-origin: left; }
 .vehicle-network-viewport__callout[data-placement="effect-high-right"]::after { left: -18px; transform: rotate(-32deg); transform-origin: right; }
-.vehicle-network-viewport__callout[data-placement="logical-compact"]::after { left: -10px; transform: rotate(-38deg); transform-origin: right; }
+.vehicle-network-viewport__callout[data-placement="logical-right"]::after { left: -10px; transform: rotate(-38deg); transform-origin: right; }
 .vehicle-network-viewport__callout strong { font-size: 10px; font-weight: 800; }
 .vehicle-network-viewport__callout small { color: #d8e2ef; font-size: 8px; font-weight: 650; letter-spacing: .01em; }
 .vehicle-network-viewport__status { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid #cbd3dd; background: rgba(255,255,255,.94); color: #445066; font-family: "Noto Sans KR Variable", sans-serif; font-size: 10px; white-space: nowrap; }
@@ -722,6 +730,12 @@
   .door-attack-lab__stages { padding-block: 11px; }
   .door-attack-lab__stages::before { top: 23px; }
   .vehicle-network-viewport__toolbar { align-items: flex-start; flex-direction: column; }
+  .vehicle-network-viewport__marker {
+    --vehicle-pin-offset-x: var(--vehicle-pin-compact-offset-x);
+    --vehicle-pin-offset-y: var(--vehicle-pin-compact-offset-y);
+    --vehicle-pin-leader-length: var(--vehicle-pin-compact-leader-length);
+    --vehicle-pin-leader-angle: var(--vehicle-pin-compact-leader-angle);
+  }
   .vehicle-network-viewport__toolbar > div { width: 100%; justify-content: flex-start; }
   .vehicle-network-viewport__target-map {
     grid-auto-columns: minmax(170px, 76vw);

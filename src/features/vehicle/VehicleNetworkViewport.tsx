@@ -106,7 +106,7 @@ interface PinScreenOffset {
 }
 
 const PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> = {
-  obd: { x: -72, y: 54 },
+  obd: { x: -72, y: 34 },
   ids: { x: -68, y: -34 },
   gateway: { x: 0, y: -74 },
   body: { x: 70, y: -30 },
@@ -114,6 +114,28 @@ const PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> = {
   leftDoor: { x: 54, y: 58 },
   tailgate: { x: 15, y: 65 },
 }
+
+const COMPACT_PIN_SCREEN_OFFSETS: Record<
+  VehicleTopologyNodeId,
+  PinScreenOffset
+> = {
+  obd: { x: -36, y: 34 },
+  ids: { x: -34, y: -20 },
+  gateway: { x: 0, y: -46 },
+  body: { x: 22, y: -18 },
+  rear: { x: 22, y: -18 },
+  leftDoor: { x: 28, y: 38 },
+  tailgate: { x: -24, y: 42 },
+}
+
+const LOGICAL_CALLOUT_STYLE: CSSProperties = {
+  width: "104px",
+  maxWidth: "calc(100vw - 48px)",
+  whiteSpace: "normal",
+}
+
+const HTML_PIN_LAYER_STYLE: CSSProperties = { pointerEvents: "none" }
+const PIN_BUTTON_STYLE: CSSProperties = { pointerEvents: "auto" }
 
 interface OrbitControlsState {
   target: THREE.Vector3
@@ -318,21 +340,40 @@ function TopologyPin({
 }) {
   const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
   const screenOffset = PIN_SCREEN_OFFSETS[node.id]
+  const compactScreenOffset = COMPACT_PIN_SCREEN_OFFSETS[node.id]
   const calloutKindForNode =
     calloutKind ??
     (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
+  const calloutPlacement =
+    calloutKindForNode === "target"
+      ? "target-far-left"
+      : calloutKindForNode === "effect"
+        ? "effect-high-right"
+        : "logical-right"
   const markerStyle = {
     "--vehicle-route-accent": accent,
-    "--vehicle-pin-offset-x": `${screenOffset.x}px`,
-    "--vehicle-pin-offset-y": `${screenOffset.y}px`,
-    "--vehicle-pin-leader-length": `${Math.hypot(screenOffset.x, screenOffset.y)}px`,
-    "--vehicle-pin-leader-angle": `${Math.atan2(-screenOffset.y, -screenOffset.x)}rad`,
+    "--vehicle-pin-wide-offset-x": `${screenOffset.x}px`,
+    "--vehicle-pin-wide-offset-y": `${screenOffset.y}px`,
+    "--vehicle-pin-wide-leader-length": `${Math.hypot(screenOffset.x, screenOffset.y)}px`,
+    "--vehicle-pin-wide-leader-angle": `${Math.atan2(-screenOffset.y, -screenOffset.x)}rad`,
+    "--vehicle-pin-compact-offset-x": `${compactScreenOffset.x}px`,
+    "--vehicle-pin-compact-offset-y": `${compactScreenOffset.y}px`,
+    "--vehicle-pin-compact-leader-length": `${Math.hypot(compactScreenOffset.x, compactScreenOffset.y)}px`,
+    "--vehicle-pin-compact-leader-angle": `${Math.atan2(-compactScreenOffset.y, -compactScreenOffset.x)}rad`,
   } as CSSProperties
 
   return (
-    <Html position={node.anchor} center distanceFactor={7.2} sprite>
+    <Html
+      position={node.anchor}
+      center
+      distanceFactor={7.2}
+      sprite
+      className="vehicle-network-viewport__html-layer"
+      style={HTML_PIN_LAYER_STYLE}
+    >
       <span
         className="vehicle-network-viewport__marker"
+        data-node-id={node.id}
         data-testid="vehicle-topology-marker"
         style={markerStyle}
       >
@@ -348,19 +389,23 @@ function TopologyPin({
           data-testid="vehicle-topology-pin"
           aria-label={`${node.label} 선택`}
           onClick={handleSelect}
+          style={PIN_BUTTON_STYLE}
         >
           {node.number}
         </button>
         {calloutKindForNode ? (
           <span
-            className="vehicle-network-viewport__callout"
+            className={
+              calloutKindForNode === "logical"
+                ? "vehicle-network-viewport__callout vehicle-network-viewport__callout--logical"
+                : "vehicle-network-viewport__callout"
+            }
             data-kind={calloutKindForNode}
-            data-placement={
-              calloutKindForNode === "target"
-                ? "target-far-left"
-                : calloutKindForNode === "effect"
-                  ? "effect-high-right"
-                  : "logical-compact"
+            data-placement={calloutPlacement}
+            style={
+              calloutKindForNode === "logical"
+                ? LOGICAL_CALLOUT_STYLE
+                : undefined
             }
             data-camera-focused={cameraFocused ? "true" : undefined}
             data-visible={tooltipVisible ? "true" : undefined}
@@ -777,7 +822,11 @@ export default function VehicleNetworkViewport({
       : undefined
   const playbackActiveNodeId =
     playbackState.phase === "playing" ? playbackCurrentNodeId : undefined
-  const activeNodeId = playbackCurrentNodeId ?? focusedId ?? currentNodeId
+  const playbackOwnsActiveNode =
+    playbackState.phase === "playing" || playbackState.phase === "cancelled"
+  const activeNodeId = playbackOwnsActiveNode
+    ? playbackCurrentNodeId
+    : focusedId ?? currentNodeId
   const activeNodeState: VehicleFlowNodeVisualState =
     playbackState.phase === "cancelled" && playbackCurrentNodeId
       ? "cancelled"

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest"
-import { useEffect, type ReactNode } from "react"
+import { useEffect, type CSSProperties, type ReactNode } from "react"
 import {
   act,
   cleanup,
@@ -117,8 +117,15 @@ vi.mock("@react-three/fiber", async () => {
 vi.mock("@react-three/drei", async () => {
   const React = await import("react")
   const THREE = await import("three")
-  const Wrapper = ({ children }: { children?: ReactNode }) =>
-    React.createElement("div", null, children)
+  const Wrapper = ({
+    children,
+    className,
+    style,
+  }: {
+    children?: ReactNode
+    className?: string
+    style?: CSSProperties
+  }) => React.createElement("div", { className, style }, children)
   const Bounds = ({ children }: { children?: ReactNode }) => {
     useEffect(() => {
       canvasState.boundsRefit = () => {
@@ -214,6 +221,7 @@ import VehicleNetworkViewport, {
   type VehicleNetworkViewportProps,
 } from "./VehicleNetworkViewport"
 import {
+  captureTrace,
   playingDoorSnapshotAtGateway,
   rejectedBodyTrace,
 } from "./vehicleFlowTestFixtures"
@@ -514,30 +522,35 @@ describe("VehicleNetworkViewport", () => {
         label: "Training OBD-II",
         detail: "공격 프레임 진입점 · 실제 OEM 배치 아님",
         kind: "logical",
+        placement: "logical-right",
       },
       {
         button: "Toy IDS 선택",
         label: "Toy IDS",
         detail: "프레임 관찰/규칙 판정 · 실제 OEM 배치 아님",
         kind: "logical",
+        placement: "logical-right",
       },
       {
         button: "Toy Gateway 선택",
         label: "Toy Gateway",
         detail: "대상 네트워크로 라우팅 · 실제 OEM 배치 아님",
         kind: "logical",
+        placement: "logical-right",
       },
       {
         button: "Toy Body ECU 선택",
         label: "Toy Body ECU",
         detail: "Target ECU · 교육용 위치",
         kind: "target",
+        placement: "target-far-left",
       },
       {
         button: "Left Door Effect 선택",
         label: "GLB Left Door",
         detail: "영향 부위",
         kind: "effect",
+        placement: "effect-high-right",
       },
     ] as const
 
@@ -557,9 +570,31 @@ describe("VehicleNetworkViewport", () => {
         .filter((callout) => callout.getAttribute("data-visible") === "true")
       expect(visibleCallouts).toHaveLength(1)
       expect(visibleCallouts[0]).toHaveAttribute("data-kind", expected.kind)
+      expect(visibleCallouts[0]).toHaveAttribute(
+        "data-placement",
+        expected.placement,
+      )
       expect(visibleCallouts[0]).toHaveTextContent(expected.label)
       expect(visibleCallouts[0]).toHaveTextContent(expected.detail)
     }
+  })
+
+  it("caps and wraps a logical tooltip for a narrow canvas", async () => {
+    const user = userEvent.setup()
+    renderDoorViewport()
+
+    await user.click(screen.getByRole("button", { name: "Toy Gateway 선택" }))
+    const tooltip = screen
+      .getAllByTestId("vehicle-topology-callout")
+      .find((callout) => callout.getAttribute("data-visible") === "true")
+
+    expect(tooltip).toHaveClass(
+      "vehicle-network-viewport__callout--logical",
+    )
+    expect(tooltip).toHaveAttribute("data-placement", "logical-right")
+    expect(tooltip?.style.width).toBe("104px")
+    expect(tooltip?.style.maxWidth).toBe("calc(100vw - 48px)")
+    expect(tooltip?.style.whiteSpace).toBe("normal")
   })
 
   it("keeps route anchors fixed while separating projected HTML pins with leaders", () => {
@@ -568,14 +603,47 @@ describe("VehicleNetworkViewport", () => {
     const markers = within(canvas).getAllByTestId("vehicle-topology-marker")
     const offsets = markers.map((marker) =>
       [
-        marker.style.getPropertyValue("--vehicle-pin-offset-x"),
-        marker.style.getPropertyValue("--vehicle-pin-offset-y"),
+        marker.style.getPropertyValue("--vehicle-pin-wide-offset-x"),
+        marker.style.getPropertyValue("--vehicle-pin-wide-offset-y"),
       ].join(","),
     )
+    const expectedWideOffsets = new Map([
+      ["obd", "-72px,34px"],
+      ["ids", "-68px,-34px"],
+      ["gateway", "0px,-74px"],
+      ["body", "70px,-30px"],
+      ["leftDoor", "54px,58px"],
+    ])
+    const expectedCompactOffsets = new Map([
+      ["obd", "-36px,34px"],
+      ["ids", "-34px,-20px"],
+      ["gateway", "0px,-46px"],
+      ["body", "22px,-18px"],
+      ["leftDoor", "28px,38px"],
+    ])
+    const compactOffsets = markers.map((marker) => [
+      marker.style.getPropertyValue("--vehicle-pin-compact-offset-x"),
+      marker.style.getPropertyValue("--vehicle-pin-compact-offset-y"),
+    ].join(","))
 
     expect(markers).toHaveLength(5)
     expect(new Set(offsets).size).toBe(5)
     expect(offsets).not.toContain("0px,0px")
+    expect(new Set(compactOffsets).size).toBe(5)
+    markers.forEach((marker, index) => {
+      expect(offsets[index]).toBe(
+        expectedWideOffsets.get(marker.dataset.nodeId ?? ""),
+      )
+      expect(compactOffsets[index]).toBe(
+        expectedCompactOffsets.get(marker.dataset.nodeId ?? ""),
+      )
+      expect(
+        marker.style.getPropertyValue("--vehicle-pin-compact-leader-length"),
+      ).not.toBe("")
+      expect(
+        marker.style.getPropertyValue("--vehicle-pin-compact-leader-angle"),
+      ).not.toBe("")
+    })
     expect(
       within(canvas).getAllByTestId("vehicle-topology-leader"),
     ).toHaveLength(5)
@@ -595,6 +663,52 @@ describe("VehicleNetworkViewport", () => {
       "position",
       "0.67,0.73,-0.54",
     )
+  })
+
+  it("makes each projected Html wrapper transparent to hits except its button", () => {
+    renderDoorViewport()
+    const canvas = screen.getByTestId("canvas-boundary")
+    const layers = canvas.querySelectorAll(
+      ".vehicle-network-viewport__html-layer",
+    )
+    const pins = within(canvas).getAllByTestId("vehicle-topology-pin")
+
+    expect(layers).toHaveLength(5)
+    expect(
+      Array.from(layers).every(
+        (layer) => (layer as HTMLElement).style.pointerEvents === "none",
+      ),
+    ).toBe(true)
+    expect(pins.every((pin) => pin.style.pointerEvents === "auto")).toBe(true)
+  })
+
+  it("provides distinct in-canvas compact offsets for the spoofing route", () => {
+    renderDoorViewport({
+      route: ["obd", "ids", "gateway", "rear", "tailgate"],
+      targetId: "rear",
+      effectId: "tailgate",
+      scenarioTitle: "Spoofing route",
+    })
+    const markers = within(screen.getByTestId("canvas-boundary"))
+      .getAllByTestId("vehicle-topology-marker")
+    const compactByNode = new Map(
+      markers.map((marker) => [
+        marker.dataset.nodeId,
+        [
+          marker.style.getPropertyValue("--vehicle-pin-compact-offset-x"),
+          marker.style.getPropertyValue("--vehicle-pin-compact-offset-y"),
+        ].join(","),
+      ]),
+    )
+
+    expect(compactByNode).toEqual(new Map([
+      ["obd", "-36px,34px"],
+      ["ids", "-34px,-20px"],
+      ["gateway", "0px,-46px"],
+      ["rear", "22px,-18px"],
+      ["tailgate", "-24px,42px"],
+    ]))
+    expect(new Set(compactByNode.values()).size).toBe(5)
   })
 
   it("changes focus presets and resets without remounting Canvas", async () => {
@@ -845,6 +959,67 @@ describe("VehicleNetworkViewport", () => {
       { flowState: "queued" },
     ])
   })
+
+  it.each([
+    {
+      name: "terminal-only rejection",
+      phase: "playing" as const,
+      trace: {
+        ...rejectedBodyTrace,
+        route: ["terminal"],
+        stoppedAt: "terminal",
+      } satisfies VehicleFlowTrace,
+      segmentIndex: 0,
+    },
+    {
+      name: "terminal to evidence observation",
+      phase: "cancelled" as const,
+      trace: {
+        ...captureTrace,
+        traceId: "observe-evidence",
+        kind: "observe",
+        route: ["terminal", "evidence"],
+      } satisfies VehicleFlowTrace,
+      segmentIndex: 1,
+    },
+    {
+      name: "terminal to OBD to monitor capture",
+      phase: "playing" as const,
+      trace: captureTrace,
+      segmentIndex: 2,
+    },
+  ])(
+    "does not imply 3D ECU activity at a non-topology $name node",
+    ({ phase, trace, segmentIndex }) => {
+      renderDoorViewport({
+        focusedNodeId: "gateway",
+        currentNodeId: "body",
+        playback: {
+          playbackId: 11,
+          phase,
+          trace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex,
+        },
+      })
+      const canvas = screen.getByTestId("canvas-boundary")
+
+      expect(
+        canvas.querySelector('mesh[name^="vehicle-flow-node-halo:"]'),
+      ).not.toBeInTheDocument()
+      expect(
+        within(canvas)
+          .getAllByTestId("vehicle-topology-pin")
+          .some((pin) => pin.getAttribute("data-active") === "true"),
+      ).toBe(false)
+      expect(
+        screen
+          .getByRole("list", { name: "Door spoofing route target map" })
+          .querySelector('[data-active="true"]'),
+      ).not.toBeInTheDocument()
+    },
+  )
 
   it("defensively stops rejected rendering at stoppedAt", () => {
     const malformedRejectedTrace: VehicleFlowTrace = {
