@@ -29,8 +29,11 @@ import {
 const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 const MODEL_ROTATION: [number, number, number] = [0, -0.22, 0]
 const MODEL_EULER = new THREE.Euler(...MODEL_ROTATION)
-const OVERVIEW_CAMERA: [number, number, number] = [-5.6, 3.1, 7.2]
+const OVERVIEW_CAMERA: [number, number, number] = [-6.2, 2.9, 0.55]
+const OVERVIEW_FOV = 38
 const CAMERA_TARGET: [number, number, number] = [0, 0.72, 0]
+const XRAY_TINT = new THREE.Color("#a8bac8")
+const MECHANICAL_MESH_NAME = /TIRE|WHEEL|BRAKE|CALIPER|STEER/i
 
 export type VehicleCameraView = "overview" | "source" | "target" | "effect"
 
@@ -180,19 +183,53 @@ function CameraPresetController({
 
 function VehicleModel({ immediate }: { immediate: boolean }) {
   const gltf = useGLTF(MODEL_PATH)
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
+  const { scene, xrayMaterials } = useMemo(() => {
+    const clonedScene = gltf.scene.clone(true)
+    const clonedMaterials: THREE.Material[] = []
 
-  useVehicleRig(scene, { immediate })
-
-  useEffect(() => {
-    scene.traverse((object) => {
+    clonedScene.traverse((object) => {
       const mesh = object as THREE.Mesh
       if (!mesh.isMesh) return
+
+      const isMechanical = MECHANICAL_MESH_NAME.test(mesh.name)
+      const createXrayMaterial = (material: THREE.Material) => {
+        const xrayMaterial = material.clone()
+        xrayMaterial.transparent = true
+        xrayMaterial.opacity = isMechanical ? 0.72 : 0.4
+        xrayMaterial.depthWrite = false
+        xrayMaterial.side = THREE.DoubleSide
+
+        if (
+          "color" in xrayMaterial &&
+          xrayMaterial.color instanceof THREE.Color
+        ) {
+          xrayMaterial.color.lerp(XRAY_TINT, 0.72)
+        }
+
+        xrayMaterial.needsUpdate = true
+        clonedMaterials.push(xrayMaterial)
+        return xrayMaterial
+      }
+
+      mesh.material = Array.isArray(mesh.material)
+        ? mesh.material.map(createXrayMaterial)
+        : createXrayMaterial(mesh.material)
       mesh.castShadow = true
       mesh.receiveShadow = true
       mesh.frustumCulled = false
     })
-  }, [scene])
+
+    return { scene: clonedScene, xrayMaterials: clonedMaterials }
+  }, [gltf.scene])
+
+  useVehicleRig(scene, { immediate })
+
+  useEffect(
+    () => () => {
+      xrayMaterials.forEach((material) => material.dispose())
+    },
+    [xrayMaterials],
+  )
 
   return <primitive object={scene} />
 }
@@ -473,11 +510,11 @@ export default function VehicleNetworkViewport({
 
       <div className="vehicle-network-viewport__canvas">
         <Canvas
-          shadows="basic"
+          shadows
           dpr={[1, 1.5]}
           camera={{
             position: OVERVIEW_CAMERA,
-            fov: 34,
+            fov: OVERVIEW_FOV,
             near: 0.05,
             far: 100,
           }}
@@ -487,21 +524,22 @@ export default function VehicleNetworkViewport({
             toneMapping: THREE.ACESFilmicToneMapping,
           }}
         >
-          <color attach="background" args={["#eef2f7"]} />
-          <ambientLight intensity={1.05} />
-          <hemisphereLight args={["#f8fbff", "#c7d0da", 1.1]} />
+          <color attach="background" args={["#0b1018"]} />
+          <fog attach="fog" args={["#0b1018", 7, 14]} />
+          <ambientLight intensity={0.72} />
+          <hemisphereLight args={["#c9dcff", "#05070d", 0.72]} />
           <directionalLight
             castShadow
             position={[6, 8, 5]}
-            intensity={2.6}
+            intensity={2.35}
             shadow-mapSize={[2048, 2048]}
           />
           <spotLight
             position={[-5, 4, -3]}
-            angle={0.55}
-            penumbra={0.75}
-            intensity={0.9}
-            color="#8daee8"
+            angle={0.52}
+            penumbra={0.72}
+            intensity={1.2}
+            color="#b3c9ff"
           />
           <VehicleErrorBoundary>
             <Suspense

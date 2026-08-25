@@ -17,6 +17,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 const scene = new THREE.Group()
 const canvasState = vi.hoisted(() => ({
   mounts: 0,
+  canvasProps: undefined as
+    | {
+        camera?: {
+          position?: [number, number, number]
+          fov?: number
+          near?: number
+          far?: number
+        }
+        shadows?: boolean | string
+      }
+    | undefined,
+  sceneElements: [] as Array<{
+    type: string
+    props: Record<string, unknown>
+  }>,
   camera: undefined as THREE.PerspectiveCamera | undefined,
   controls: undefined as {
     target: THREE.Vector3
@@ -27,15 +42,41 @@ const canvasState = vi.hoisted(() => ({
   boundsRefit: undefined as (() => void) | undefined,
 }))
 const gltf = vi.hoisted(() => ({ useGLTF: vi.fn() }))
+const vehicleRig = vi.hoisted(() => ({ useVehicleRig: vi.fn() }))
 
 vi.mock("@react-three/fiber", async () => {
   const React = await import("react")
   return {
-    Canvas: ({ children }: { children: ReactNode }) => {
+    Canvas: ({
+      children,
+      ...props
+    }: {
+      children: ReactNode
+      camera?: {
+        position?: [number, number, number]
+        fov?: number
+        near?: number
+        far?: number
+      }
+      shadows?: boolean | string
+    }) => {
       useEffect(() => {
         canvasState.mounts += 1
       }, [])
-      const sceneChildren = React.Children.toArray(children).slice(5)
+      canvasState.canvasProps = props
+      const allChildren = React.Children.toArray(children)
+      canvasState.sceneElements = allChildren.flatMap((child) =>
+        React.isValidElement(child) && typeof child.type === "string"
+          ? [{
+              type: child.type,
+              props: child.props as Record<string, unknown>,
+            }]
+          : [],
+      )
+      const sceneChildren = allChildren.filter(
+        (child) =>
+          !React.isValidElement(child) || typeof child.type !== "string",
+      )
       return React.createElement(
         "div",
         { "data-testid": "canvas-boundary" },
@@ -78,7 +119,7 @@ vi.mock("@react-three/drei", async () => {
   }
 })
 
-vi.mock("./useVehicleRig", () => ({ useVehicleRig: vi.fn() }))
+vi.mock("./useVehicleRig", () => vehicleRig)
 
 import VehicleNetworkViewport, {
   type VehicleNetworkViewportProps,
@@ -101,7 +142,10 @@ describe("VehicleNetworkViewport", () => {
     scene.clear()
     gltf.useGLTF.mockReset()
     gltf.useGLTF.mockReturnValue({ scene })
+    vehicleRig.useVehicleRig.mockReset()
     canvasState.mounts = 0
+    canvasState.canvasProps = undefined
+    canvasState.sceneElements = []
     canvasState.camera = new THREE.PerspectiveCamera()
     canvasState.camera.position.set(-5.6, 3.1, 7.2)
     canvasState.controls = { target: new THREE.Vector3(), update: vi.fn() }
@@ -150,6 +194,95 @@ describe("VehicleNetworkViewport", () => {
     expect(
       within(targetMap).getByText("GLB 동작 기준점 · 실제 actuator 위치 아님"),
     ).toBeInTheDocument()
+  })
+
+  it("matches the normal CAN scene palette with a panel-fitted attack overview", () => {
+    renderDoorViewport()
+
+    expect(canvasState.canvasProps).toMatchObject({
+      shadows: true,
+      camera: {
+        position: [-6.2, 2.9, 0.55],
+        fov: 38,
+        near: 0.05,
+        far: 100,
+      },
+    })
+    expect(
+      canvasState.sceneElements.find(({ type }) => type === "color")?.props,
+    ).toMatchObject({ attach: "background", args: ["#0b1018"] })
+    expect(
+      canvasState.sceneElements.find(({ type }) => type === "fog")?.props,
+    ).toMatchObject({ attach: "fog", args: ["#0b1018", 7, 14] })
+    expect(
+      canvasState.sceneElements.find(({ type }) => type === "ambientLight")
+        ?.props,
+    ).toMatchObject({ intensity: 0.72 })
+    expect(
+      canvasState.sceneElements.find(({ type }) => type === "hemisphereLight")
+        ?.props,
+    ).toMatchObject({ args: ["#c9dcff", "#05070d", 0.72] })
+    expect(
+      canvasState.sceneElements.find(({ type }) => type === "spotLight")
+        ?.props,
+    ).toMatchObject({ intensity: 1.2, color: "#b3c9ff" })
+  })
+
+  it("treats and disposes cloned X-ray materials without mutating the source vehicle", () => {
+    const bodyMaterial = new THREE.MeshStandardMaterial({ color: "#20242a" })
+    const tireMaterial = new THREE.MeshStandardMaterial({ color: "#111111" })
+    const body = new THREE.Mesh(new THREE.BoxGeometry(), bodyMaterial)
+    const tire = new THREE.Mesh(new THREE.BoxGeometry(), tireMaterial)
+    body.name = "BODY_SHELL"
+    tire.name = "TIRE_FRONT_LEFT"
+    scene.add(body, tire)
+
+    const view = renderDoorViewport()
+
+    const riggedScene = vehicleRig.useVehicleRig.mock.calls[0]?.[0] as
+      | THREE.Group
+      | undefined
+    const clonedBody = riggedScene?.getObjectByName("BODY_SHELL") as
+      | THREE.Mesh
+      | undefined
+    const clonedTire = riggedScene?.getObjectByName("TIRE_FRONT_LEFT") as
+      | THREE.Mesh
+      | undefined
+    const clonedBodyMaterial = clonedBody?.material as
+      | THREE.MeshStandardMaterial
+      | undefined
+    const clonedTireMaterial = clonedTire?.material as
+      | THREE.MeshStandardMaterial
+      | undefined
+
+    expect(clonedBodyMaterial).not.toBe(bodyMaterial)
+    expect(clonedBodyMaterial).toMatchObject({
+      transparent: true,
+      opacity: 0.4,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+    expect(clonedTireMaterial).not.toBe(tireMaterial)
+    expect(clonedTireMaterial).toMatchObject({
+      transparent: true,
+      opacity: 0.72,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    })
+    expect(bodyMaterial.transparent).toBe(false)
+    expect(tireMaterial.transparent).toBe(false)
+
+    const clonedBodyDispose = vi.spyOn(clonedBodyMaterial!, "dispose")
+    const clonedTireDispose = vi.spyOn(clonedTireMaterial!, "dispose")
+    const sourceBodyDispose = vi.spyOn(bodyMaterial, "dispose")
+    const sourceTireDispose = vi.spyOn(tireMaterial, "dispose")
+
+    view.unmount()
+
+    expect(clonedBodyDispose).toHaveBeenCalledOnce()
+    expect(clonedTireDispose).toHaveBeenCalledOnce()
+    expect(sourceBodyDispose).not.toHaveBeenCalled()
+    expect(sourceTireDispose).not.toHaveBeenCalled()
   })
 
   it("renders exactly the scenario target and effect as visual-only door callouts", () => {
