@@ -11,6 +11,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
+from server.labs.attack_flow_trace import make_flow_trace
 from server.labs.door_blackbox import _TARGET_CAN_ID, DoorBlackboxSession, FrameAttempt, ScriptResult, TerminalResult
 
 
@@ -89,7 +90,119 @@ def _attempt_response(attempt: FrameAttempt) -> dict[str, object]:
     }
 
 
-def _terminal_response(result: TerminalResult, state: dict[str, object]) -> dict[str, object]:
+def _door_attempt_trace(
+    attempt: FrameAttempt,
+    *,
+    sequence: int,
+    command_label: str,
+    command_index: int | None,
+    ids_status: str | None,
+) -> dict[str, object]:
+    accepted = attempt.accepted
+    route = ["terminal", "obd", "ids", "gateway", "body"]
+    if accepted:
+        route.append("leftDoor")
+    return make_flow_trace(
+        trace_id=attempt.attempt_id,
+        attempt_id=attempt.attempt_id,
+        sequence=sequence,
+        kind="inject",
+        command_label=command_label,
+        command_index=command_index,
+        can_id=attempt.can_id,
+        data=attempt.data,
+        route=route,
+        stopped_at=None if accepted else "body",
+        outcome="EXECUTED" if accepted else "REJECTED",
+        ecu_verdict=attempt.verdict,
+        ids_verdict=ids_status,
+        effect_target="leftDoor" if accepted else None,
+        effect_state=("open" if attempt.data[0] == "00" else "closed") if accepted else None,
+        effect_applied=accepted,
+    )
+
+
+def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str, object]]:
+    if result.frames and command.startswith("cansend "):
+        return [
+            _door_attempt_trace(
+                result.frames[0],
+                sequence=1,
+                command_label=command,
+                command_index=None,
+                ids_status=result.ids_status,
+            )
+        ]
+    if command.startswith("cat "):
+        kind, route, outcome = "observe", ["terminal", "evidence"], "OBSERVED"
+    elif command.startswith("candump "):
+        kind, route, outcome = "observe", ["terminal", "obd", "monitor"], "OBSERVED"
+    else:
+        kind, route, outcome = "local", ["terminal"], "LOCAL"
+    return [
+        make_flow_trace(
+            trace_id="terminal:" + command,
+            attempt_id=None,
+            sequence=1,
+            kind=kind,
+            command_label=command,
+            command_index=None,
+            can_id=None,
+            data=[],
+            route=route,
+            stopped_at="terminal" if not result.ok else None,
+            outcome="REJECTED" if not result.ok else outcome,
+            ecu_verdict=None,
+            ids_verdict=None,
+            effect_target=None,
+            effect_state=None,
+            effect_applied=False,
+        )
+    ]
+
+
+def _door_script_traces(script: str, result: ScriptResult) -> list[dict[str, object]]:
+    commands = [
+        (line_number, stripped)
+        for line_number, line in enumerate(script.splitlines(), start=1)
+        if (stripped := line.strip()).startswith("cansend ")
+    ]
+    if result.attempts:
+        return [
+            _door_attempt_trace(
+                attempt,
+                sequence=index + 1,
+                command_label=commands[index][1],
+                command_index=commands[index][0],
+                ids_status=result.ids_status,
+            )
+            for index, attempt in enumerate(result.attempts)
+        ]
+    if result.error is None:
+        return []
+    return [
+        make_flow_trace(
+            trace_id="script:" + result.error,
+            attempt_id=None,
+            sequence=1,
+            kind="local",
+            command_label=script,
+            command_index=None,
+            can_id=None,
+            data=[],
+            route=["terminal"],
+            stopped_at="terminal",
+            outcome="REJECTED",
+            ecu_verdict=result.error,
+            ids_verdict=None,
+            effect_target=None,
+            effect_state=None,
+            effect_applied=False,
+        )
+    ]
+
+
+def _terminal_response(command: str, result: TerminalResult, state: dict[str, object]) -> dict[str, object]:
     return {
         "ok": result.ok,
         "code": result.code,
@@ -97,15 +210,17 @@ def _terminal_response(result: TerminalResult, state: dict[str, object]) -> dict
         "frames": [_attempt_response(frame) for frame in result.frames],
         "state": state,
         "idsStatus": result.ids_status,
+        "flowTraces": _door_terminal_traces(command, result),
     }
 
 
-def _script_response(result: ScriptResult) -> dict[str, object]:
+def _script_response(script: str, result: ScriptResult) -> dict[str, object]:
     return {
         "attempts": [_attempt_response(attempt) for attempt in result.attempts],
         "idsStatus": result.ids_status,
         "state": result.state,
         "error": result.error,
+        "flowTraces": _door_script_traces(script, result),
     }
 
 
@@ -125,6 +240,7 @@ def _metadata_for(session_id: str, attempt: FrameAttempt, ids_status: str) -> di
             "labId": "door-blackbox-v1",
             "sessionId": session_id,
             "generation": attempt.generation,
+            "attemptId": attempt.attempt_id,
         },
     }
 
@@ -201,7 +317,7 @@ async def terminal_command(
                         list(attempt.data),
                         **_metadata_for(session.session_id, attempt, result.ids_status),
                     )
-    return _terminal_response(result, response_state)
+    return _terminal_response(request.command, result, response_state)
 
 
 @router.post("/sessions/{session_id}/run")
@@ -232,4 +348,4 @@ async def run_script(
                 **_metadata_for(session.session_id, attempt, result.ids_status),
             )
             emitted = True
-    return _script_response(result)
+    return _script_response(request.script, result)

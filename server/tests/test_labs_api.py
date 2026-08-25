@@ -268,7 +268,12 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
         "monitoring": {"idsObserved": True, "status": "NORMAL"},
-        "lab": {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
+        "lab": {
+            "labId": "door-blackbox-v1",
+            "sessionId": session_id,
+            "generation": 0,
+            "attemptId": attempts[0]["attemptId"],
+        },
     }
 
     reset = client.post(f"/labs/door-blackbox/sessions/{session_id}/reset")
@@ -378,7 +383,12 @@ def test_terminal_cansend_emits_an_accepted_toy_frame() -> None:
     assert payload["state"]["evidence"] == [{"kind": "attempt", "status": "recorded"}]
     assert len(emitted) == 1
     assert emitted[0]["processing"] == {"filterResult": "ACCEPT", "executionResult": "EXECUTED"}
-    assert emitted[0]["lab"] == {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0}
+    assert emitted[0]["lab"] == {
+        "labId": "door-blackbox-v1",
+        "sessionId": session_id,
+        "generation": 0,
+        "attemptId": payload["frames"][0]["attemptId"],
+    }
 
 
 def test_terminal_cansend_does_not_emit_a_blocked_toy_frame() -> None:
@@ -452,8 +462,14 @@ def test_run_emits_attempt_generation_even_when_session_resets_between_frames() 
 
     assert response.status_code == 200
     assert [event["lab"] for event in emitted] == [
-        {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
-    ] * 3
+        {
+            "labId": "door-blackbox-v1",
+            "sessionId": session_id,
+            "generation": 0,
+            "attemptId": attempt["attemptId"],
+        }
+        for attempt in response.json()["attempts"]
+    ]
     assert client.get(f"/labs/door-blackbox/sessions/{session_id}").json()["generation"] == 1
 
 
@@ -763,6 +779,70 @@ def test_run_domain_mutation_waits_for_the_lifecycle_lock() -> None:
         assert state_while_lifecycle_is_blocked["completed"] is False
 
     asyncio.run(scenario())
+
+
+def test_door_results_expose_authoritative_flow_traces() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+
+    created = client.post("/labs/door-blackbox/sessions").json()
+    session_id = created["sessionId"]
+
+    local = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "pwd"},
+    ).json()
+    assert local["flowTraces"][0] == {
+        "traceId": "terminal:pwd",
+        "attemptId": None,
+        "sequence": 1,
+        "kind": "local",
+        "commandLabel": "pwd",
+        "commandIndex": None,
+        "canId": None,
+        "data": [],
+        "route": ["terminal"],
+        "stoppedAt": None,
+        "outcome": "LOCAL",
+        "ecuVerdict": None,
+        "idsVerdict": None,
+        "effectTarget": None,
+        "effectState": None,
+        "effectApplied": False,
+    }
+
+    rejected = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#010110B5"},
+    ).json()
+    trace = rejected["flowTraces"][0]
+    assert trace["route"] == ["terminal", "obd", "ids", "gateway", "body"]
+    assert trace["stoppedAt"] == "body"
+    assert trace["outcome"] == "REJECTED"
+    assert trace["effectApplied"] is False
+
+    accepted = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={
+            "script": "interval_ms=100\n"
+            "cansend vcan0 456#000113B7\n"
+            "cansend vcan0 456#000114B0\n"
+            "cansend vcan0 456#000115B1"
+        },
+    ).json()
+    assert [item["sequence"] for item in accepted["flowTraces"]] == [1, 2, 3]
+    assert all(item["outcome"] == "EXECUTED" for item in accepted["flowTraces"])
+    assert accepted["flowTraces"][0]["route"][-2:] == ["body", "leftDoor"]
+    assert accepted["flowTraces"][0]["effectState"] == "open"
+    assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
 
 
 def test_terminal_domain_mutation_waits_for_the_lifecycle_lock() -> None:
