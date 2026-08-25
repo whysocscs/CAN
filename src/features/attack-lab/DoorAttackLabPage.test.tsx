@@ -1652,9 +1652,11 @@ describe("DoorAttackLabPage", () => {
     await screen.findByText("BODY ECU")
 
     const prediction = screen.getByLabelText("실행 전 예상")
-    await user.type(prediction, "첫 실행에서 왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    fireEvent.change(prediction, {
+      target: { value: "첫 실행에서 왼쪽 문 효과가 적용될 것으로 예상합니다." },
+    })
     const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
-    await user.type(terminal, "cansend vcan0 555#0001")
+    fireEvent.change(terminal, { target: { value: "cansend vcan0 555#0001" } })
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     act(() =>
       latestConnection().options.onEvent(
@@ -1670,10 +1672,11 @@ describe("DoorAttackLabPage", () => {
       ),
     )
     await flushCanEvents()
-    await user.type(
-      screen.getByLabelText("선택한 근거와 결과 비교"),
-      "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
-    )
+    fireEvent.change(screen.getByLabelText("선택한 근거와 결과 비교"), {
+      target: {
+        value: "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
+      },
+    })
     await user.click(screen.getByRole("button", { name: "학습 확인" }))
 
     expect(screen.getByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
@@ -1683,9 +1686,10 @@ describe("DoorAttackLabPage", () => {
     expect(screen.getByRole("region", { name: "Binary inspector" }))
       .not.toHaveTextContent("Network monitor에서 frame을 선택하세요.")
 
-    await user.clear(prediction)
-    await user.type(prediction, "두 번째 요청에서 현재 캡처할 예상입니다.")
-    await user.type(terminal, "cansend vcan0 555#0002")
+    fireEvent.change(prediction, {
+      target: { value: "두 번째 요청에서 현재 캡처할 예상입니다." },
+    })
+    fireEvent.change(terminal, { target: { value: "cansend vcan0 555#0002" } })
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledTimes(2))
 
