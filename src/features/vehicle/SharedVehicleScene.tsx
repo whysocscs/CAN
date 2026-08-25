@@ -97,10 +97,6 @@ function createVehicleResource(
         if ("color" in material && material.color instanceof THREE.Color) {
           material.color.lerp(XRAY_TINT, 0.72)
         }
-      } else {
-        material.transparent = false
-        material.opacity = 1
-        material.depthWrite = true
       }
       material.needsUpdate = true
       clonedMaterials.push(material)

@@ -173,6 +173,49 @@ describe("SharedVehicleScene", () => {
     expect(root?.querySelector('mesh[name="consumer-overlay"]')).not.toBeNull()
   })
 
+  it("preserves source transparency, opacity, and depth-write values in non-xray clones", () => {
+    const sourceMaterial = new THREE.MeshStandardMaterial({
+      color: "#334455",
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+    })
+    const sourceMesh = new THREE.Mesh(new THREE.BoxGeometry(), sourceMaterial)
+    sourceMesh.name = "OUTER_LENS"
+    const sourceScene = new THREE.Group()
+    sourceScene.add(sourceMesh)
+    sharedState.useGLTF.mockReturnValue({ scene: sourceScene })
+    let clone: THREE.Group | undefined
+    const rememberClone = (next: THREE.Group) => {
+      clone = next
+    }
+
+    render(
+      <SharedVehicleScene xray={false}>
+        <CloneProbe onClone={rememberClone} />
+      </SharedVehicleScene>,
+    )
+
+    const clonedMesh = clone?.getObjectByName("OUTER_LENS") as
+      | THREE.Mesh
+      | undefined
+    const clonedMaterial = clonedMesh?.material as
+      | THREE.MeshStandardMaterial
+      | undefined
+
+    expect(clonedMaterial).not.toBe(sourceMaterial)
+    expect(clonedMaterial).toMatchObject({
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+    })
+    expect(sourceMaterial).toMatchObject({
+      transparent: true,
+      opacity: 0.2,
+      depthWrite: false,
+    })
+  })
+
   it("keeps source materials immutable, makes xray truthful, and disposes every cloned material", () => {
     const sourceMaterial = new THREE.MeshStandardMaterial({
       color: "#334455",
@@ -195,19 +238,19 @@ describe("SharedVehicleScene", () => {
         <CloneProbe onClone={rememberClone} />
       </SharedVehicleScene>,
     )
-    const opaqueMesh = clone?.getObjectByName("BODY_SHELL") as
+    const normalMesh = clone?.getObjectByName("BODY_SHELL") as
       | THREE.Mesh
       | undefined
-    const opaqueMaterial = opaqueMesh?.material as
+    const normalMaterial = normalMesh?.material as
       | THREE.MeshStandardMaterial
       | undefined
-    expect(opaqueMaterial).not.toBe(sourceMaterial)
-    expect(opaqueMaterial).toMatchObject({
-      transparent: false,
-      opacity: 1,
-      depthWrite: true,
+    expect(normalMaterial).not.toBe(sourceMaterial)
+    expect(normalMaterial).toMatchObject({
+      transparent: true,
+      opacity: 0.35,
+      depthWrite: false,
     })
-    const opaqueDispose = vi.spyOn(opaqueMaterial!, "dispose")
+    const normalDispose = vi.spyOn(normalMaterial!, "dispose")
 
     view.rerender(
       <SharedVehicleScene xray>
@@ -220,7 +263,7 @@ describe("SharedVehicleScene", () => {
     const xrayMaterial = xrayMesh?.material as
       | THREE.MeshStandardMaterial
       | undefined
-    expect(opaqueDispose).toHaveBeenCalledOnce()
+    expect(normalDispose).toHaveBeenCalledOnce()
     expect(xrayMaterial).not.toBe(sourceMaterial)
     expect(xrayMaterial).toMatchObject({
       transparent: true,
