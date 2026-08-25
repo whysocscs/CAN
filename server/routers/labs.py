@@ -123,7 +123,8 @@ def _door_attempt_trace(
 
 
 def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str, object]]:
-    if result.frames and command.startswith("cansend "):
+    normalized_command = command.strip()
+    if result.frames and normalized_command.startswith("cansend "):
         return [
             _door_attempt_trace(
                 result.frames[0],
@@ -133,9 +134,9 @@ def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str
                 ids_status=result.ids_status,
             )
         ]
-    if command.startswith("cat "):
+    if normalized_command.startswith("cat "):
         kind, route, outcome = "observe", ["terminal", "evidence"], "OBSERVED"
-    elif command.startswith("candump "):
+    elif normalized_command.startswith("candump "):
         kind, route, outcome = "observe", ["terminal", "obd", "monitor"], "OBSERVED"
     else:
         kind, route, outcome = "local", ["terminal"], "LOCAL"

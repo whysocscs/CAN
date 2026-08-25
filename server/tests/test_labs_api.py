@@ -845,6 +845,42 @@ def test_door_results_expose_authoritative_flow_traces() -> None:
     assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
 
 
+def test_terminal_flow_trace_normalizes_leading_whitespace_for_cansend() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+    command = "  cansend vcan0 456#000113B7"
+
+    response = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": command},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    frame = payload["frames"][0]
+    trace = payload["flowTraces"][0]
+    assert payload["code"] == "EXECUTED"
+    assert trace["traceId"] == frame["attemptId"]
+    assert trace["attemptId"] == frame["attemptId"]
+    assert trace["kind"] == "inject"
+    assert trace["commandLabel"] == command
+    assert trace["route"] == ["terminal", "obd", "ids", "gateway", "body", "leftDoor"]
+    assert trace["outcome"] == "EXECUTED"
+    assert trace["effectTarget"] == "leftDoor"
+    assert trace["effectState"] == "open"
+    assert trace["effectApplied"] is True
+    assert emitted[0]["lab"]["attemptId"] == trace["attemptId"]
+
+
 def test_terminal_domain_mutation_waits_for_the_lifecycle_lock() -> None:
     """A terminal cansend must not create a later-generation accepted result."""
 
