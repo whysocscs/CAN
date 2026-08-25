@@ -5,6 +5,7 @@ import { useEffect, type ReactNode } from "react"
 import {
   act,
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -38,6 +39,7 @@ const canvasState = vi.hoisted(() => ({
     update: ReturnType<typeof vi.fn>
   } | undefined,
   frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
+  lineProps: [] as Array<{ current: Record<string, unknown> }>,
   orbitProps: undefined as Record<string, unknown> | undefined,
   boundsRefit: undefined as (() => void) | undefined,
 }))
@@ -84,7 +86,18 @@ vi.mock("@react-three/fiber", async () => {
       )
     },
     useFrame: (callback: (state: unknown, delta: number) => void) => {
-      canvasState.frameCallbacks.push(callback)
+      const callbackRef = React.useRef(callback)
+      callbackRef.current = callback
+      React.useEffect(() => {
+        const runFrame = (state: unknown, delta: number) =>
+          callbackRef.current(state, delta)
+        canvasState.frameCallbacks.push(runFrame)
+        return () => {
+          canvasState.frameCallbacks = canvasState.frameCallbacks.filter(
+            (registered) => registered !== runFrame,
+          )
+        }
+      }, [])
     },
     useThree: (selector: (state: unknown) => unknown) =>
       selector({ camera: canvasState.camera, controls: canvasState.controls }),
@@ -110,7 +123,19 @@ vi.mock("@react-three/drei", async () => {
   return {
     Bounds,
     Html: Wrapper,
-    Line: () => null,
+    Line: (props: Record<string, unknown>) => {
+      const propsRef = React.useRef(props)
+      propsRef.current = props
+      React.useEffect(() => {
+        canvasState.lineProps.push(propsRef)
+        return () => {
+          canvasState.lineProps = canvasState.lineProps.filter(
+            (registered) => registered !== propsRef,
+          )
+        }
+      }, [])
+      return null
+    },
     OrbitControls: (props: Record<string, unknown>) => {
       canvasState.orbitProps = props
       return null
@@ -122,19 +147,23 @@ vi.mock("@react-three/drei", async () => {
 vi.mock("./useVehicleRig", () => vehicleRig)
 
 import VehicleNetworkViewport, {
+  effectTargetFromObject,
   type VehicleNetworkViewportProps,
 } from "./VehicleNetworkViewport"
+import { playingDoorSnapshotAtGateway } from "./vehicleFlowTestFixtures"
+
+const defaultDoorViewportProps = {
+  route: ["obd", "ids", "gateway", "body", "leftDoor"],
+  targetId: "body",
+  effectId: "leftDoor",
+  scenarioTitle: "Door spoofing route",
+  accent: "#d94b4b",
+} satisfies VehicleNetworkViewportProps
 
 function renderDoorViewport(props: Partial<VehicleNetworkViewportProps> = {}) {
-  const defaultProps = {
-    route: ["obd", "ids", "gateway", "body", "leftDoor"],
-    targetId: "body",
-    effectId: "leftDoor",
-    scenarioTitle: "Door spoofing route",
-    accent: "#d94b4b",
-  } satisfies VehicleNetworkViewportProps
-
-  return render(<VehicleNetworkViewport {...defaultProps} {...props} />)
+  return render(
+    <VehicleNetworkViewport {...defaultDoorViewportProps} {...props} />,
+  )
 }
 
 describe("VehicleNetworkViewport", () => {
@@ -150,6 +179,7 @@ describe("VehicleNetworkViewport", () => {
     canvasState.camera.position.set(-5.6, 3.1, 7.2)
     canvasState.controls = { target: new THREE.Vector3(), update: vi.fn() }
     canvasState.frameCallbacks = []
+    canvasState.lineProps = []
     canvasState.orbitProps = undefined
     canvasState.boundsRefit = undefined
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
@@ -411,6 +441,136 @@ describe("VehicleNetworkViewport", () => {
     expect(canvasState.mounts).toBe(1)
   })
 
+  it("selects logical anchors without remounting Canvas", async () => {
+    const user = userEvent.setup()
+    renderDoorViewport()
+
+    await user.click(screen.getByRole("button", { name: "Toy Body ECU 선택" }))
+
+    expect(
+      screen.getByRole("region", {
+        name: "Door spoofing route vehicle network",
+      }),
+    ).toHaveAttribute("data-camera-preset", "target")
+    expect(canvasState.mounts).toBe(1)
+  })
+
+  it("shares node selection with invisible 3D anchor hit targets", () => {
+    renderDoorViewport()
+
+    fireEvent.click(
+      screen.getByTestId("vehicle-topology-hit-target-gateway"),
+    )
+
+    expect(
+      screen.getByRole("region", {
+        name: "Door spoofing route vehicle network",
+      }),
+    ).toHaveAttribute("data-camera-preset", "node:gateway")
+    expect(canvasState.mounts).toBe(1)
+  })
+
+  it("renders the accessible rail and active 3D packet edge from playback", () => {
+    renderDoorViewport({
+      playback: playingDoorSnapshotAtGateway,
+    })
+
+    expect(
+      screen.getByRole("region", {
+        name: "Door spoofing route command timeline",
+      }),
+    ).toBeInTheDocument()
+    expect(screen.getByTestId("vehicle-flow-packet")).toBeInTheDocument()
+    expect(screen.getByTestId("vehicle-flow-node-halo")).toHaveAttribute(
+      "data-node-id",
+      "gateway",
+    )
+    expect(
+      canvasState.lineProps.map(({ current }) => current.userData),
+    ).toEqual([
+      { flowState: "passed" },
+      { flowState: "active" },
+      { flowState: "queued" },
+      { flowState: "queued" },
+    ])
+  })
+
+  it("resets the packet exactly once per playback segment without remounting Canvas", () => {
+    const view = renderDoorViewport({
+      playback: playingDoorSnapshotAtGateway,
+    })
+    const firstPacket = screen.getByTestId("vehicle-flow-packet")
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={playingDoorSnapshotAtGateway}
+      />,
+    )
+    expect(screen.getByTestId("vehicle-flow-packet")).toBe(firstPacket)
+    expect(canvasState.frameCallbacks).toHaveLength(2)
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{ ...playingDoorSnapshotAtGateway, segmentIndex: 4 }}
+      />,
+    )
+    expect(screen.getByTestId("vehicle-flow-packet")).not.toBe(firstPacket)
+    expect(canvasState.frameCallbacks).toHaveLength(2)
+    expect(canvasState.mounts).toBe(1)
+  })
+
+  it("uses static line and node states without a moving packet for reduced motion", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+
+    renderDoorViewport({ playback: playingDoorSnapshotAtGateway })
+
+    expect(screen.queryByTestId("vehicle-flow-packet")).not.toBeInTheDocument()
+    expect(screen.getByTestId("vehicle-flow-node-halo")).toHaveAttribute(
+      "data-node-id",
+      "gateway",
+    )
+  })
+
+  it("maps only truthful GLB hinge groups to effect targets", () => {
+    const doorMesh = new THREE.Mesh()
+    const doorHinge = new THREE.Group()
+    doorHinge.name = "HINGE_doorL"
+    doorHinge.add(doorMesh)
+
+    const tailgateMesh = new THREE.Mesh()
+    const tailgateHinge = new THREE.Group()
+    tailgateHinge.name = "HINGE_tailgate"
+    tailgateHinge.add(tailgateMesh)
+
+    expect(effectTargetFromObject(doorMesh)).toBe("leftDoor")
+    expect(effectTargetFromObject(tailgateMesh)).toBe("tailgate")
+    expect(effectTargetFromObject(new THREE.Mesh())).toBeUndefined()
+  })
+
+  it("shows only the selected compact translucent tooltip while focused", async () => {
+    const user = userEvent.setup()
+    renderDoorViewport()
+
+    await user.click(screen.getByRole("button", { name: "Toy Body ECU 선택" }))
+    const callouts = screen.getAllByTestId("vehicle-topology-callout")
+    const target = callouts.find((callout) =>
+      callout.textContent?.includes("Toy Body ECU"),
+    )
+    const effect = callouts.find((callout) =>
+      callout.textContent?.includes("GLB Left Door"),
+    )
+
+    expect(target).toHaveAttribute("data-visible", "true")
+    expect(target).toHaveAttribute("data-translucent", "true")
+    expect(effect).not.toHaveAttribute("data-visible")
+  })
+
   it("applies camera focus immediately and disables damping for reduced motion", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: true,
@@ -472,7 +632,11 @@ describe("VehicleNetworkViewport", () => {
         }),
       ).toHaveAttribute("data-camera-preset", `node:${nodeId}`)
       expect(
-        screen
+        within(
+          screen.getByRole("list", {
+            name: "Door spoofing route target map",
+          }),
+        )
           .getByText(nodeId === "ids" ? "Toy IDS" : "Toy Gateway")
           .closest("li"),
       ).toHaveAttribute("data-active", "true")

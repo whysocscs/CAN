@@ -1,6 +1,7 @@
 import {
   Component,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -9,7 +10,12 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import { Canvas, useFrame, useThree } from "@react-three/fiber"
+import {
+  Canvas,
+  useFrame,
+  useThree,
+  type ThreeEvent,
+} from "@react-three/fiber"
 import { Html, Line, OrbitControls, useGLTF } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
@@ -17,7 +23,12 @@ import {
   Warning,
 } from "@phosphor-icons/react"
 import * as THREE from "three"
+import VehicleFlowRail from "./VehicleFlowRail"
 import { useVehicleRig } from "./useVehicleRig"
+import type {
+  VehicleFlowNodeId,
+  VehicleFlowPlaybackSnapshot,
+} from "./vehicleFlowTypes"
 import {
   VEHICLE_TOPOLOGY_BY_ID,
   type VehicleEffectTargetId,
@@ -34,6 +45,14 @@ const OVERVIEW_FOV = 38
 const CAMERA_TARGET: [number, number, number] = [0, 0.72, 0]
 const XRAY_TINT = new THREE.Color("#a8bac8")
 const MECHANICAL_MESH_NAME = /TIRE|WHEEL|BRAKE|CALIPER|STEER/i
+const IDLE_PLAYBACK: VehicleFlowPlaybackSnapshot = {
+  playbackId: 0,
+  phase: "idle",
+  trace: null,
+  traceIndex: 0,
+  traceCount: 0,
+  segmentIndex: 0,
+}
 
 export type VehicleCameraView = "overview" | "source" | "target" | "effect"
 
@@ -46,6 +65,7 @@ export interface VehicleNetworkViewportProps {
   scenarioTitle: string
   accent: string
   initialView?: VehicleCameraView
+  playback?: VehicleFlowPlaybackSnapshot
 }
 
 interface CameraPreset {
@@ -65,6 +85,12 @@ interface NodeCameraFocus {
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
 type TopologyCalloutKind = "target" | "effect"
+type VehicleFlowEdgeState = "idle" | "queued" | "active" | "passed"
+
+interface VehicleRouteNode {
+  node: VehicleTopologyNode
+  traceIndex: number
+}
 
 interface OrbitControlsState {
   target: THREE.Vector3
@@ -75,6 +101,26 @@ function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
   const node = VEHICLE_TOPOLOGY_BY_ID.get(id)
   if (!node) throw new Error(`Unknown vehicle topology node: ${id}`)
   return node
+}
+
+function isVehicleTopologyNodeId(
+  nodeId: VehicleFlowNodeId,
+): nodeId is VehicleTopologyNodeId {
+  return VEHICLE_TOPOLOGY_BY_ID.has(nodeId as VehicleTopologyNodeId)
+}
+
+export function effectTargetFromObject(
+  object: THREE.Object3D,
+): VehicleEffectTargetId | undefined {
+  for (
+    let current: THREE.Object3D | null = object;
+    current;
+    current = current.parent
+  ) {
+    if (current.name === "HINGE_doorL") return "leftDoor"
+    if (current.name === "HINGE_tailgate") return "tailgate"
+  }
+  return undefined
 }
 
 function cameraFocusForNode(
@@ -181,7 +227,13 @@ function CameraPresetController({
   return null
 }
 
-function VehicleModel({ immediate }: { immediate: boolean }) {
+function VehicleModel({
+  immediate,
+  onSelectEffect,
+}: {
+  immediate: boolean
+  onSelectEffect: (effectId: VehicleEffectTargetId) => void
+}) {
   const gltf = useGLTF(MODEL_PATH)
   const { scene, xrayMaterials } = useMemo(() => {
     const clonedScene = gltf.scene.clone(true)
@@ -231,7 +283,17 @@ function VehicleModel({ immediate }: { immediate: boolean }) {
     [xrayMaterials],
   )
 
-  return <primitive object={scene} />
+  const handleClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      const effectId = effectTargetFromObject(event.object)
+      if (!effectId) return
+      event.stopPropagation()
+      onSelectEffect(effectId)
+    },
+    [onSelectEffect],
+  )
+
+  return <primitive object={scene} onClick={handleClick} />
 }
 
 function TopologyPin({
@@ -240,27 +302,37 @@ function TopologyPin({
   active,
   calloutKind,
   cameraFocused,
+  tooltipVisible,
+  tooltipTranslucent,
+  onSelect,
 }: {
   node: VehicleTopologyNode
   accent: string
   active: boolean
   calloutKind?: TopologyCalloutKind
   cameraFocused: boolean
+  tooltipVisible: boolean
+  tooltipTranslucent: boolean
+  onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
+  const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
+
   return (
     <Html position={node.anchor} center distanceFactor={7.2} sprite>
       <span
         className="vehicle-network-viewport__marker"
         style={{ "--vehicle-route-accent": accent } as CSSProperties}
       >
-        <span
+        <button
+          type="button"
           className="vehicle-network-viewport__pin"
           data-active={active}
           data-testid="vehicle-topology-pin"
-          aria-hidden="true"
+          aria-label={`${node.label} 선택`}
+          onClick={handleSelect}
         >
           {node.number}
-        </span>
+        </button>
         {calloutKind && node.calloutLabel ? (
           <span
             className="vehicle-network-viewport__callout"
@@ -269,6 +341,8 @@ function TopologyPin({
               calloutKind === "target" ? "target-far-left" : "effect-high-right"
             }
             data-camera-focused={cameraFocused ? "true" : undefined}
+            data-visible={tooltipVisible ? "true" : undefined}
+            data-translucent={tooltipTranslucent ? "true" : undefined}
             data-testid="vehicle-topology-callout"
             aria-hidden="true"
           >
@@ -285,48 +359,215 @@ function TopologyPin({
   )
 }
 
+function flowEdgeState(
+  destinationTraceIndex: number,
+  playback: VehicleFlowPlaybackSnapshot,
+): VehicleFlowEdgeState {
+  if (!playback.trace || playback.phase === "idle") return "idle"
+  if (destinationTraceIndex < playback.segmentIndex) return "passed"
+  if (destinationTraceIndex === playback.segmentIndex) {
+    return playback.phase === "playing" ? "active" : "passed"
+  }
+  return "queued"
+}
+
+function lineOpacity(state: VehicleFlowEdgeState): number {
+  if (state === "active") return 1
+  if (state === "passed") return 0.92
+  if (state === "queued") return 0.28
+  return 0.68
+}
+
+function TopologyHitTarget({
+  node,
+  onSelect,
+}: {
+  node: VehicleTopologyNode
+  onSelect: (nodeId: VehicleTopologyNodeId) => void
+}) {
+  const handleClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      event.stopPropagation()
+      onSelect(node.id)
+    },
+    [node.id, onSelect],
+  )
+
+  return (
+    <mesh
+      position={node.anchor}
+      onClick={handleClick}
+      data-testid={`vehicle-topology-hit-target-${node.id}`}
+    >
+      <sphereGeometry args={[0.12, 12, 12]} />
+      <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+    </mesh>
+  )
+}
+
+function FlowNodeHalo({
+  node,
+  accent,
+}: {
+  node: VehicleTopologyNode
+  accent: string
+}) {
+  return (
+    <mesh
+      position={node.anchor}
+      data-testid="vehicle-flow-node-halo"
+      data-node-id={node.id}
+    >
+      <sphereGeometry args={[0.17, 16, 16]} />
+      <meshBasicMaterial
+        color={accent}
+        transparent
+        opacity={0.28}
+        depthWrite={false}
+      />
+    </mesh>
+  )
+}
+
+function FlowPacket({
+  from,
+  to,
+  durationMs,
+  accent,
+}: {
+  from: VehicleTopologyNode
+  to: VehicleTopologyNode
+  durationMs: number
+  accent: string
+}) {
+  const ref = useRef<THREE.Mesh>(null)
+  const progress = useRef(0)
+  const fromPosition = useMemo(
+    () => new THREE.Vector3(...from.anchor),
+    [from],
+  )
+  const toPosition = useMemo(() => new THREE.Vector3(...to.anchor), [to])
+
+  useFrame((_, delta) => {
+    progress.current = Math.min(
+      1,
+      progress.current + Math.min(delta, 0.05) / (durationMs / 1000),
+    )
+    ref.current?.position.lerpVectors(
+      fromPosition,
+      toPosition,
+      progress.current,
+    )
+  })
+
+  return (
+    <mesh
+      ref={ref}
+      position={from.anchor}
+      data-testid="vehicle-flow-packet"
+    >
+      <sphereGeometry args={[0.055, 14, 14]} />
+      <meshStandardMaterial
+        color="#f6fbff"
+        emissive={accent}
+        emissiveIntensity={2.2}
+      />
+    </mesh>
+  )
+}
+
 function TopologyOverlay({
   nodes,
+  flowRoute,
+  playback,
   accent,
   activeNodeId,
   cameraFocusedNodeId,
+  visibleTooltipNodeId,
   targetId,
   effectId,
+  reducedMotion,
+  onSelect,
 }: {
   nodes: readonly VehicleTopologyNode[]
+  flowRoute: readonly VehicleRouteNode[]
+  playback: VehicleFlowPlaybackSnapshot
   accent: string
   activeNodeId?: VehicleTopologyNodeId
   cameraFocusedNodeId?: VehicleTopologyNodeId
+  visibleTooltipNodeId?: VehicleTopologyNodeId
   targetId: VehicleLogicalNodeId
   effectId: VehicleEffectTargetId
+  reducedMotion: boolean
+  onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
+  const activeEdgeIndex = flowRoute
+    .slice(1)
+    .findIndex(
+      ({ traceIndex }) => flowEdgeState(traceIndex, playback) === "active",
+    )
+  const activeEdge =
+    activeEdgeIndex >= 0
+      ? [flowRoute[activeEdgeIndex], flowRoute[activeEdgeIndex + 1]]
+      : undefined
+  const activeNode = activeNodeId
+    ? VEHICLE_TOPOLOGY_BY_ID.get(activeNodeId)
+    : undefined
+
   return (
     <group rotation={MODEL_ROTATION}>
-      {nodes.slice(0, -1).map((node, index) => (
-        <Line
-          key={`${node.id}-${nodes[index + 1].id}`}
-          points={[node.anchor, nodes[index + 1].anchor]}
-          color={accent}
-          lineWidth={1}
-          transparent
-          opacity={0.68}
-        />
-      ))}
-      {nodes.map((node) => (
-        <TopologyPin
-          key={node.id}
-          node={node}
+      {flowRoute.slice(0, -1).map(({ node }, index) => {
+        const destination = flowRoute[index + 1]
+        const state = flowEdgeState(destination.traceIndex, playback)
+        return (
+          <Line
+            key={`${node.id}-${destination.node.id}`}
+            points={[node.anchor, destination.node.anchor]}
+            color={accent}
+            lineWidth={state === "active" ? 2 : 1}
+            transparent
+            opacity={lineOpacity(state)}
+            userData={{ flowState: state }}
+          />
+        )
+      })}
+      {activeNode ? <FlowNodeHalo node={activeNode} accent={accent} /> : null}
+      {!reducedMotion && activeEdge ? (
+        <FlowPacket
+          key={[
+            playback.playbackId,
+            playback.traceIndex,
+            playback.segmentIndex,
+          ].join(":")}
+          from={activeEdge[0].node}
+          to={activeEdge[1].node}
+          durationMs={220}
           accent={accent}
-          active={node.id === activeNodeId}
-          cameraFocused={node.id === cameraFocusedNodeId}
-          calloutKind={
-            node.id === targetId
-              ? "target"
-              : node.id === effectId
-                ? "effect"
-                : undefined
-          }
         />
+      ) : null}
+      {nodes.map((node) => (
+        <group key={node.id}>
+          <TopologyHitTarget node={node} onSelect={onSelect} />
+          <TopologyPin
+            node={node}
+            accent={accent}
+            active={node.id === activeNodeId}
+            cameraFocused={node.id === cameraFocusedNodeId}
+            tooltipVisible={node.id === visibleTooltipNodeId}
+            tooltipTranslucent={
+              node.id === visibleTooltipNodeId &&
+              cameraFocusedNodeId !== undefined
+            }
+            onSelect={onSelect}
+            calloutKind={
+              node.id === targetId
+                ? "target"
+                : node.id === effectId
+                  ? "effect"
+                  : undefined
+            }
+          />
+        </group>
       ))}
     </group>
   )
@@ -389,9 +630,21 @@ export default function VehicleNetworkViewport({
   scenarioTitle,
   accent,
   initialView = "overview",
+  playback,
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
+  const playbackState = playback ?? IDLE_PLAYBACK
   const routeNodes = useMemo(() => route.map(getTopologyNode), [route])
+  const flowRoute = useMemo<VehicleRouteNode[]>(() => {
+    if (!playbackState.trace) {
+      return routeNodes.map((node, traceIndex) => ({ node, traceIndex }))
+    }
+    return playbackState.trace.route.flatMap((nodeId, traceIndex) =>
+      isVehicleTopologyNodeId(nodeId)
+        ? [{ node: getTopologyNode(nodeId), traceIndex }]
+        : [],
+    )
+  }, [playbackState.trace, routeNodes])
   const sourceNode = routeNodes[0]
   const targetNode = getTopologyNode(targetId)
   const effectNode = getTopologyNode(effectId)
@@ -404,11 +657,17 @@ export default function VehicleNetworkViewport({
     () => createCameraPresets(sourceNode, targetNode, effectNode),
     [effectNode, sourceNode, targetNode],
   )
+  const onSelectNode = useCallback(
+    (nodeId: VehicleTopologyNodeId) => {
+      setCameraFocus(cameraFocusForNode(nodeId, route, targetId, effectId))
+    },
+    [effectId, route, targetId],
+  )
 
   useEffect(() => {
     if (!focusedNodeId) return
-    setCameraFocus(cameraFocusForNode(focusedNodeId, route, targetId, effectId))
-  }, [effectId, focusedNodeId, route, targetId])
+    onSelectNode(focusedNodeId)
+  }, [focusedNodeId, onSelectNode])
 
   const focusedId =
     cameraFocus.view === "node"
@@ -420,7 +679,16 @@ export default function VehicleNetworkViewport({
           : cameraFocus.view === "effect"
             ? effectId
             : undefined
-  const activeNodeId = focusedId ?? currentNodeId
+  const playbackNodeId =
+    playbackState.phase === "playing"
+      ? playbackState.trace?.route[playbackState.segmentIndex]
+      : undefined
+  const playbackActiveNodeId =
+    playbackNodeId && isVehicleTopologyNodeId(playbackNodeId)
+      ? playbackNodeId
+      : undefined
+  const activeNodeId = playbackActiveNodeId ?? focusedId ?? currentNodeId
+  const visibleTooltipNodeId = playbackActiveNodeId ?? focusedId
   const cameraPreset = useMemo(
     () =>
       cameraFocus.view === "node"
@@ -508,6 +776,13 @@ export default function VehicleNetworkViewport({
         ))}
       </ol>
 
+      <VehicleFlowRail
+        scenarioTitle={scenarioTitle}
+        route={route}
+        playback={playbackState}
+        accent={accent}
+      />
+
       <div className="vehicle-network-viewport__canvas">
         <Canvas
           shadows
@@ -560,15 +835,23 @@ export default function VehicleNetworkViewport({
               }
             >
               <group rotation={MODEL_ROTATION}>
-                <VehicleModel immediate={reducedMotion} />
+                <VehicleModel
+                  immediate={reducedMotion}
+                  onSelectEffect={onSelectNode}
+                />
               </group>
               <TopologyOverlay
                 nodes={routeNodes}
+                flowRoute={flowRoute}
+                playback={playbackState}
                 accent={accent}
                 activeNodeId={activeNodeId}
                 cameraFocusedNodeId={focusedId}
+                visibleTooltipNodeId={visibleTooltipNodeId}
                 targetId={targetId}
                 effectId={effectId}
+                reducedMotion={reducedMotion}
+                onSelect={onSelectNode}
               />
             </Suspense>
           </VehicleErrorBoundary>
