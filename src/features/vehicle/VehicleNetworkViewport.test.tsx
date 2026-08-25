@@ -120,8 +120,26 @@ vi.mock("@react-three/drei", async () => {
     }, [])
     return React.createElement("div", null, children)
   }
+  const boundsApi = {
+    refresh: vi.fn(),
+    reset: vi.fn(),
+    fit: vi.fn(),
+  }
+  boundsApi.refresh.mockReturnValue(boundsApi)
+  boundsApi.reset.mockReturnValue(boundsApi)
+  boundsApi.fit.mockReturnValue(boundsApi)
   return {
     Bounds,
+    Center: ({
+      children,
+      onCentered,
+    }: {
+      children?: ReactNode
+      onCentered?: () => void
+    }) => {
+      useEffect(() => onCentered?.(), [onCentered])
+      return React.createElement("div", null, children)
+    },
     Html: Wrapper,
     Line: (props: Record<string, unknown>) => {
       const propsRef = React.useRef(props)
@@ -140,7 +158,8 @@ vi.mock("@react-three/drei", async () => {
       canvasState.orbitProps = props
       return null
     },
-    useGLTF: gltf.useGLTF,
+    useBounds: () => boundsApi,
+    useGLTF: Object.assign(gltf.useGLTF, { preload: vi.fn() }),
   }
 })
 
@@ -238,13 +257,13 @@ describe("VehicleNetworkViewport", () => {
     ).toBeInTheDocument()
   })
 
-  it("matches the normal CAN scene palette with a panel-fitted attack overview", () => {
+  it("matches the complete normal CAN scene presentation", () => {
     renderDoorViewport()
 
     expect(canvasState.canvasProps).toMatchObject({
       shadows: true,
       camera: {
-        position: [-6.2, 2.9, 0.55],
+        position: [5.8, 3.8, 7.6],
         fov: 38,
         near: 0.05,
         far: 100,
@@ -268,6 +287,13 @@ describe("VehicleNetworkViewport", () => {
       canvasState.sceneElements.find(({ type }) => type === "spotLight")
         ?.props,
     ).toMatchObject({ intensity: 1.2, color: "#b3c9ff" })
+    expect(canvasState.orbitProps).toMatchObject({
+      enablePan: false,
+      minDistance: 3,
+      maxDistance: 10,
+      minPolarAngle: 0.32,
+      maxPolarAngle: Math.PI - 0.32,
+    })
   })
 
   it("treats and disposes cloned X-ray materials without mutating the source vehicle", () => {
@@ -745,16 +771,19 @@ describe("VehicleNetworkViewport", () => {
     const selectedTarget = canvasState.controls!.target.clone()
     expect(selectedTarget.equals(new THREE.Vector3(9, 9, 9))).toBe(false)
 
-    act(() => canvasState.boundsRefit?.())
+    act(() => {
+      canvasState.boundsRefit?.()
+      canvasState.frameCallbacks.forEach((callback) => callback({}, 0.016))
+    })
 
     expect(canvasState.controls!.target.equals(selectedTarget)).toBe(true)
   })
 
   it.each([
-    ["ids", [0.447, 0.55, -0.761]],
-    ["gateway", [0.165, 0.72, 0.18]],
+    ["ids", [0.27, 0.55, -0.84]],
+    ["gateway", [0.2, 0.72, 0.14]],
   ] as const)(
-    "focuses and highlights the intermediate %s node at its rotated anchor",
+    "focuses and highlights the intermediate %s node from the shared coordinate root",
     async (nodeId, expectedTarget) => {
       vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
           matches: true,

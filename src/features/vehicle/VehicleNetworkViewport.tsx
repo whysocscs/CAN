@@ -11,12 +11,11 @@ import {
   type ReactNode,
 } from "react"
 import {
-  Canvas,
   useFrame,
   useThree,
   type ThreeEvent,
 } from "@react-three/fiber"
-import { Html, Line, OrbitControls, useGLTF } from "@react-three/drei"
+import { Html, Line, useBounds } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
   CircleNotch,
@@ -24,6 +23,15 @@ import {
 } from "@phosphor-icons/react"
 import * as THREE from "three"
 import VehicleFlowRail from "./VehicleFlowRail"
+import {
+  NORMAL_CAN_SCENE_PRESET,
+  SharedVehicleCanvas,
+  SharedVehicleOrbitControls,
+  SharedVehicleScene,
+  effectTargetFromVehicleObject,
+  useSharedVehicleClone,
+  vehicleLocalPointToWorld,
+} from "./SharedVehicleScene"
 import { useVehicleRig } from "./useVehicleRig"
 import type {
   VehicleFlowNodeId,
@@ -37,14 +45,7 @@ import {
   type VehicleTopologyNodeId,
 } from "./vehicleTopology"
 
-const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
-const MODEL_ROTATION: [number, number, number] = [0, -0.22, 0]
-const MODEL_EULER = new THREE.Euler(...MODEL_ROTATION)
-const OVERVIEW_CAMERA: [number, number, number] = [-6.2, 2.9, 0.55]
-const OVERVIEW_FOV = 38
-const CAMERA_TARGET: [number, number, number] = [0, 0.72, 0]
-const XRAY_TINT = new THREE.Color("#a8bac8")
-const MECHANICAL_MESH_NAME = /TIRE|WHEEL|BRAKE|CALIPER|STEER/i
+const CAMERA_TARGET: [number, number, number] = [0, 0, 0]
 const IDLE_PLAYBACK: VehicleFlowPlaybackSnapshot = {
   playbackId: 0,
   phase: "idle",
@@ -144,19 +145,7 @@ function playbackSnapshotForRendering(
   }
 }
 
-export function effectTargetFromObject(
-  object: THREE.Object3D,
-): VehicleEffectTargetId | undefined {
-  for (
-    let current: THREE.Object3D | null = object;
-    current;
-    current = current.parent
-  ) {
-    if (current.name === "HINGE_doorL") return "leftDoor"
-    if (current.name === "HINGE_tailgate") return "tailgate"
-  }
-  return undefined
-}
+export { effectTargetFromVehicleObject as effectTargetFromObject }
 
 function cameraFocusForNode(
   nodeId: VehicleTopologyNodeId | undefined,
@@ -171,15 +160,14 @@ function cameraFocusForNode(
   return { view: "overview" }
 }
 
-function rotatedAnchor(node: VehicleTopologyNode): THREE.Vector3 {
-  return new THREE.Vector3(...node.anchor).applyEuler(MODEL_EULER)
-}
-
 function createNodeCameraPreset(
   node: VehicleTopologyNode,
+  vehicleRoot: THREE.Object3D | null,
   offset = new THREE.Vector3(3.4, 1.8, 3.4),
 ): CameraPreset {
-  const target = rotatedAnchor(node)
+  const target = vehicleRoot
+    ? vehicleLocalPointToWorld(vehicleRoot, node.anchor)
+    : new THREE.Vector3(...node.anchor)
   const position =
     node.id === "tailgate"
       ? target.clone().add(new THREE.Vector3(0, 1.9, -4.6))
@@ -194,26 +182,40 @@ function createCameraPresets(
   source: VehicleTopologyNode,
   target: VehicleTopologyNode,
   effect: VehicleTopologyNode,
+  vehicleRoot: THREE.Object3D | null,
 ): Record<VehicleCameraView, CameraPreset> {
   return {
     overview: {
-      position: new THREE.Vector3(...OVERVIEW_CAMERA),
+      position: new THREE.Vector3(
+        ...NORMAL_CAN_SCENE_PRESET.camera.position,
+      ),
       target: new THREE.Vector3(...CAMERA_TARGET),
     },
-    source: createNodeCameraPreset(source, new THREE.Vector3(3.4, 1.7, 3.4)),
-    target: createNodeCameraPreset(target, new THREE.Vector3(3.8, 1.9, 3.1)),
-    effect: createNodeCameraPreset(effect),
+    source: createNodeCameraPreset(
+      source,
+      vehicleRoot,
+      new THREE.Vector3(3.4, 1.7, 3.4),
+    ),
+    target: createNodeCameraPreset(
+      target,
+      vehicleRoot,
+      new THREE.Vector3(3.8, 1.9, 3.1),
+    ),
+    effect: createNodeCameraPreset(effect, vehicleRoot),
   }
 }
 
 function CameraPresetController({
   preset,
+  overview,
   immediate,
 }: {
   preset: CameraPreset
+  overview: boolean
   immediate: boolean
 }) {
   const camera = useThree((state) => state.camera)
+  const bounds = useBounds()
   const controls = useThree(
     (state) =>
       (state as typeof state & { controls?: OrbitControlsState }).controls,
@@ -223,6 +225,12 @@ function CameraPresetController({
   const progress = useRef(1)
 
   useEffect(() => {
+    if (overview) {
+      bounds?.refresh().reset().fit()
+      progress.current = 1
+      return
+    }
+
     const applyPreset = () => {
       camera.position.copy(preset.position)
       if (controls) {
@@ -244,10 +252,16 @@ function CameraPresetController({
       controls?.target ?? new THREE.Vector3(...CAMERA_TARGET),
     )
     progress.current = 0
-  }, [camera, controls, immediate, preset])
+  }, [bounds, camera, controls, immediate, overview, preset])
 
   useFrame((_, delta) => {
-    if (progress.current >= 1) return
+    if (progress.current >= 1) {
+      if (!overview && controls && !controls.target.equals(preset.target)) {
+        controls.target.copy(preset.target)
+        controls.update()
+      }
+      return
+    }
     progress.current = Math.min(1, progress.current + delta / 0.45)
     const amount = THREE.MathUtils.smoothstep(progress.current, 0, 1)
     camera.position.lerpVectors(startPosition.current, preset.position, amount)
@@ -262,73 +276,10 @@ function CameraPresetController({
   return null
 }
 
-function VehicleModel({
-  immediate,
-  onSelectEffect,
-}: {
-  immediate: boolean
-  onSelectEffect: (effectId: VehicleEffectTargetId) => void
-}) {
-  const gltf = useGLTF(MODEL_PATH)
-  const { scene, xrayMaterials } = useMemo(() => {
-    const clonedScene = gltf.scene.clone(true)
-    const clonedMaterials: THREE.Material[] = []
-
-    clonedScene.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh) return
-
-      const isMechanical = MECHANICAL_MESH_NAME.test(mesh.name)
-      const createXrayMaterial = (material: THREE.Material) => {
-        const xrayMaterial = material.clone()
-        xrayMaterial.transparent = true
-        xrayMaterial.opacity = isMechanical ? 0.72 : 0.4
-        xrayMaterial.depthWrite = false
-        xrayMaterial.side = THREE.DoubleSide
-
-        if (
-          "color" in xrayMaterial &&
-          xrayMaterial.color instanceof THREE.Color
-        ) {
-          xrayMaterial.color.lerp(XRAY_TINT, 0.72)
-        }
-
-        xrayMaterial.needsUpdate = true
-        clonedMaterials.push(xrayMaterial)
-        return xrayMaterial
-      }
-
-      mesh.material = Array.isArray(mesh.material)
-        ? mesh.material.map(createXrayMaterial)
-        : createXrayMaterial(mesh.material)
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.frustumCulled = false
-    })
-
-    return { scene: clonedScene, xrayMaterials: clonedMaterials }
-  }, [gltf.scene])
-
+function VehicleRigAttachment({ immediate }: { immediate: boolean }) {
+  const scene = useSharedVehicleClone()
   useVehicleRig(scene, { immediate })
-
-  useEffect(
-    () => () => {
-      xrayMaterials.forEach((material) => material.dispose())
-    },
-    [xrayMaterials],
-  )
-
-  const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => {
-      const effectId = effectTargetFromObject(event.object)
-      if (!effectId) return
-      event.stopPropagation()
-      onSelectEffect(effectId)
-    },
-    [onSelectEffect],
-  )
-
-  return <primitive object={scene} onClick={handleClick} />
+  return null
 }
 
 function TopologyPin({
@@ -563,7 +514,7 @@ function TopologyOverlay({
     : undefined
 
   return (
-    <group rotation={MODEL_ROTATION}>
+    <group>
       {flowRoute.slice(0, -1).map(({ node }, index) => {
         const destination = flowRoute[index + 1]
         const state = flowEdgeState(
@@ -718,9 +669,21 @@ export default function VehicleNetworkViewport({
     phase: IDLE_PLAYBACK.phase,
     playbackId: IDLE_PLAYBACK.playbackId,
   })
+  const vehicleRootRef = useRef<THREE.Group>(null)
+  const [rootTransformVersion, setRootTransformVersion] = useState(0)
+  const handleVehicleCentered = useCallback(
+    () => setRootTransformVersion((version) => version + 1),
+    [],
+  )
   const cameraPresets = useMemo(
-    () => createCameraPresets(sourceNode, targetNode, effectNode),
-    [effectNode, sourceNode, targetNode],
+    () =>
+      createCameraPresets(
+        sourceNode,
+        targetNode,
+        effectNode,
+        vehicleRootRef.current,
+      ),
+    [effectNode, rootTransformVersion, sourceNode, targetNode],
   )
   const onSelectNode = useCallback(
     (nodeId: VehicleTopologyNodeId) => {
@@ -780,9 +743,12 @@ export default function VehicleNetworkViewport({
   const cameraPreset = useMemo(
     () =>
       cameraFocus.view === "node"
-        ? createNodeCameraPreset(getTopologyNode(cameraFocus.nodeId))
+        ? createNodeCameraPreset(
+            getTopologyNode(cameraFocus.nodeId),
+            vehicleRootRef.current,
+          )
         : cameraPresets[cameraFocus.view],
-    [cameraFocus, cameraPresets],
+    [cameraFocus, cameraPresets, rootTransformVersion],
   )
   const cameraPresetName =
     cameraFocus.view === "node"
@@ -872,38 +838,7 @@ export default function VehicleNetworkViewport({
       />
 
       <div className="vehicle-network-viewport__canvas">
-        <Canvas
-          shadows
-          dpr={[1, 1.5]}
-          camera={{
-            position: OVERVIEW_CAMERA,
-            fov: OVERVIEW_FOV,
-            near: 0.05,
-            far: 100,
-          }}
-          gl={{
-            alpha: false,
-            antialias: true,
-            toneMapping: THREE.ACESFilmicToneMapping,
-          }}
-        >
-          <color attach="background" args={["#0b1018"]} />
-          <fog attach="fog" args={["#0b1018", 7, 14]} />
-          <ambientLight intensity={0.72} />
-          <hemisphereLight args={["#c9dcff", "#05070d", 0.72]} />
-          <directionalLight
-            castShadow
-            position={[6, 8, 5]}
-            intensity={2.35}
-            shadow-mapSize={[2048, 2048]}
-          />
-          <spotLight
-            position={[-5, 4, -3]}
-            angle={0.52}
-            penumbra={0.72}
-            intensity={1.2}
-            color="#b3c9ff"
-          />
+        <SharedVehicleCanvas>
           <VehicleErrorBoundary>
             <Suspense
               fallback={
@@ -922,43 +857,41 @@ export default function VehicleNetworkViewport({
                 </Html>
               }
             >
-              <group rotation={MODEL_ROTATION}>
-                <VehicleModel
-                  immediate={reducedMotion}
-                  onSelectEffect={onSelectNode}
+              <SharedVehicleScene
+                ref={vehicleRootRef}
+                xray
+                onCentered={handleVehicleCentered}
+                onSelectEffect={onSelectNode}
+              >
+                <VehicleRigAttachment immediate={reducedMotion} />
+                <TopologyOverlay
+                  nodes={routeNodes}
+                  flowRoute={flowRoute}
+                  playback={playbackState}
+                  accent={accent}
+                  activeNodeId={activeNodeId}
+                  activeNodeState={activeNodeState}
+                  cameraFocusedNodeId={focusedId}
+                  visibleTooltipNodeId={visibleTooltipNodeId}
+                  targetId={targetId}
+                  effectId={effectId}
+                  reducedMotion={reducedMotion}
+                  onSelect={onSelectNode}
                 />
-              </group>
-              <TopologyOverlay
-                nodes={routeNodes}
-                flowRoute={flowRoute}
-                playback={playbackState}
-                accent={accent}
-                activeNodeId={activeNodeId}
-                activeNodeState={activeNodeState}
-                cameraFocusedNodeId={focusedId}
-                visibleTooltipNodeId={visibleTooltipNodeId}
-                targetId={targetId}
-                effectId={effectId}
-                reducedMotion={reducedMotion}
-                onSelect={onSelectNode}
-              />
+                <CameraPresetController
+                  preset={cameraPreset}
+                  overview={cameraFocus.view === "overview"}
+                  immediate={reducedMotion}
+                />
+              </SharedVehicleScene>
             </Suspense>
           </VehicleErrorBoundary>
-          <OrbitControls
+          <SharedVehicleOrbitControls
             makeDefault
             enableDamping={!reducedMotion}
             dampingFactor={0.075}
-            enablePan={false}
-            minDistance={2.2}
-            maxDistance={10}
-            minPolarAngle={0.32}
-            maxPolarAngle={Math.PI / 2.02}
           />
-          <CameraPresetController
-            preset={cameraPreset}
-            immediate={reducedMotion}
-          />
-        </Canvas>
+        </SharedVehicleCanvas>
       </div>
       <p className="vehicle-network-viewport__hint">
         드래그: 회전 · 스크롤: 확대/축소

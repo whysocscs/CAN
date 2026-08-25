@@ -8,11 +8,10 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import { Canvas } from "@react-three/fiber"
 import { FitAddon } from "@xterm/addon-fit"
 import { Terminal as Xterm } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
-import { Bounds, Center, Html, Line, OrbitControls, useGLTF } from "@react-three/drei"
+import { Html, Line } from "@react-three/drei"
 import {
   ArrowClockwise,
   ArrowCounterClockwise,
@@ -42,8 +41,11 @@ import {
 import { mockEventProvider } from "@/features/can/events/mockProvider"
 import type { CanCommand, CanEvent, CanNodeId } from "@/features/can/events/types"
 import { REAL_TERMINAL_ENABLED } from "@/features/terminal/realTerminalConfig"
-
-const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
+import {
+  SharedVehicleCanvas,
+  SharedVehicleOrbitControls,
+  SharedVehicleScene,
+} from "@/features/vehicle/SharedVehicleScene"
 
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
@@ -432,44 +434,6 @@ function getFrameSummary(event: CanEvent) {
   }
 }
 
-function VehicleModel({ xray }: { xray: boolean }) {
-  const gltf = useGLTF(MODEL_PATH)
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
-
-  useMemo(() => {
-    scene.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh) return
-
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.frustumCulled = false
-
-      if (!xray) return
-
-      const mechanical = /TIRE|WHEEL|BRAKE|CALIPER|STEER/i.test(mesh.name)
-      const setXrayMaterial = (material: THREE.Material) => {
-        const next = material.clone()
-        next.transparent = true
-        next.opacity = mechanical ? 0.72 : 0.4
-        next.depthWrite = false
-        next.side = THREE.DoubleSide
-        if ("color" in next && next.color instanceof THREE.Color) {
-          next.color.lerp(new THREE.Color("#a8bac8"), 0.72)
-        }
-        next.needsUpdate = true
-        return next
-      }
-
-      mesh.material = Array.isArray(mesh.material)
-        ? mesh.material.map(setXrayMaterial)
-        : setXrayMaterial(mesh.material)
-    })
-  }, [scene, xray])
-
-  return <primitive object={scene} />
-}
-
 function EcuBoard({
   module,
   selected,
@@ -739,27 +703,7 @@ function VehicleCanvas({
   }, [orbitCommand])
 
   return (
-    <Canvas
-      shadows
-      dpr={[1, 1.5]}
-      camera={{ position: [5.8, 3.8, 7.6], fov: 38, near: 0.05, far: 100 }}
-      gl={{
-        alpha: false,
-        antialias: true,
-        toneMapping: THREE.ACESFilmicToneMapping,
-      }}
-    >
-      <color attach="background" args={["#0b1018"]} />
-      <fog attach="fog" args={["#0b1018", 7, 14]} />
-      <ambientLight intensity={0.72} />
-      <hemisphereLight args={["#c9dcff", "#05070d", 0.72]} />
-      <directionalLight
-        castShadow
-        position={[6, 8, 5]}
-        intensity={2.35}
-        shadow-mapSize={[2048, 2048]}
-      />
-      <spotLight position={[-5, 4, -3]} angle={0.52} penumbra={0.72} intensity={1.2} color="#b3c9ff" />
+    <SharedVehicleCanvas>
       <VehicleLoadBoundary>
         <Suspense
           fallback={
@@ -771,39 +715,29 @@ function VehicleCanvas({
             </Html>
           }
         >
-          <Bounds fit observe margin={0.9}>
-            <Center>
-              <group>
-                <VehicleModel xray={showLabels || showBus} />
-                {(showLabels || showBus) && (
-                  <EcuVehicleNetwork
-                    showLabels={showLabels}
-                    showHardware={showBus}
-                    showBus={showBus}
-                    active={networkActive}
-                    activeConnections={activeConnections}
-                    activeModules={activeModules}
-                    selectedModuleId={selectedModuleId}
-                    onSelectModule={onSelectModule}
-                  />
-                )}
-              </group>
-            </Center>
-          </Bounds>
+          <SharedVehicleScene xray={showLabels || showBus}>
+            {(showLabels || showBus) && (
+              <EcuVehicleNetwork
+                showLabels={showLabels}
+                showHardware={showBus}
+                showBus={showBus}
+                active={networkActive}
+                activeConnections={activeConnections}
+                activeModules={activeModules}
+                selectedModuleId={selectedModuleId}
+                onSelectModule={onSelectModule}
+              />
+            )}
+          </SharedVehicleScene>
         </Suspense>
       </VehicleLoadBoundary>
-      <OrbitControls
-        ref={controlsRef}
+      <SharedVehicleOrbitControls
+        controlsRef={controlsRef}
         autoRotate={autoRotate}
         autoRotateSpeed={0.64}
         enableDamping={false}
-        enablePan={false}
-        minDistance={3}
-        maxDistance={10}
-        minPolarAngle={0.32}
-        maxPolarAngle={Math.PI - 0.32}
       />
-    </Canvas>
+    </SharedVehicleCanvas>
   )
 }
 
@@ -942,8 +876,6 @@ function LocalShellTerminal({
 
   return <div className="canlab__shell-terminal" aria-label="로컬 Linux 터미널" ref={mountRef} />
 }
-
-useGLTF.preload(MODEL_PATH)
 
 export default function CanPracticeOnlyPage() {
   const [activeStep, setActiveStep] = useState<GuideStep>("1")
