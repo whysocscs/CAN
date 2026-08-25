@@ -153,7 +153,8 @@ def test_replay_capture_provenance_failures_stop_at_evidence_without_frame_attem
     capture_update: dict[str, object], expected_code: str
 ) -> None:
     module = _router_module()
-    client = _client(emitted=[])
+    emitted: list[dict[str, object]] = []
+    client = _client(emitted=emitted)
     state = client.post("/labs/can-attacks/replay/sessions").json()
     session_id = state["sessionId"]
     client.post(
@@ -176,6 +177,9 @@ def test_replay_capture_provenance_failures_stop_at_evidence_without_frame_attem
     assert result["flowTraces"][0]["route"] == ["terminal", "evidence"]
     assert result["flowTraces"][0]["stoppedAt"] == "evidence"
     assert result["flowTraces"][0]["ecuVerdict"] is None
+    assert result["flowTraces"][0]["idsVerdict"] is None
+    assert result["flowTraces"][0]["effectApplied"] is False
+    assert emitted == []
 
 
 @pytest.mark.parametrize(

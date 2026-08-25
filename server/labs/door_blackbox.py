@@ -68,7 +68,7 @@ class TerminalResult:
 @dataclass(frozen=True)
 class ScriptResult:
     attempts: tuple[FrameAttempt, ...]
-    ids_status: str
+    ids_status: str | None
     state: dict[str, object]
     interval_ms: int | None = None
     error: str | None = None

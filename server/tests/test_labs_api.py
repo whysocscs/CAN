@@ -4,12 +4,14 @@ import asyncio
 from collections import deque
 import json
 import threading
+from typing import get_type_hints
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from server.routers import can, labs
+from server.labs.door_blackbox import ScriptResult
 
 
 class _SnapshotSocket:
@@ -931,6 +933,41 @@ def test_door_results_expose_authoritative_flow_traces() -> None:
     assert emitted[-2]["monitoring"] == {"idsObserved": True}
     assert emitted[-1]["monitoring"] == {"idsObserved": True, "status": "NORMAL"}
     assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
+
+
+def test_door_script_alert_is_observed_only_on_the_final_emitted_attempt() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={
+            "script": "interval_ms=50\n"
+            "cansend vcan0 456#000113B7\n"
+            "cansend vcan0 456#000114B0\n"
+            "cansend vcan0 456#000115B1"
+        },
+    ).json()
+
+    assert all(attempt["verdict"] == "EXECUTED" for attempt in result["attempts"])
+    assert result["idsStatus"] == "ALERT"
+    assert [trace["idsVerdict"] for trace in result["flowTraces"]] == [None, None, "ALERT"]
+    assert emitted[0]["monitoring"] == {"idsObserved": True}
+    assert emitted[1]["monitoring"] == {"idsObserved": True}
+    assert emitted[2]["monitoring"] == {"idsObserved": True, "status": "ALERT"}
+
+
+def test_door_script_result_ids_status_is_nullable() -> None:
+    assert get_type_hints(ScriptResult)["ids_status"] == str | None
 
 
 @pytest.mark.parametrize("command", ["cat missing.log", "candump vcan1"])
