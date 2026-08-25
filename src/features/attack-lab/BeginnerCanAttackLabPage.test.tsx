@@ -6,12 +6,21 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
+import type {
+  VehicleFlowPlaybackSnapshot,
+  VehicleFlowTrace,
+} from "../vehicle/vehicleFlowTypes"
 import { vehicle } from "../vehicle/vehicleStore"
 import type {
   BeginnerCanAttackResult,
   BeginnerCanAttackScenario,
   BeginnerCanAttackState,
 } from "./beginnerCanAttackTypes"
+
+const CONFIG_TITLE: Record<BeginnerCanAttackScenario, string> = {
+  spoofing: "CAN Spoofing Basics",
+  replay: "CAN Replay Basics",
+}
 
 const api = vi.hoisted(() => ({
   createBeginnerCanAttackSession: vi.fn(),
@@ -30,9 +39,20 @@ const stream = vi.hoisted(() => ({ connect: vi.fn(), options: null as null | {
 vi.mock("./beginnerCanAttackApi", () => api)
 vi.mock("../can/events/backendProvider", () => ({ connectCanStream: stream.connect }))
 vi.mock("../vehicle/VehicleNetworkViewport", () => ({
-  default: (props: Record<string, unknown>) => (
-    <div aria-label={`${props.scenarioTitle} vehicle network`} data-route={String(props.route)} data-target={props.targetId} data-effect={props.effectId} />
-  ),
+  default: (props: Record<string, unknown>) => {
+    const playback = props.playback as VehicleFlowPlaybackSnapshot | undefined
+    return (
+      <div
+        aria-label={`${props.scenarioTitle} vehicle network`}
+        data-route={String(props.route)}
+        data-target={props.targetId}
+        data-effect={props.effectId}
+        data-playback-phase={playback?.phase ?? "missing"}
+        data-trace-id={playback?.trace?.traceId ?? "none"}
+        data-segment-index={playback?.segmentIndex ?? -1}
+      />
+    )
+  },
 }))
 
 import BeginnerCanAttackLabPage from "./BeginnerCanAttackLabPage"
@@ -76,6 +96,65 @@ function liveEvent(state: BeginnerCanAttackState, overrides: Partial<CanEvent> =
   }
 }
 
+function executedBeginnerTrace(
+  scenario: BeginnerCanAttackScenario,
+): VehicleFlowTrace {
+  const spoofing = scenario === "spoofing"
+  return {
+    traceId: `${scenario}-attempt-1`,
+    attemptId: `${scenario}-attempt-1`,
+    sequence: 1,
+    kind: "inject",
+    commandLabel: spoofing
+      ? "cansend vcan0 5A1#01"
+      : "canplayer -I capture.log -l 1",
+    commandIndex: 1,
+    canId: spoofing ? "0x5a1" : "0x5a2",
+    data: spoofing ? ["01"] : ["00", "01"],
+    route: spoofing
+      ? ["terminal", "obd", "ids", "gateway", "rear", "tailgate"]
+      : ["terminal", "obd", "ids", "gateway", "body", "leftDoor"],
+    stoppedAt: null,
+    outcome: "EXECUTED",
+    ecuVerdict: "EXECUTED",
+    idsVerdict: "NORMAL",
+    effectTarget: spoofing ? "tailgate" : "leftDoor",
+    effectState: "open",
+    effectApplied: true,
+  }
+}
+
+function captureTrace(): VehicleFlowTrace {
+  return {
+    traceId: "capture-1",
+    attemptId: null,
+    sequence: 1,
+    kind: "capture",
+    commandLabel: "candump -L vcan0 > capture.log",
+    commandIndex: null,
+    canId: "0x5a2",
+    data: ["00", "01"],
+    route: ["terminal", "obd", "monitor"],
+    stoppedAt: null,
+    outcome: "OBSERVED",
+    ecuVerdict: null,
+    idsVerdict: null,
+    effectTarget: null,
+    effectState: null,
+    effectApplied: false,
+  }
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
 let frames: FrameRequestCallback[] = []
 async function flushStream() {
   await act(async () => {
@@ -87,7 +166,7 @@ async function flushStream() {
 
 describe("BeginnerCanAttackLabPage", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     vehicle.reset()
     api.createBeginnerCanAttackSession.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(session(scenario)))
     api.resetBeginnerCanAttackSession.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(session(scenario, 1)))
@@ -108,6 +187,7 @@ describe("BeginnerCanAttackLabPage", () => {
 
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
@@ -270,26 +350,220 @@ describe("BeginnerCanAttackLabPage", () => {
     expect(vehicle.getState()).toEqual({ doorL: 0, doorR: 0, tailgate: 0 })
   })
 
-  it("applies one accepted current live event to only the intended part and monitor once", async () => {
+  it.each([
+    ["spoofing", "tailgate"],
+    ["replay", "doorL"],
+  ] as const)(
+    "defers the %s effect until playback reaches the endpoint",
+    async (scenarioName, part) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const current = session(scenarioName)
+      const completed = {
+        ...current,
+        stage: "EVIDENCE" as const,
+        completed: true,
+        vehicleState: {
+          ...current.vehicleState,
+          [part === "doorL" ? "leftDoor" : "tailgate"]: "open",
+        },
+      } satisfies BeginnerCanAttackState
+      api.runBeginnerCanAttackScript.mockResolvedValueOnce(
+        result(completed, {
+          code: "EXECUTED",
+          flowTraces: [executedBeginnerTrace(scenarioName)],
+        }),
+      )
+
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      const runButton = await screen.findByRole("button", {
+        name: "스크립트 실행",
+      })
+      await user.click(runButton)
+      await waitFor(() =>
+        expect(api.runBeginnerCanAttackScript).toHaveBeenCalledOnce(),
+      )
+
+      expect(vehicle.isOpen(part)).toBe(false)
+      expect(runButton).toBeDisabled()
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-playback-phase", "playing")
+
+      act(() => vi.runAllTimers())
+
+      expect(vehicle.isOpen(part)).toBe(true)
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-playback-phase", "complete")
+    },
+  )
+
+  it("plays capture evidence without opening any vehicle part", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const current = session("replay")
+    api.runBeginnerCanAttackTerminal.mockResolvedValueOnce(
+      result(
+        { ...current, stage: "CAPTURE" },
+        {
+          code: "CAPTURED",
+          captures: [{
+            captureId: "capture-1",
+            timestamp: 1_700_000_000_000,
+            sessionId: current.sessionId,
+            generation: current.generation,
+            fileName: "capture.log",
+            canId: "0x5A2",
+            data: ["00", "01"],
+            verdict: "CAPTURED",
+          }],
+          flowTraces: [captureTrace()],
+        },
+      ),
+    )
+
+    render(<BeginnerCanAttackLabPage scenario="replay" />)
+    const input = await screen.findByLabelText("제한 터미널 명령")
+    await user.type(input, "candump -L vcan0 > capture.log")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() =>
+      expect(api.runBeginnerCanAttackTerminal).toHaveBeenCalledOnce(),
+    )
+
+    expect(screen.getByLabelText("CAN Replay Basics vehicle network"))
+      .toHaveAttribute("data-trace-id", "capture-1")
+    expect(screen.getByLabelText("CAN Replay Basics vehicle network"))
+      .toHaveAttribute("data-playback-phase", "playing")
+
+    act(() => vi.runAllTimers())
+
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(vehicle.isOpen("doorR")).toBe(false)
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+    expect(screen.getByLabelText("CAN Replay Basics vehicle network"))
+      .toHaveAttribute("data-playback-phase", "complete")
+  })
+
+  it("reset cancels a pending beginner effect before awaiting reset", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const current = session("spoofing")
+    const resetRequest = deferred<BeginnerCanAttackState>()
+    api.runBeginnerCanAttackScript.mockResolvedValueOnce(
+      result(
+        {
+          ...current,
+          stage: "EVIDENCE",
+          completed: true,
+          vehicleState: { ...current.vehicleState, tailgate: "open" },
+        },
+        {
+          code: "EXECUTED",
+          flowTraces: [executedBeginnerTrace("spoofing")],
+        },
+      ),
+    )
+    api.resetBeginnerCanAttackSession.mockReturnValueOnce(resetRequest.promise)
+
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText("CAN Spoofing Basics vehicle network"))
+        .toHaveAttribute("data-playback-phase", "playing"),
+    )
+
+    const resetButton = screen.getByRole("button", { name: "실습 초기화" })
+    expect(resetButton).toBeEnabled()
+    await user.click(resetButton)
+    await waitFor(() =>
+      expect(api.resetBeginnerCanAttackSession).toHaveBeenCalledOnce(),
+    )
+
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+    expect(screen.getByLabelText("CAN Spoofing Basics vehicle network"))
+      .toHaveAttribute("data-playback-phase", "cancelled")
+    act(() => vi.runAllTimers())
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+
+    await act(async () => resetRequest.resolve(session("spoofing", 1)))
+    await waitFor(() =>
+      expect(screen.getByLabelText("CAN Spoofing Basics vehicle network"))
+        .toHaveAttribute("data-playback-phase", "idle"),
+    )
+  })
+
+  it("reset supersedes an in-flight script request and ignores its late result", async () => {
+    const actionRequest = deferred<BeginnerCanAttackResult>()
+    const resetRequest = deferred<BeginnerCanAttackState>()
+    api.runBeginnerCanAttackScript.mockReturnValueOnce(actionRequest.promise)
+    api.resetBeginnerCanAttackSession.mockReturnValueOnce(resetRequest.promise)
+    const user = userEvent.setup()
+
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() =>
+      expect(api.runBeginnerCanAttackScript).toHaveBeenCalledOnce(),
+    )
+    const oldSignal = api.runBeginnerCanAttackScript.mock.calls[0]?.[3] as AbortSignal
+    vehicle.set("tailgate", 1)
+
+    const resetButton = screen.getByRole("button", { name: "실습 초기화" })
+    expect(resetButton).toBeEnabled()
+    await user.click(resetButton)
+    await waitFor(() =>
+      expect(api.resetBeginnerCanAttackSession).toHaveBeenCalledOnce(),
+    )
+
+    expect(oldSignal.aborted).toBe(true)
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+
+    const lateState = {
+      ...session("spoofing"),
+      stage: "EVIDENCE" as const,
+      completed: true,
+      vehicleState: {
+        leftDoor: "closed" as const,
+        rightDoor: "closed" as const,
+        tailgate: "open" as const,
+      },
+    }
+    await act(async () =>
+      actionRequest.resolve(
+        result(lateState, {
+          code: "EXECUTED",
+          flowTraces: [executedBeginnerTrace("spoofing")],
+        }),
+      ),
+    )
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+
+    await act(async () => resetRequest.resolve(session("spoofing", 1)))
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+  })
+
+  it("keeps one accepted current live event monitor-only", async () => {
     const current = session("spoofing")
     render(<BeginnerCanAttackLabPage scenario="spoofing" />)
     await screen.findByText("REAR ECU")
     act(() => stream.options?.onEvent(liveEvent(current)))
     await flushStream()
-    expect(vehicle.getState()).toEqual({ doorL: 0, doorR: 0, tailgate: 1 })
+    expect(vehicle.getState()).toEqual({ doorL: 0, doorR: 0, tailgate: 0 })
     expect(within(screen.getByRole("region", { name: "Network monitor" })).getAllByText("EXECUTED")).toHaveLength(1)
     act(() => stream.options?.onEvent(liveEvent(current)))
     await flushStream()
     expect(within(screen.getByRole("region", { name: "Network monitor" })).getAllByText("EXECUTED")).toHaveLength(1)
   })
 
-  it("restores a current reconnect snapshot to the vehicle without adding monitor traffic", async () => {
+  it("leaves reconnect snapshot ownership with accepted REST state", async () => {
     const current = session("replay")
     render(<BeginnerCanAttackLabPage scenario="replay" />)
     await screen.findByText("BODY ECU")
     act(() => stream.options?.onEvent(liveEvent(current, { replay: true })))
     await flushStream()
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
     expect(within(screen.getByRole("region", { name: "Network monitor" })).queryByText("EXECUTED")).not.toBeInTheDocument()
   })
 

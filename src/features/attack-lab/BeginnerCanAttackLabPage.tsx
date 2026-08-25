@@ -22,7 +22,12 @@ import {
 import type { CanEvent } from "../can/events/types"
 import { useCanVehicleStream } from "../vehicle/useCanVehicleStream"
 import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
+import {
+  applyVehicleFlowEffect,
+  parseVehicleFlowTraces,
+} from "../vehicle/vehicleFlowTypes"
 import { VEHICLE_ROUTES } from "../vehicle/vehicleTopology"
+import { useVehicleFlowPlayback } from "../vehicle/useVehicleFlowPlayback"
 import { vehicle } from "../vehicle/vehicleStore"
 import {
   createBeginnerCanAttackSession,
@@ -130,6 +135,15 @@ interface CreateFlight {
   promise: Promise<void>
 }
 
+interface PendingBeginnerFlow {
+  runKey: string
+  scenario: BeginnerCanAttackScenario
+  sessionId: string
+  sessionGeneration: number
+  actionGeneration: number
+  state: BeginnerCanAttackState["vehicleState"]
+}
+
 type MonitorAction =
   | { type: "append"; frames: BeginnerCanAttackMonitorFrame[] }
   | { type: "select"; key: string }
@@ -219,6 +233,25 @@ export default function BeginnerCanAttackLabPage({
   const busyRef = useRef<BusyState>(null)
   const terminalIdRef = useRef(0)
   const monitorSequenceRef = useRef(0)
+  const pendingFlowRef = useRef<PendingBeginnerFlow | null>(null)
+  const flow = useVehicleFlowPlayback({
+    onEffect: applyVehicleFlowEffect,
+    onComplete: (runKey) => {
+      const pending = pendingFlowRef.current
+      const current = sessionRef.current
+      if (
+        !mountedRef.current ||
+        !pending ||
+        pending.runKey !== runKey ||
+        pending.scenario !== scenarioRef.current ||
+        pending.sessionId !== current?.sessionId ||
+        pending.sessionGeneration !== current.generation ||
+        pending.actionGeneration !== actionGenerationRef.current
+      ) return
+      applyVehicleState(pending.state)
+      pendingFlowRef.current = null
+    },
+  })
 
   const nextMonitorSequence = useCallback(() => ++monitorSequenceRef.current, [])
   const clearLocalWorkbench = useCallback((nextConfig: BeginnerCanAttackUiConfig) => {
@@ -244,6 +277,9 @@ export default function BeginnerCanAttackLabPage({
       existing.controller.abort()
       createFlightRef.current = null
     }
+
+    flow.clear()
+    pendingFlowRef.current = null
 
     const controller = new AbortController()
     const lifecycleGeneration = lifecycleGenerationRef.current
@@ -279,7 +315,7 @@ export default function BeginnerCanAttackLabPage({
     })()
     createFlightRef.current = { scenario, controller, promise }
     return promise
-  }, [scenario])
+  }, [flow.clear, scenario])
 
   useEffect(() => {
     const changedScenario = scenarioRef.current !== scenario
@@ -288,6 +324,8 @@ export default function BeginnerCanAttackLabPage({
       lifecycleGenerationRef.current += 1
       actionGenerationRef.current += 1
       actionControllerRef.current?.abort()
+      flow.clear()
+      pendingFlowRef.current = null
       sessionRef.current = null
       setSession(null)
       clearLocalWorkbench(config)
@@ -301,12 +339,14 @@ export default function BeginnerCanAttackLabPage({
         if (mountedRef.current) return
         lifecycleGenerationRef.current += 1
         actionGenerationRef.current += 1
+        flow.cancel()
+        pendingFlowRef.current = null
         sessionRef.current = null
         createFlightRef.current?.controller.abort()
         actionControllerRef.current?.abort()
       })
     }
-  }, [clearLocalWorkbench, config, loadSession, scenario])
+  }, [clearLocalWorkbench, config, flow.cancel, flow.clear, loadSession, scenario])
 
   const currentAcceptedEventPredicate = useCallback(
     (event: CanEvent) => beginnerEventMatchesSession(event, sessionRef.current),
@@ -326,12 +366,18 @@ export default function BeginnerCanAttackLabPage({
   const streamStatus = useCanVehicleStream({
     url: resolveBeginnerCanAttackStreamUrl(),
     onEvent: handleCanEvents,
-    vehicleEventPredicate: currentAcceptedEventPredicate,
+    vehicleEventPredicate: () => false,
   })
 
   const beginAction = (kind: Exclude<BusyState, null>): ActionRequest | null => {
     const current = sessionRef.current
-    if (!current || busyRef.current) return null
+    if (
+      !current ||
+      (kind === "reset"
+        ? busyRef.current === "reset"
+        : busyRef.current !== null || flow.isPlaying)
+    ) return null
+    if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
     const request = {
       controller,
@@ -372,6 +418,45 @@ export default function BeginnerCanAttackLabPage({
     setBusy(null)
   }
 
+  const playResult = (
+    source: "terminal" | "run",
+    request: ActionRequest,
+    rawTraces: unknown,
+    finalState: BeginnerCanAttackState["vehicleState"],
+  ) => {
+    const traces = parseVehicleFlowTraces(rawTraces)
+    if (!traces) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(finalState)
+      setActionError(
+        "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+      )
+      return
+    }
+
+    const runKey = [
+      request.scenario,
+      request.sessionId,
+      request.sessionGeneration,
+      source,
+      request.actionGeneration,
+    ].join(":")
+    pendingFlowRef.current = {
+      runKey,
+      scenario: request.scenario,
+      sessionId: request.sessionId,
+      sessionGeneration: request.sessionGeneration,
+      actionGeneration: request.actionGeneration,
+      state: finalState,
+    }
+    if (!flow.play({ runKey, traces })) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(finalState)
+    }
+  }
+
   const acceptResult = (
     request: ActionRequest,
     result: BeginnerCanAttackResult,
@@ -387,7 +472,6 @@ export default function BeginnerCanAttackLabPage({
     setSession(result.state)
     setLastResult(result)
     if (result.idsStatus !== null) setIdsStatus(result.idsStatus)
-    applyVehicleState(result.state.vehicleState)
     const restFrames = [
       ...attemptsToBeginnerMonitorFrames(result.attempts, source),
       ...capturesToBeginnerMonitorFrames(result.captures),
@@ -396,6 +480,7 @@ export default function BeginnerCanAttackLabPage({
       type: "append",
       frames: sequenceFrames(restFrames, nextMonitorSequence),
     })
+    playResult(source, request, result.flowTraces, result.state.vehicleState)
     if (!result.ok) setActionError(result.output || result.code)
     return true
   }
@@ -421,6 +506,15 @@ export default function BeginnerCanAttackLabPage({
   const handleReset = async () => {
     const request = beginAction("reset")
     if (!request) return
+    const wasPlaying = flow.isPlaying
+    flow.cancel()
+    if (!wasPlaying) flow.clear()
+    pendingFlowRef.current = null
+    applyVehicleState({
+      leftDoor: "closed",
+      rightDoor: "closed",
+      tailgate: "closed",
+    })
     try {
       const next = await resetBeginnerCanAttackSession(
         request.scenario,
@@ -434,6 +528,7 @@ export default function BeginnerCanAttackLabPage({
         next.generation !== request.sessionGeneration + 1
       ) return
       sessionRef.current = next
+      flow.clear()
       applyVehicleState(next.vehicleState)
       setSession(next)
       clearLocalWorkbench(config)
@@ -567,16 +662,17 @@ export default function BeginnerCanAttackLabPage({
             currentNodeId={currentNodeId}
             scenarioTitle={config.title}
             accent={config.accent}
+            playback={flow.snapshot}
           />
         </section>
 
         <section className="door-attack-lab__editor" role="region" aria-label="Code editor">
           <header className="door-attack-lab__panel-heading"><div><Code size={18} aria-hidden="true" /><span><strong>Restricted lab script</strong><small>comments + scenario final action</small></span></div><span>최대 20 lines</span></header>
           <LabScriptGuide mode={scenario} />
-          <textarea aria-label="공격 스크립트" value={script} onChange={(event) => setScript(event.target.value)} spellCheck={false} />
+          <textarea aria-label="공격 스크립트" value={script} onChange={(event) => setScript(event.target.value)} spellCheck={false} disabled={flow.isPlaying} />
           <div className="door-attack-lab__editor-actions">
-            <button type="button" className="is-secondary" onClick={() => void handleReset()} disabled={!session || busy !== null}><ArrowClockwise size={15} aria-hidden="true" />{busy === "reset" ? "초기화 중" : "실습 초기화"}</button>
-            <button type="button" className="is-primary" onClick={() => void handleRun()} disabled={!session || busy !== null}>{busy === "run" ? <CircleNotch size={15} className="door-attack-lab__spin" aria-hidden="true" /> : <Play size={15} weight="fill" aria-hidden="true" />}{busy === "run" ? "검증 중" : "스크립트 실행"}</button>
+            <button type="button" className="is-secondary" onClick={() => void handleReset()} disabled={!session || busy === "reset"}><ArrowClockwise size={15} aria-hidden="true" />{busy === "reset" ? "초기화 중" : "실습 초기화"}</button>
+            <button type="button" className="is-primary" onClick={() => void handleRun()} disabled={!session || busy !== null || flow.isPlaying}>{busy === "run" ? <CircleNotch size={15} className="door-attack-lab__spin" aria-hidden="true" /> : <Play size={15} weight="fill" aria-hidden="true" />}{busy === "run" ? "검증 중" : "스크립트 실행"}</button>
           </div>
         </section>
 
@@ -603,7 +699,7 @@ export default function BeginnerCanAttackLabPage({
           <div className="door-attack-lab__terminal-output" aria-live="polite">
             {terminalEntries.length === 0 ? <p>관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다.</p> : terminalEntries.map((entry) => <div key={entry.id} data-ok={entry.ok}><code>$ {entry.command}</code><pre>{entry.output}</pre></div>)}
           </div>
-          <form className="beginner-can-attack-lab__terminal-form" onSubmit={(event) => void handleTerminalSubmit(event)}><span aria-hidden="true">$</span><input aria-label="제한 터미널 명령" value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} onKeyDown={handleTerminalKeyDown} disabled={!session || busy !== null} autoComplete="off" /><button type="submit" disabled={!session || busy !== null}>명령 실행</button></form>
+          <form className="beginner-can-attack-lab__terminal-form" onSubmit={(event) => void handleTerminalSubmit(event)}><span aria-hidden="true">$</span><input aria-label="제한 터미널 명령" value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} onKeyDown={handleTerminalKeyDown} disabled={!session || busy !== null || flow.isPlaying} autoComplete="off" /><button type="submit" disabled={!session || busy !== null || flow.isPlaying}>명령 실행</button></form>
         </section>
 
         <div className="door-attack-lab__learning">
