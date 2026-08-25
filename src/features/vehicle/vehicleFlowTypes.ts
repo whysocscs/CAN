@@ -143,7 +143,18 @@ function parseVehicleFlowTrace(value: unknown): VehicleFlowTrace | null {
     )
   ) return null
 
-  if (outcome === "REJECTED" && effectApplied) return null
+  if (
+    outcome === "REJECTED"
+    && (
+      effectApplied
+      || effectTarget !== null
+      || effectState !== null
+      || route.at(-1) === "leftDoor"
+      || route.at(-1) === "tailgate"
+      || stoppedAt === "leftDoor"
+      || stoppedAt === "tailgate"
+    )
+  ) return null
 
   return {
     traceId,

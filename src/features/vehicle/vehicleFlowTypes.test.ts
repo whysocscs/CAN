@@ -3,6 +3,10 @@ import {
   applyVehicleFlowEffect,
   parseVehicleFlowTraces,
 } from "./vehicleFlowTypes"
+import {
+  executedDoorTrace,
+  playingDoorSnapshotAtGateway,
+} from "./vehicleFlowTestFixtures"
 import { vehicle } from "./vehicleStore"
 
 const validExecutedTrace = {
@@ -22,6 +26,19 @@ const validExecutedTrace = {
   effectTarget: "leftDoor",
   effectState: "open",
   effectApplied: true,
+}
+
+const validRejectedTrace = {
+  ...validExecutedTrace,
+  traceId: "attempt-rejected",
+  attemptId: "attempt-rejected",
+  route: ["terminal", "obd", "ids", "gateway", "body"],
+  stoppedAt: "body",
+  outcome: "REJECTED",
+  ecuVerdict: "COUNTER_REJECTED",
+  effectTarget: null,
+  effectState: null,
+  effectApplied: false,
 }
 
 describe("vehicle flow contract", () => {
@@ -52,10 +69,63 @@ describe("vehicle flow contract", () => {
     }])).toBeNull()
   })
 
+  it("rejects rejected traces that describe or reach an effect target", () => {
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      effectTarget: "leftDoor",
+      effectState: "open",
+    }])).toBeNull()
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      route: ["terminal", "obd", "ids", "gateway", "body", "leftDoor"],
+      stoppedAt: "leftDoor",
+    }])).toBeNull()
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      stoppedAt: "tailgate",
+    }])).toBeNull()
+  })
+
   it("applies only an executed effect trace", () => {
     vehicle.reset()
     const trace = parseVehicleFlowTraces([validExecutedTrace])![0]
     expect(applyVehicleFlowEffect(trace)).toBe(true)
     expect(vehicle.isOpen("doorL")).toBe(true)
+  })
+
+  it("leaves the vehicle unchanged for a valid rejected trace", () => {
+    vehicle.reset()
+    const trace = parseVehicleFlowTraces([validRejectedTrace])![0]
+    expect(applyVehicleFlowEffect(trace)).toBe(false)
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+  })
+
+  it("maps an executed tailgate effect to the tailgate store part", () => {
+    vehicle.reset()
+    const trace = parseVehicleFlowTraces([{
+      ...validExecutedTrace,
+      traceId: "tailgate-attempt-1",
+      attemptId: "tailgate-attempt-1",
+      route: ["terminal", "obd", "ids", "gateway", "rear", "tailgate"],
+      effectTarget: "tailgate",
+    }])![0]
+    expect(applyVehicleFlowEffect(trace)).toBe(true)
+    expect(vehicle.isOpen("tailgate")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
+  })
+
+  it("prevents nested fixture mutation from contaminating playback fixtures", () => {
+    try {
+      executedDoorTrace.data[0] = "FF"
+      executedDoorTrace.route[executedDoorTrace.route.length - 1] = "tailgate"
+    } catch {
+      // Frozen fixture mutation is intentionally rejected at runtime.
+    }
+
+    expect(executedDoorTrace.data[0]).toBe("00")
+    expect(executedDoorTrace.route.at(-1)).toBe("leftDoor")
+    expect(playingDoorSnapshotAtGateway.trace?.data[0]).toBe("00")
+    expect(playingDoorSnapshotAtGateway.trace?.route.at(-1)).toBe("leftDoor")
   })
 })

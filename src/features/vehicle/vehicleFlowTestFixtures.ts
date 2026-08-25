@@ -3,7 +3,20 @@ import type {
   VehicleFlowTrace,
 } from "./vehicleFlowTypes"
 
-export const executedDoorTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrace>({
+function freezeTrace(trace: VehicleFlowTrace): VehicleFlowTrace {
+  Object.freeze(trace.data)
+  Object.freeze(trace.route)
+  return Object.freeze(trace)
+}
+
+function freezePlaybackSnapshot(
+  snapshot: VehicleFlowPlaybackSnapshot,
+): VehicleFlowPlaybackSnapshot {
+  if (snapshot.trace) freezeTrace(snapshot.trace)
+  return Object.freeze(snapshot)
+}
+
+export const executedDoorTrace: VehicleFlowTrace = freezeTrace({
   traceId: "door-attempt-1",
   attemptId: "door-attempt-1",
   sequence: 1,
@@ -22,7 +35,7 @@ export const executedDoorTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrac
   effectApplied: true,
 })
 
-export const rejectedBodyTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrace>({
+export const rejectedBodyTrace: VehicleFlowTrace = freezeTrace({
   ...executedDoorTrace,
   traceId: "door-attempt-rejected",
   attemptId: "door-attempt-rejected",
@@ -38,7 +51,7 @@ export const rejectedBodyTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrac
   effectApplied: false,
 })
 
-export const captureTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrace>({
+export const captureTrace: VehicleFlowTrace = freezeTrace({
   ...executedDoorTrace,
   traceId: "capture-1",
   attemptId: null,
@@ -57,7 +70,7 @@ export const captureTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrace>({
 })
 
 export const playingDoorSnapshotAtGateway: VehicleFlowPlaybackSnapshot =
-  Object.freeze<VehicleFlowPlaybackSnapshot>({
+  freezePlaybackSnapshot({
     playbackId: 1,
     phase: "playing",
     trace: executedDoorTrace,
@@ -66,7 +79,7 @@ export const playingDoorSnapshotAtGateway: VehicleFlowPlaybackSnapshot =
     segmentIndex: 3,
   })
 
-export const executedAlertTrace: VehicleFlowTrace = Object.freeze<VehicleFlowTrace>({
+export const executedAlertTrace: VehicleFlowTrace = freezeTrace({
   ...executedDoorTrace,
   traceId: "door-attempt-alert",
   attemptId: "door-attempt-alert",
