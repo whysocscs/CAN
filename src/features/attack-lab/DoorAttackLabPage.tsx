@@ -389,10 +389,13 @@ export default function DoorAttackLabPage() {
     if (
       !sessionId ||
       sessionGeneration === null ||
-      busyRef.current ||
+      (kind === "reset"
+        ? busyRef.current === "reset"
+        : busyRef.current !== null) ||
       (kind !== "reset" && flow.isPlaying)
     )
       return null
+    if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
     const generation = ++actionGenerationRef.current
     actionControllerRef.current = controller
@@ -492,8 +495,11 @@ export default function DoorAttackLabPage() {
   const handleReset = async () => {
     const request = beginAction("reset")
     if (!request) return
+    const wasPlaying = flow.isPlaying
     flow.cancel()
+    if (!wasPlaying) flow.clear()
     pendingFlowRef.current = null
+    applyVehicleState({ leftDoor: "closed", rightDoor: "closed" })
     try {
       const next = await resetDoorLabSession(
         request.sessionId,
