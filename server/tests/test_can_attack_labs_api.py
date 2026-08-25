@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from dataclasses import replace
 import importlib
 
 from fastapi import FastAPI
@@ -130,9 +131,51 @@ def test_replay_before_capture_stops_before_vehicle_effect() -> None:
         json={"script": "canplayer -I capture.log -l 1"},
     ).json()
     trace = result["flowTraces"][0]
+    assert result["attempts"] == []
+    assert result["idsStatus"] is None
+    assert trace["route"] == ["terminal"]
+    assert trace["stoppedAt"] == "terminal"
     assert trace["outcome"] == "REJECTED"
-    assert trace["stoppedAt"] == "body"
+    assert trace["ecuVerdict"] is None
+    assert trace["idsVerdict"] is None
     assert trace["effectApplied"] is False
+
+
+@pytest.mark.parametrize(
+    ("capture_update", "expected_code"),
+    [
+        ({"session_id": "foreign"}, "CAPTURE_SESSION_MISMATCH"),
+        ({"generation": 99}, "CAPTURE_GENERATION_MISMATCH"),
+        ({"data": ("01", "01")}, "CAPTURE_CONTENT_MISMATCH"),
+    ],
+)
+def test_replay_capture_provenance_failures_stop_at_evidence_without_frame_attempts(
+    capture_update: dict[str, object], expected_code: str
+) -> None:
+    module = _router_module()
+    client = _client(emitted=[])
+    state = client.post("/labs/can-attacks/replay/sessions").json()
+    session_id = state["sessionId"]
+    client.post(
+        f"/labs/can-attacks/replay/sessions/{session_id}/terminal",
+        json={"command": "candump -L vcan0 > capture.log"},
+    )
+    session = module._sessions["replay"][session_id]
+    session._capture_files["capture.log"] = replace(
+        session._capture_files["capture.log"], **capture_update
+    )
+
+    result = client.post(
+        f"/labs/can-attacks/replay/sessions/{session_id}/run",
+        json={"script": "canplayer -I capture.log -l 1"},
+    ).json()
+
+    assert result["code"] == expected_code
+    assert result["attempts"] == []
+    assert result["idsStatus"] is None
+    assert result["flowTraces"][0]["route"] == ["terminal", "evidence"]
+    assert result["flowTraces"][0]["stoppedAt"] == "evidence"
+    assert result["flowTraces"][0]["ecuVerdict"] is None
 
 
 @pytest.mark.parametrize(
@@ -176,7 +219,7 @@ def test_failed_observation_like_commands_stop_at_the_beginner_terminal(
             "route": ["terminal"],
             "stoppedAt": "terminal",
             "outcome": "REJECTED",
-            "ecuVerdict": expected_code,
+            "ecuVerdict": None,
             "idsVerdict": None,
             "effectTarget": None,
             "effectState": None,
@@ -249,7 +292,9 @@ def test_capture_and_rejected_attempt_emit_zero_but_each_accepted_attack_emits_o
         json={"command": "canplayer -I capture.log -l 2"},
     )
     assert capture.json()["captures"][0]["verdict"] == "CAPTURED"
-    assert rejected.json()["attempts"][0]["verdict"] == "REPEAT_COUNT_INVALID"
+    assert rejected.json()["attempts"] == []
+    assert rejected.json()["idsStatus"] is None
+    assert rejected.json()["flowTraces"][0]["route"] == ["terminal"]
     assert len(emitted) == 1
 
     accepted = client.post(

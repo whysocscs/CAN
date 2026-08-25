@@ -373,9 +373,7 @@ class BeginnerCanAttackSession:
         capture = self._capture_files.get(file_name)
         if capture is None:
             verdict = "CAPTURE_REQUIRED" if file_name == "capture.log" else "CAPTURE_FILE_UNKNOWN"
-            data: tuple[str, ...] = ()
         else:
-            data = capture.data
             if raw_repeat_count != "1":
                 verdict = "REPEAT_COUNT_INVALID"
             elif capture.session_id != self.session_id:
@@ -386,24 +384,24 @@ class BeginnerCanAttackSession:
                 verdict = "CAPTURE_CONTENT_MISMATCH"
             else:
                 verdict = "EXECUTED"
-        attempt = self._record_attempt(self.spec.target_can_id, data, verdict)
-        if attempt.accepted:
-            self._left_door = "open"
-            self._right_door = "closed"
-            self._completed = True
-            self._stage = "EVIDENCE"
-            return self._terminal_ok(
+        if verdict != "EXECUTED":
+            self._last_verdict = verdict
+            self._stage = "EXECUTE" if capture is not None else "CAPTURE"
+            return self._terminal_error(
                 verdict,
-                _NORMAL_IDS_EXPLANATION,
-                attempts=(attempt,),
-                ids_status="NORMAL",
+                f"virtual canplayer preflight failed: {verdict}",
             )
-        self._stage = "EXECUTE" if capture is not None else "CAPTURE"
-        return self._terminal_error(
-            verdict,
-            f"Toy ECU rejected replay attempt: {verdict}",
+
+        attempt = self._record_attempt(self.spec.target_can_id, capture.data, "EXECUTED")
+        self._left_door = "open"
+        self._right_door = "closed"
+        self._completed = True
+        self._stage = "EVIDENCE"
+        return self._terminal_ok(
+            "EXECUTED",
+            _NORMAL_IDS_EXPLANATION,
             attempts=(attempt,),
-            ids_status="ALERT",
+            ids_status="NORMAL",
         )
 
     def _record_attempt(

@@ -157,7 +157,7 @@ def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str
             route=route,
             stopped_at="terminal" if not result.ok else None,
             outcome=outcome,
-            ecu_verdict=result.code if not result.ok else None,
+            ecu_verdict=None,
             ids_verdict=None,
             effect_target=None,
             effect_state=None,
@@ -179,7 +179,7 @@ def _door_script_traces(script: str, result: ScriptResult) -> list[dict[str, obj
                 sequence=index + 1,
                 command_label=commands[index][1],
                 command_index=commands[index][0],
-                ids_status=result.ids_status,
+                ids_status=result.ids_status if index == len(result.attempts) - 1 else None,
             )
             for index, attempt in enumerate(result.attempts)
         ]
@@ -198,7 +198,7 @@ def _door_script_traces(script: str, result: ScriptResult) -> list[dict[str, obj
             route=["terminal"],
             stopped_at="terminal",
             outcome="REJECTED",
-            ecu_verdict=result.error,
+            ecu_verdict=None,
             ids_verdict=None,
             effect_target=None,
             effect_state=None,
@@ -229,8 +229,10 @@ def _script_response(script: str, result: ScriptResult) -> dict[str, object]:
     }
 
 
-def _metadata_for(session_id: str, attempt: FrameAttempt, ids_status: str) -> dict[str, dict[str, Any]]:
-    return {
+def _metadata_for(
+    session_id: str, attempt: FrameAttempt, ids_status: str | None
+) -> dict[str, dict[str, Any]]:
+    metadata: dict[str, dict[str, Any]] = {
         "context": {
             "command": "DOOR_LOCK",
             "source": "obd",
@@ -240,7 +242,7 @@ def _metadata_for(session_id: str, attempt: FrameAttempt, ids_status: str) -> di
             "action": "LEFT_DOOR_OPEN" if attempt.data[0] == "00" else "LEFT_DOOR_CLOSE",
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
-        "monitoring": {"idsObserved": True, "status": ids_status},
+        "monitoring": {"idsObserved": True},
         "lab": {
             "labId": "door-blackbox-v1",
             "sessionId": session_id,
@@ -248,6 +250,9 @@ def _metadata_for(session_id: str, attempt: FrameAttempt, ids_status: str) -> di
             "attemptId": attempt.attempt_id,
         },
     }
+    if ids_status is not None:
+        metadata["monitoring"]["status"] = ids_status
+    return metadata
 
 
 def _clear_lab_replay_state() -> None:
@@ -341,7 +346,7 @@ async def run_script(
         )
         result = session.run_script(request.script)
     emitted = False
-    for attempt in result.attempts:
+    for index, attempt in enumerate(result.attempts):
         if not attempt.accepted:
             continue
         if emitted and result.interval_ms is not None:
@@ -349,10 +354,11 @@ async def run_script(
         async with _lifecycle_lock:
             if not _is_active_attempt(request_correlation, attempt):
                 continue
+            ids_status = result.ids_status if index == len(result.attempts) - 1 else None
             await emit_frame(
                 attempt.can_id,
                 list(attempt.data),
-                **_metadata_for(session.session_id, attempt, result.ids_status),
+                **_metadata_for(session.session_id, attempt, ids_status),
             )
             emitted = True
     return _script_response(request.script, result)

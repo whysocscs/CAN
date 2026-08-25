@@ -131,11 +131,13 @@ def test_replay_requires_current_same_session_unmodified_capture_and_exact_repea
         (replace(original, generation=99), "CAPTURE_GENERATION_MISMATCH"),
         (replace(original, data=("01", "01")), "CAPTURE_CONTENT_MISMATCH"),
     )
+    variant_results = []
     for capture, expected_code in variants:
         session._capture_files["capture.log"] = capture
         rejected = session.execute_terminal("canplayer -I capture.log -l 1")
         assert rejected.code == expected_code
         assert rejected.state["completed"] is False
+        variant_results.append(rejected)
 
     session._capture_files["capture.log"] = original
     wrong_file = session.execute_terminal("canplayer -I unknown.log -l 1")
@@ -144,6 +146,20 @@ def test_replay_requires_current_same_session_unmodified_capture_and_exact_repea
     assert wrong_file.code == "CAPTURE_FILE_UNKNOWN"
     assert wrong_repeat.code == "REPEAT_COUNT_INVALID"
     assert noncanonical_repeat.code == "REPEAT_COUNT_INVALID"
+
+    preflight_results = [
+        before_capture,
+        wrong_file,
+        wrong_repeat,
+        noncanonical_repeat,
+        *variant_results,
+    ]
+    for rejected in preflight_results:
+        assert rejected.ok is False
+        assert rejected.attempts == ()
+        assert rejected.ids_status is None
+        assert rejected.state["attemptCount"] == 0
+        assert rejected.state["vehicleState"]["leftDoor"] == "closed"
 
     executed = session.execute_terminal("canplayer -I capture.log -l 1")
     assert executed.code == "EXECUTED"
@@ -225,12 +241,12 @@ def test_script_final_action_rejects_surrounding_whitespace(
 def test_reset_increments_generation_clears_capture_and_never_reuses_opaque_ids() -> None:
     replay = _session("replay", "session-a")
     first_capture = replay.execute_terminal("candump -L vcan0 > capture.log").captures[0]
-    first_attempt = replay.execute_terminal("canplayer -I capture.log -l 2").attempts[0]
+    first_attempt = replay.execute_terminal("canplayer -I capture.log -l 1").attempts[0]
 
     reset_state = replay.reset()
     after_reset = replay.execute_terminal("canplayer -I capture.log -l 1")
     second_capture = replay.execute_terminal("candump -L vcan0 > capture.log").captures[0]
-    second_attempt = replay.execute_terminal("canplayer -I capture.log -l 2").attempts[0]
+    second_attempt = replay.execute_terminal("canplayer -I capture.log -l 1").attempts[0]
 
     assert reset_state["generation"] == 1
     assert reset_state["attemptCount"] == 0

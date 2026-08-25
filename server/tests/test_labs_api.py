@@ -267,7 +267,7 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
             "action": "LEFT_DOOR_OPEN",
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
-        "monitoring": {"idsObserved": True, "status": "NORMAL"},
+        "monitoring": {"idsObserved": True},
         "lab": {
             "labId": "door-blackbox-v1",
             "sessionId": session_id,
@@ -926,6 +926,10 @@ def test_door_results_expose_authoritative_flow_traces() -> None:
     assert all(item["outcome"] == "EXECUTED" for item in accepted["flowTraces"])
     assert accepted["flowTraces"][0]["route"][-2:] == ["body", "leftDoor"]
     assert accepted["flowTraces"][0]["effectState"] == "open"
+    assert [item["idsVerdict"] for item in accepted["flowTraces"]] == [None, None, "NORMAL"]
+    assert emitted[-3]["monitoring"] == {"idsObserved": True}
+    assert emitted[-2]["monitoring"] == {"idsObserved": True}
+    assert emitted[-1]["monitoring"] == {"idsObserved": True, "status": "NORMAL"}
     assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
 
 
@@ -963,7 +967,7 @@ def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str
             "route": ["terminal"],
             "stoppedAt": "terminal",
             "outcome": "REJECTED",
-            "ecuVerdict": "COMMAND_REJECTED",
+            "ecuVerdict": None,
             "idsVerdict": None,
             "effectTarget": None,
             "effectState": None,
@@ -975,6 +979,24 @@ def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str
         "rightDoor": "closed",
     }
     assert emitted == []
+
+
+@pytest.mark.parametrize("script", ["interval_ms=invalid", "echo no-frame"])
+def test_door_script_grammar_and_local_validation_do_not_claim_ids_observation(script: str) -> None:
+    app = FastAPI()
+    app.include_router(labs.router)
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={"script": script},
+    ).json()
+
+    assert result["attempts"] == []
+    assert result["idsStatus"] is None
+    assert result["flowTraces"][0]["ecuVerdict"] is None
+    assert result["flowTraces"][0]["idsVerdict"] is None
 
 
 def test_terminal_flow_trace_normalizes_leading_whitespace_for_cansend() -> None:
