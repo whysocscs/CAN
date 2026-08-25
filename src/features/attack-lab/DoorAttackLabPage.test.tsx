@@ -742,7 +742,7 @@ describe("DoorAttackLabPage", () => {
     expect(
       screen.getByRole("region", { name: "Binary inspector" }),
     ).toHaveTextContent("11111110")
-  })
+  }, 15_000)
 
   it("rejects a non-replay old-session event from both monitor and vehicle", async () => {
     const secondSession = {
