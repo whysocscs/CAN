@@ -285,6 +285,8 @@ const navItems: NavItem[] = [
   { id: "about", label: "프로젝트 소개", icon: "book", route: "about" },
 ]
 
+const hiddenNavItemIds = new Set(["practice/monitor", "ids", "models"])
+
 function getIcon(icon: string, size = 16) {
   const props = { width: size, height: size }
   switch (icon) {
@@ -480,7 +482,7 @@ export default function Sidebar() {
           padding: "8px 0",
         }}
       >
-        {navItems.map((item) => {
+        {navItems.filter((item) => !hiddenNavItemIds.has(item.id)).map((item) => {
           const locked = isLocked(
             item.id,
             devMode,
@@ -488,7 +490,10 @@ export default function Sidebar() {
             progress.courseProgress,
           )
           const isActive = currentRoute === item.route
-          const hasChildren = item.children && item.children.length > 0
+          const visibleChildren = item.children?.filter(
+            (child) => !hiddenNavItemIds.has(child.id),
+          )
+          const hasChildren = visibleChildren && visibleChildren.length > 0
           const isOpen = openGroups.includes(item.id)
 
           return (
@@ -550,7 +555,7 @@ export default function Sidebar() {
               {/* Children */}
               {hasChildren && isOpen && !collapsed && (
                 <div style={{ paddingLeft: 12 }}>
-                  {item.children!.map((child) => {
+                  {visibleChildren!.map((child) => {
                     const childLocked = isLocked(
                       child.id,
                       devMode,

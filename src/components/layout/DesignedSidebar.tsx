@@ -174,6 +174,8 @@ const navItems: NavItem[] = [
   { id: "about", label: "프로젝트 소개", icon: "about", route: "about" },
 ]
 
+const hiddenNavItemIds = new Set(["practice/monitor", "ids", "models"])
+
 const mobileItems = [
   navItems[0],
   navItems[1],
@@ -376,7 +378,7 @@ export default function DesignedSidebar() {
         />
         {item.children && expanded && (
           <div className="designed-nav__children">
-            {item.children.map((child) => (
+            {item.children.filter((child) => !hiddenNavItemIds.has(child.id)).map((child) => (
               <NavButton
                 key={child.id}
                 item={child}
@@ -434,7 +436,7 @@ export default function DesignedSidebar() {
         )}
 
         <nav className="designed-nav" aria-label="주요 메뉴">
-          {navItems.map(renderItem)}
+          {navItems.filter((item) => !hiddenNavItemIds.has(item.id)).map(renderItem)}
         </nav>
 
         <div className="designed-sidebar__footer">
@@ -456,7 +458,7 @@ export default function DesignedSidebar() {
       </div>
 
       <nav className="designed-sidebar__mobile" aria-label="모바일 주요 메뉴">
-        {mobileItems.map((item) => {
+        {mobileItems.filter((item) => !hiddenNavItemIds.has(item.id)).map((item) => {
           const locked = isLocked(item.id, devMode, progress.courseProgress)
           const active = item.route === currentRoute
           return (
