@@ -714,6 +714,10 @@ export default function VehicleNetworkViewport({
       ? cameraFocusForNode(focusedNodeId, route, targetId, effectId)
       : { view: initialView },
   )
+  const previousPlaybackRef = useRef({
+    phase: IDLE_PLAYBACK.phase,
+    playbackId: IDLE_PLAYBACK.playbackId,
+  })
   const cameraPresets = useMemo(
     () => createCameraPresets(sourceNode, targetNode, effectNode),
     [effectNode, sourceNode, targetNode],
@@ -729,6 +733,23 @@ export default function VehicleNetworkViewport({
     if (!focusedNodeId) return
     onSelectNode(focusedNodeId)
   }, [focusedNodeId, onSelectNode])
+
+  useEffect(() => {
+    const previousPlayback = previousPlaybackRef.current
+    previousPlaybackRef.current = {
+      phase: playbackState.phase,
+      playbackId: playbackState.playbackId,
+    }
+    if (
+      playbackState.phase === "playing"
+      && (
+        previousPlayback.phase === "idle"
+        || previousPlayback.playbackId !== playbackState.playbackId
+      )
+    ) {
+      setCameraFocus({ view: "overview" })
+    }
+  }, [playbackState.phase, playbackState.playbackId])
 
   const focusedId =
     cameraFocus.view === "node"

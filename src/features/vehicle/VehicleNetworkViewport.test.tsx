@@ -453,6 +453,70 @@ describe("VehicleNetworkViewport", () => {
     expect(canvasState.mounts).toBe(1)
   })
 
+  it("resets once for a new automatic playback without interrupting inspection", async () => {
+    const user = userEvent.setup()
+    const view = renderDoorViewport({
+      playback: {
+        playbackId: 7,
+        phase: "idle",
+        trace: null,
+        traceIndex: 0,
+        traceCount: 0,
+        segmentIndex: 0,
+      },
+    })
+    const viewport = screen.getByRole("region", {
+      name: "Door spoofing route vehicle network",
+    })
+
+    await user.click(screen.getByRole("button", { name: "Target ECU" }))
+    expect(viewport).toHaveAttribute("data-camera-preset", "target")
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 7,
+          segmentIndex: 0,
+        }}
+      />,
+    )
+    await waitFor(() =>
+      expect(viewport).toHaveAttribute("data-camera-preset", "overview"),
+    )
+
+    await user.click(screen.getByRole("button", { name: "Toy Gateway 선택" }))
+    expect(viewport).toHaveAttribute("data-camera-preset", "node:gateway")
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 7,
+          segmentIndex: 4,
+        }}
+      />,
+    )
+    expect(viewport).toHaveAttribute("data-camera-preset", "node:gateway")
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 8,
+          segmentIndex: 0,
+        }}
+      />,
+    )
+    await waitFor(() =>
+      expect(viewport).toHaveAttribute("data-camera-preset", "overview"),
+    )
+    expect(canvasState.mounts).toBe(1)
+  })
+
   it("selects logical anchors without remounting Canvas", async () => {
     const user = userEvent.setup()
     renderDoorViewport()
