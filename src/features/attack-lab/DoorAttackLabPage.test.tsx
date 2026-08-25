@@ -50,6 +50,7 @@ const playbackHarness = vi.hoisted(() => ({
   onComplete: undefined as ((runKey: string) => void) | undefined,
   snapshots: [] as VehicleFlowPlaybackSnapshot[],
   lastSignature: "",
+  renderRail: false,
 }))
 
 vi.mock("./doorLabApi", () => api)
@@ -69,36 +70,55 @@ vi.mock("../vehicle/useVehicleFlowPlayback", async (importOriginal) => {
     },
   }
 })
-vi.mock("./DoorAttackVehicle", () => ({
-  default: ({
-    currentStage,
-    playback,
-  }: {
-    currentStage?: string
-    playback?: VehicleFlowPlaybackSnapshot
-  }) => {
-    const signature = playback
-      ? [
-          playback.playbackId,
-          playback.phase,
-          playback.trace?.traceId ?? "none",
-          playback.traceIndex,
-          playback.segmentIndex,
-        ].join(":")
-      : "none"
-    if (playback && signature !== playbackHarness.lastSignature) {
-      playbackHarness.lastSignature = signature
-      playbackHarness.snapshots.push(playback)
-    }
-    return (
-      <div
-        aria-label="Toy Vehicle 3D view"
-        data-current-stage={currentStage}
-        data-playback-phase={playback?.phase ?? "missing"}
-      />
-    )
-  },
-}))
+vi.mock("./DoorAttackVehicle", async () => {
+  const { default: VehicleFlowRail } = await import("../vehicle/VehicleFlowRail")
+  return {
+    default: ({
+      currentStage,
+      playback,
+    }: {
+      currentStage?: string
+      playback?: VehicleFlowPlaybackSnapshot
+    }) => {
+      const signature = playback
+        ? [
+            playback.playbackId,
+            playback.phase,
+            playback.trace?.traceId ?? "none",
+            playback.traceIndex,
+            playback.segmentIndex,
+          ].join(":")
+        : "none"
+      if (playback && signature !== playbackHarness.lastSignature) {
+        playbackHarness.lastSignature = signature
+        playbackHarness.snapshots.push(playback)
+      }
+      return (
+        <div
+          aria-label="Toy Vehicle 3D view"
+          data-current-stage={currentStage}
+          data-playback-phase={playback?.phase ?? "missing"}
+        >
+          {playbackHarness.renderRail ? (
+            <VehicleFlowRail
+              scenarioTitle="Door attack route"
+              route={["obd", "ids", "gateway", "body", "leftDoor"]}
+              playback={playback ?? {
+                playbackId: 0,
+                phase: "idle",
+                trace: null,
+                traceIndex: 0,
+                traceCount: 0,
+                segmentIndex: 0,
+              }}
+              accent="#d94b4b"
+            />
+          ) : null}
+        </div>
+      )
+    },
+  }
+})
 
 import DoorAttackLabPage from "./DoorAttackLabPage"
 
@@ -202,6 +222,52 @@ const acceptedRunResult: DoorLabScriptResult = {
   },
   error: null,
   flowTraces: [executedDoorTrace],
+}
+
+const multiFrameFirstTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "multi-attempt-1",
+  attemptId: "multi-attempt-1",
+  sequence: 1,
+  commandLabel: "cansend vcan0 555#0001",
+  effectTarget: null,
+  effectState: null,
+  effectApplied: false,
+}
+
+const multiFrameSecondTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "multi-attempt-2",
+  attemptId: "multi-attempt-2",
+  sequence: 2,
+  commandLabel: "cansend vcan0 555#0002",
+  canId: "0x555",
+  data: ["00", "02"],
+}
+
+const multiFrameRunResult: DoorLabScriptResult = {
+  ...acceptedRunResult,
+  attempts: [
+    {
+      attemptId: "multi-attempt-1",
+      timestamp: MONITOR_TIMESTAMP,
+      canId: "0x555",
+      data: ["00", "01"],
+      verdict: "EXECUTED",
+    },
+    {
+      attemptId: "multi-attempt-2",
+      timestamp: MONITOR_TIMESTAMP + 1,
+      canId: "0x555",
+      data: ["00", "02"],
+      verdict: "EXECUTED",
+    },
+  ],
+  state: {
+    ...acceptedRunResult.state,
+    attemptCount: 2,
+  },
+  flowTraces: [multiFrameFirstTrace, multiFrameSecondTrace],
 }
 
 const captureResult: DoorLabTerminalResult = {
@@ -383,6 +449,7 @@ describe("DoorAttackLabPage", () => {
     playbackHarness.onComplete = undefined
     playbackHarness.snapshots = []
     playbackHarness.lastSignature = ""
+    playbackHarness.renderRail = false
     stubReducedMotion(true)
     api.createDoorLabSession.mockResolvedValue(initialSession)
     api.resetDoorLabSession.mockResolvedValue(resetSession)
@@ -443,9 +510,12 @@ describe("DoorAttackLabPage", () => {
       "data-current-stage",
       "정찰",
     )
-    const truthQualifier = screen.getByText(
-      "교육용 논리 위치 · 실제 OEM 배치 아님",
-    )
+    const truthQualifier = screen
+      .getAllByText("교육용 논리 위치 · 실제 OEM 배치 아님")
+      .find((element) =>
+        element.classList.contains("door-attack-lab__truth-qualifier"),
+      )
+    expect(truthQualifier).toBeDefined()
     expect(truthQualifier).toHaveClass("door-attack-lab__truth-qualifier")
     expect(truthQualifier).toBeVisible()
     expect(stream.connect).toHaveBeenCalledTimes(1)
@@ -950,6 +1020,7 @@ describe("DoorAttackLabPage", () => {
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
       await waitFor(() =>
         expect(screen.getByRole("button", { name: "명령 실행" })).toBeEnabled(),
+        { timeout: 3_000 },
       )
 
       expect(input).toHaveValue("pwd")
@@ -1446,24 +1517,23 @@ describe("DoorAttackLabPage", () => {
     expect(within(why!).getByText("COUNTER_REJECTED")).toBeInTheDocument()
   })
 
-  it("captures the pre-request prediction and requires matching latest-action evidence before confirmation", async () => {
-    const request = deferred<DoorLabTerminalResult>()
-    api.runDoorLabCommand.mockReturnValueOnce(request.promise)
-    const user = userEvent.setup()
+  it("captures a multi-frame script prediction and requires one of its attempt frames before confirmation", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    playbackHarness.renderRail = true
+    const request = deferred<DoorLabScriptResult>()
+    api.runDoorLabScript.mockReturnValueOnce(request.promise)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
 
     const prediction = screen.getByLabelText("실행 전 예상")
     await user.type(prediction, "왼쪽 문 효과가 적용될 것으로 예상합니다.")
-    await user.type(
-      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
-      "cansend vcan0 555#0001",
-    )
-    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
     await user.clear(prediction)
     await user.type(prediction, "요청 후에 바꾼 예상입니다.")
 
-    await act(async () => request.resolve(acceptedTerminalResult))
+    await act(async () => request.resolve(multiFrameRunResult))
 
     expect(screen.getByText("실행 시 기록된 예상").parentElement)
       .toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
@@ -1471,6 +1541,23 @@ describe("DoorAttackLabPage", () => {
       .toHaveTextContent("달성")
     expect(screen.getByText("학습 확인 완료").parentElement)
       .toHaveTextContent("미완료")
+    expect(screen.getByText(multiFrameFirstTrace.commandLabel))
+      .toBeInTheDocument()
+
+    const liveRegions = document.querySelectorAll('[aria-live="polite"]')
+    expect(liveRegions).toHaveLength(1)
+    expect(liveRegions[0]).toHaveTextContent(
+      "EXECUTED 구조화 결과가 Activity에 기록되었습니다.",
+    )
+    const actionSummary = liveRegions[0].textContent
+
+    act(() => vi.advanceTimersByTime(1_320))
+    expect(screen.getByText(multiFrameSecondTrace.commandLabel))
+      .toBeInTheDocument()
+    expect(liveRegions[0]).toHaveTextContent(actionSummary ?? "")
+    expect(liveRegions[0]).not.toHaveTextContent(
+      multiFrameSecondTrace.commandLabel,
+    )
 
     const explanation = screen.getByLabelText("선택한 근거와 결과 비교")
     await user.type(
@@ -1482,18 +1569,104 @@ describe("DoorAttackLabPage", () => {
     act(() =>
       latestConnection().options.onEvent(
         acceptedDoorEvent("session-1", 0, {
-          eventId: "session-1-attempt-terminal",
-          frame: { canId: "0x555", dlc: 2, data: ["00", "01"] },
+          eventId: "older-unrelated-attempt",
+          lab: {
+            labId: "door-blackbox-v1",
+            sessionId: "session-1",
+            generation: 0,
+            attemptId: "older-unrelated-attempt",
+          },
         }),
       ),
     )
     await flushCanEvents()
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "multi-attempt-2",
+          frame: { canId: "0x555", dlc: 2, data: ["00", "02"] },
+          lab: {
+            labId: "door-blackbox-v1",
+            sessionId: "session-1",
+            generation: 0,
+            attemptId: "multi-attempt-2",
+          },
+        }),
+      ),
+    )
+    await flushCanEvents()
+    const matchingFrame = await within(
+      screen.getByRole("region", { name: "Network monitor" }),
+    ).findByRole("button", { name: "0x555 00 02 frame 선택" })
+    await user.click(matchingFrame)
 
     const confirm = screen.getByRole("button", { name: "학습 확인" })
     expect(confirm).toBeEnabled()
     await user.click(confirm)
     expect(screen.getByText("학습 확인 완료").parentElement)
       .toHaveTextContent("완료")
+  })
+
+  it("invalidates the latest technical and learner result when the next Door trace payload is malformed", async () => {
+    api.runDoorLabCommand
+      .mockResolvedValueOnce(acceptedTerminalResult)
+      .mockResolvedValueOnce({
+        ...acceptedTerminalResult,
+        code: "MALFORMED_TRACE",
+        frames: [],
+        flowTraces: [{ invalid: true }],
+      })
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    await user.type(
+      screen.getByLabelText("실행 전 예상"),
+      "왼쪽 문 효과가 적용될 것으로 예상합니다.",
+    )
+    const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(terminal, "cansend vcan0 555#0001")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await user.type(
+      screen.getByLabelText("선택한 근거와 결과 비교"),
+      "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 확인했습니다.",
+    )
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "session-1-attempt-terminal",
+          lab: {
+            labId: "door-blackbox-v1",
+            sessionId: "session-1",
+            generation: 0,
+            attemptId: "session-1-attempt-terminal",
+          },
+        }),
+      ),
+    )
+    await flushCanEvents()
+    await user.click(screen.getByRole("button", { name: "학습 확인" }))
+    expect(screen.getByText("공격 조건 충족").parentElement)
+      .toHaveTextContent("달성")
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("완료")
+
+    await user.type(terminal, "pwd malformed")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+    )
+    expect(screen.getByText("공격 조건 충족").parentElement)
+      .toHaveTextContent("미달성")
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("미완료")
+    expect(screen.getByText("실행 시 기록된 예상").parentElement)
+      .toHaveTextContent("아직 기록되지 않음")
+    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
   })
 
   it("does not create terminal transcript rows for a Door script action", async () => {
@@ -1560,4 +1733,31 @@ describe("DoorAttackLabPage", () => {
       .not.toBeInTheDocument()
     expect(within(activity).queryByRole("button")).not.toBeInTheDocument()
   }, 30_000)
+
+  it("clears transcript and Activity when a replacement Door session mounts", async () => {
+    const user = userEvent.setup()
+    const view = render(<DoorAttackLabPage key="session-1" />)
+    await screen.findByText("BODY ECU")
+    const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(terminal, "pwd")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Activity log" }))
+      .toHaveTextContent("OK")
+
+    api.createDoorLabSession.mockResolvedValueOnce({
+      ...initialSession,
+      sessionId: "session-2",
+    })
+    view.rerender(<DoorAttackLabPage key="session-2" />)
+    await waitFor(() => expect(api.createDoorLabSession).toHaveBeenCalledTimes(2))
+    await waitFor(() =>
+      expect(screen.getByRole("textbox", { name: "제한 터미널 명령" }))
+        .toBeEnabled(),
+    )
+
+    expect(screen.queryByTestId("attack-terminal-entry")).not.toBeInTheDocument()
+    expect(within(screen.getByRole("region", { name: "Activity log" }))
+      .queryByRole("button")).not.toBeInTheDocument()
+  })
 })

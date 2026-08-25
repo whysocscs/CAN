@@ -518,6 +518,11 @@ export default function BeginnerCanAttackLabPage({
       flow.clear()
       pendingFlowRef.current = null
       applyVehicleState(result.state.vehicleState)
+      setLastAction(null)
+      setSelectedActivityId(null)
+      setPredictionBeforeAction("")
+      setExplanation("")
+      setConfirmed(false)
       setActionError(
         "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
       )

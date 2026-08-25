@@ -337,15 +337,6 @@
 .vehicle-flow-rail__mode { color: #f6cb72; font-weight: 800; }
 .vehicle-flow-rail__qualifier { color: #c4d2e5; }
 .vehicle-flow-rail__hud strong { color: #ffd3d3; }
-.vehicle-flow-rail__announcement {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  clip-path: inset(50%);
-  white-space: nowrap;
-}
 
 .vehicle-network-viewport__toolbar {
   display: flex;

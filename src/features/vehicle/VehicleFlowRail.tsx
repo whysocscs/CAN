@@ -96,21 +96,6 @@ function rejectionText(trace: VehicleFlowTrace | null): string | null {
   return `${flowNodeLabel(trace.stoppedAt)}에서 거부`
 }
 
-function liveAnnouncement(playback: VehicleFlowPlaybackSnapshot): string {
-  const trace = playback.trace
-  if (!trace || playback.phase === "idle") return ""
-  if (playback.phase === "playing") {
-    return `교육용 slow-motion trace 시작: ${trace.commandLabel}`
-  }
-  if (playback.phase === "complete") {
-    return `교육용 slow-motion trace 결과: ${trace.outcome}`
-  }
-  if (playback.phase === "cancelled") {
-    return "교육용 slow-motion trace 취소됨"
-  }
-  return ""
-}
-
 function FlowNode({
   node,
   state,
@@ -172,9 +157,6 @@ export default function VehicleFlowRail({
         <span>{idsVerdict(trace)}</span>
         {rejection ? <strong>{rejection}</strong> : null}
       </div>
-      <p className="vehicle-flow-rail__announcement" aria-live="polite" aria-atomic="true">
-        {liveAnnouncement(playback)}
-      </p>
     </section>
   )
 }

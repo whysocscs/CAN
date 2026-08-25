@@ -35,25 +35,45 @@ const stream = vi.hoisted(() => ({ connect: vi.fn(), options: null as null | {
   onEvent: (event: CanEvent) => void
   onStatus?: (status: "connecting" | "open" | "closed") => void
 } }))
+const viewportHarness = vi.hoisted(() => ({ renderRail: false }))
 
 vi.mock("./beginnerCanAttackApi", () => api)
 vi.mock("../can/events/backendProvider", () => ({ connectCanStream: stream.connect }))
-vi.mock("../vehicle/VehicleNetworkViewport", () => ({
-  default: (props: Record<string, unknown>) => {
-    const playback = props.playback as VehicleFlowPlaybackSnapshot | undefined
-    return (
-      <div
-        aria-label={`${props.scenarioTitle} vehicle network`}
-        data-route={String(props.route)}
-        data-target={props.targetId}
-        data-effect={props.effectId}
-        data-playback-phase={playback?.phase ?? "missing"}
-        data-trace-id={playback?.trace?.traceId ?? "none"}
-        data-segment-index={playback?.segmentIndex ?? -1}
-      />
-    )
-  },
-}))
+vi.mock("../vehicle/VehicleNetworkViewport", async () => {
+  const { default: VehicleFlowRail } = await import("../vehicle/VehicleFlowRail")
+  return {
+    default: (props: Record<string, unknown>) => {
+      const playback = props.playback as VehicleFlowPlaybackSnapshot | undefined
+      return (
+        <div
+          aria-label={`${props.scenarioTitle} vehicle network`}
+          data-route={String(props.route)}
+          data-target={props.targetId}
+          data-effect={props.effectId}
+          data-playback-phase={playback?.phase ?? "missing"}
+          data-trace-id={playback?.trace?.traceId ?? "none"}
+          data-segment-index={playback?.segmentIndex ?? -1}
+        >
+          {viewportHarness.renderRail ? (
+            <VehicleFlowRail
+              scenarioTitle={String(props.scenarioTitle)}
+              route={props.route as VehicleFlowTrace["route"]}
+              playback={playback ?? {
+                playbackId: 0,
+                phase: "idle",
+                trace: null,
+                traceIndex: 0,
+                traceCount: 0,
+                segmentIndex: 0,
+              }}
+              accent={String(props.accent)}
+            />
+          ) : null}
+        </div>
+      )
+    },
+  }
+})
 
 import BeginnerCanAttackLabPage from "./BeginnerCanAttackLabPage"
 
@@ -226,6 +246,7 @@ describe("BeginnerCanAttackLabPage", () => {
   beforeEach(() => {
     vi.resetAllMocks()
     vehicle.reset()
+    viewportHarness.renderRail = false
     api.createBeginnerCanAttackSession.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(session(scenario)))
     api.resetBeginnerCanAttackSession.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(session(scenario, 1)))
     api.runBeginnerCanAttackTerminal.mockImplementation((scenario: BeginnerCanAttackScenario) => Promise.resolve(result(session(scenario))))
@@ -454,6 +475,161 @@ describe("BeginnerCanAttackLabPage", () => {
         .toHaveAttribute("data-playback-phase", "complete")
     },
   )
+
+  it.each([
+    ["spoofing", "tailgate"],
+    ["replay", "doorL"],
+  ] as const)(
+    "renders a successful %s terminal action through all four shared learning components",
+    async (scenarioName, part) => {
+      stubReducedMotion(true)
+      viewportHarness.renderRail = true
+      const current = session(scenarioName)
+      const trace = executedBeginnerTrace(scenarioName)
+      const completed = {
+        ...current,
+        stage: "EVIDENCE" as const,
+        completed: true,
+        vehicleState: {
+          ...current.vehicleState,
+          [part === "doorL" ? "leftDoor" : "tailgate"]: "open",
+        },
+      } satisfies BeginnerCanAttackState
+      api.runBeginnerCanAttackTerminal.mockResolvedValueOnce(result(completed, {
+        code: "EXECUTED",
+        output: "EXECUTED",
+        attempts: [{
+          attemptId: trace.attemptId!,
+          timestamp: 10,
+          sessionId: current.sessionId,
+          generation: current.generation,
+          canId: trace.canId!,
+          data: trace.data,
+          verdict: "EXECUTED",
+        }],
+        idsStatus: "NORMAL",
+        flowTraces: [trace],
+      }))
+      const user = userEvent.setup()
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      await screen.findByText(scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU")
+
+      const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+      await user.type(terminal, trace.commandLabel)
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+      const transcript = screen.getByRole("region", {
+        name: "Virtual terminal transcript",
+      })
+      expect(within(transcript).getByTestId("attack-terminal-entry"))
+        .toHaveAttribute("data-stream", "silent")
+      expect(within(transcript).queryByText("EXECUTED")).not.toBeInTheDocument()
+      const why = screen
+        .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
+        .closest("section")
+      expect(why).not.toBeNull()
+      expect(within(why!).getByText("차량 영향").parentElement)
+        .toHaveTextContent("적용됨")
+      expect(within(screen.getByRole("region", { name: "Activity log" }))
+        .getByRole("button", { name: /EXECUTED/ })).toBeInTheDocument()
+      expect(screen.getByRole("heading", { name: "Learning Check" }))
+        .toBeInTheDocument()
+      expect(screen.getByText("공격 조건 충족").parentElement)
+        .toHaveTextContent("달성")
+
+      const liveRegions = document.querySelectorAll('[aria-live="polite"]')
+      expect(liveRegions).toHaveLength(1)
+      expect(liveRegions[0]).toHaveTextContent(
+        "EXECUTED 구조화 결과가 Activity에 기록되었습니다.",
+      )
+    },
+  )
+
+  it("invalidates the latest Beginner technical and learner result when the next trace payload is malformed", async () => {
+    stubReducedMotion(true)
+    const current = session("spoofing")
+    const trace = executedBeginnerTrace("spoofing")
+    const completed: BeginnerCanAttackState = {
+      ...current,
+      stage: "EVIDENCE",
+      completed: true,
+      vehicleState: { ...current.vehicleState, tailgate: "open" },
+    }
+    api.runBeginnerCanAttackTerminal
+      .mockResolvedValueOnce(result(completed, {
+        code: "EXECUTED",
+        attempts: [{
+          attemptId: trace.attemptId!,
+          timestamp: 10,
+          sessionId: current.sessionId,
+          generation: current.generation,
+          canId: trace.canId!,
+          data: trace.data,
+          verdict: "EXECUTED",
+        }],
+        flowTraces: [trace],
+      }))
+      .mockResolvedValueOnce(result(completed, {
+        ok: false,
+        code: "COMMAND_REJECTED",
+        output: "malformed trace payload",
+        flowTraces: [{ invalid: true }],
+      }))
+    const user = userEvent.setup()
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await screen.findByText("REAR ECU")
+
+    await user.type(
+      screen.getByLabelText("실행 전 예상"),
+      "Tailgate 효과가 적용될 것으로 예상합니다.",
+    )
+    const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(terminal, trace.commandLabel)
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await user.type(
+      screen.getByLabelText("선택한 근거와 결과 비교"),
+      "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 확인했습니다.",
+    )
+    act(() =>
+      stream.options?.onEvent(liveEvent(current, {
+        eventId: trace.attemptId!,
+        frame: { canId: trace.canId!, dlc: trace.data.length, data: trace.data },
+        lab: {
+          labId: current.labId,
+          scenario: current.scenario,
+          sessionId: current.sessionId,
+          generation: current.generation,
+          attemptId: trace.attemptId!,
+          stage: "impact",
+        },
+      })),
+    )
+    await flushStream()
+    await user.click(
+      within(screen.getByRole("region", { name: "Network monitor" }))
+        .getByRole("button"),
+    )
+    await user.click(screen.getByRole("button", { name: "학습 확인" }))
+    expect(screen.getByText("공격 조건 충족").parentElement)
+      .toHaveTextContent("달성")
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("완료")
+
+    await user.type(terminal, "bad trace payload")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+    )
+    expect(screen.getByText("공격 조건 충족").parentElement)
+      .toHaveTextContent("미달성")
+    expect(screen.getByText("학습 확인 완료").parentElement)
+      .toHaveTextContent("미완료")
+    expect(screen.getByText("실행 시 기록된 예상").parentElement)
+      .toHaveTextContent("아직 기록되지 않음")
+    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+  })
 
   it("plays capture evidence without opening any vehicle part", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })

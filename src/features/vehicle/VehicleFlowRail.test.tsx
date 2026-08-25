@@ -189,4 +189,51 @@ describe("VehicleFlowRail", () => {
     expect(within(rail).queryByText("Left Door Effect")).not.toBeInTheDocument()
     expect(screen.getByText("교육용 논리 위치 · 실제 OEM 배치 아님")).toBeInTheDocument()
   })
+
+  it("keeps per-segment and per-trace HUD changes out of live announcements", () => {
+    const secondTrace = {
+      ...executedAlertTrace,
+      traceId: "attempt-second",
+      attemptId: "attempt-second",
+      commandLabel: "second synthetic script line",
+      sequence: 2,
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 7,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 0,
+        }}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText(executedAlertTrace.commandLabel)).toBeInTheDocument()
+    expect(document.querySelector('[aria-live="polite"]')).not.toBeInTheDocument()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 7,
+          phase: "playing",
+          trace: secondTrace,
+          traceIndex: 1,
+          traceCount: 2,
+          segmentIndex: 3,
+        }}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText("second synthetic script line")).toBeInTheDocument()
+    expect(document.querySelector('[aria-live="polite"]')).not.toBeInTheDocument()
+  })
 })
