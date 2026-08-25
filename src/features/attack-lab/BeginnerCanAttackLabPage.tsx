@@ -73,6 +73,8 @@ import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
+import AttackStageRail from "./AttackStageRail"
+import { deriveAttackStageIndex } from "./attackLabStage"
 import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
 
@@ -732,12 +734,15 @@ export default function BeginnerCanAttackLabPage({
         </dl>
       </header>
 
-      <ol className="door-attack-lab__stages beginner-can-attack-lab__stages" aria-label="공격 단계">
-        {config.stages.map((stage, index) => {
-          const current = stageIndex(scenario, session?.stage)
-          return <li key={stage} data-state={index < current ? "complete" : index === current ? "current" : "next"} aria-current={index === current ? "step" : undefined}><span>{index + 1}</span><strong>{stage}</strong></li>
+      <AttackStageRail
+        stages={config.stages}
+        currentIndex={deriveAttackStageIndex({
+          scenario,
+          backendStage: session?.stage,
+          playback: flow.snapshot,
         })}
-      </ol>
+        className="beginner-can-attack-lab__stages"
+      />
 
       {loading && !offlineError ? (
         <div className="beginner-can-attack-lab__loading" role="status">

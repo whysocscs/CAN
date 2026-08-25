@@ -57,6 +57,8 @@ import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
+import AttackStageRail from "./AttackStageRail"
+import { deriveAttackStageIndex } from "./attackLabStage"
 import DoorAttackVehicle from "./DoorAttackVehicle"
 import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
@@ -216,35 +218,6 @@ function attemptsToMonitorFrames(
 
 function formatMonitorTime(timestamp: number): string {
   return MONITOR_TIME_FORMATTER.format(new Date(timestamp))
-}
-
-function StageRail({ current }: { current?: string }) {
-  const currentIndex = Math.max(
-    0,
-    STAGES.indexOf(current as typeof STAGES[number]),
-  )
-  return (
-    <ol className="door-attack-lab__stages" aria-label="공격 단계">
-      {STAGES.map((stage, index) => {
-        const state =
-          index < currentIndex
-            ? "complete"
-            : index === currentIndex
-              ? "current"
-              : "next"
-        return (
-          <li
-            key={stage}
-            data-state={state}
-            aria-current={state === "current" ? "step" : undefined}
-          >
-            <span>{index + 1}</span>
-            <strong>{stage}</strong>
-          </li>
-        )
-      })}
-    </ol>
-  )
 }
 
 export default function DoorAttackLabPage() {
@@ -783,7 +756,14 @@ export default function DoorAttackLabPage() {
         </dl>
       </header>
 
-      <StageRail current={session?.stage} />
+      <AttackStageRail
+        stages={STAGES}
+        currentIndex={deriveAttackStageIndex({
+          scenario: "door",
+          backendStage: session?.stage,
+          playback: flow.snapshot,
+        })}
+      />
 
       {offlineError ? (
         <div className="door-attack-lab__offline" role="alert">

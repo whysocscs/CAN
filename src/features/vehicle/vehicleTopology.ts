@@ -13,6 +13,7 @@ interface VehicleTopologyNodeBase {
   calloutLabel?: string
   role: string
   anchor: VehicleAnchor
+  truthTitle: string
   truthDetail: string
 }
 
@@ -30,8 +31,14 @@ export interface VehicleEffectTarget extends VehicleTopologyNodeBase {
 
 export type VehicleTopologyNode = VehicleLogicalNode | VehicleEffectTarget
 
-const LOGICAL_TRUTH = "교육용 논리 위치 · 실제 OEM 배치 아님"
-const EFFECT_TRUTH = "GLB 동작 기준점 · 실제 actuator 위치 아님"
+const LOGICAL_TRUTH = {
+  title: "교육용 논리 ECU",
+  detail: "실제 OEM 위치 아님",
+}
+const EFFECT_TRUTH = {
+  title: "GLB 동작 기준점",
+  detail: "실제 actuator 위치 아님",
+}
 
 export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
   {
@@ -42,7 +49,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: [0.55, 0.69, 1.08],
     kind: "logical",
     truth: "toy-logical",
-    truthDetail: LOGICAL_TRUTH,
+    truthTitle: LOGICAL_TRUTH.title,
+    truthDetail: LOGICAL_TRUTH.detail,
   },
   {
     id: "ids",
@@ -52,7 +60,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: [0.27, 0.55, -0.84],
     kind: "logical",
     truth: "toy-logical",
-    truthDetail: LOGICAL_TRUTH,
+    truthTitle: LOGICAL_TRUTH.title,
+    truthDetail: LOGICAL_TRUTH.detail,
   },
   {
     id: "gateway",
@@ -62,7 +71,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: [0.2, 0.72, 0.14],
     kind: "logical",
     truth: "toy-logical",
-    truthDetail: LOGICAL_TRUTH,
+    truthTitle: LOGICAL_TRUTH.title,
+    truthDetail: LOGICAL_TRUTH.detail,
   },
   {
     id: "body",
@@ -73,7 +83,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: [0.67, 0.73, -0.54],
     kind: "logical",
     truth: "toy-logical",
-    truthDetail: LOGICAL_TRUTH,
+    truthTitle: LOGICAL_TRUTH.title,
+    truthDetail: LOGICAL_TRUTH.detail,
   },
   {
     id: "rear",
@@ -84,7 +95,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: [0.56, 0.6, -1.58],
     kind: "logical",
     truth: "toy-logical",
-    truthDetail: LOGICAL_TRUTH,
+    truthTitle: LOGICAL_TRUTH.title,
+    truthDetail: LOGICAL_TRUTH.detail,
   },
   {
     id: "leftDoor",
@@ -95,7 +107,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: HINGES.doorL.pivot,
     kind: "effect",
     truth: "glb-effect-anchor",
-    truthDetail: EFFECT_TRUTH,
+    truthTitle: EFFECT_TRUTH.title,
+    truthDetail: EFFECT_TRUTH.detail,
   },
   {
     id: "tailgate",
@@ -106,7 +119,8 @@ export const VEHICLE_TOPOLOGY: readonly VehicleTopologyNode[] = [
     anchor: HINGES.tailgate.pivot,
     kind: "effect",
     truth: "glb-effect-anchor",
-    truthDetail: EFFECT_TRUTH,
+    truthTitle: EFFECT_TRUTH.title,
+    truthDetail: EFFECT_TRUTH.detail,
   },
 ]
 

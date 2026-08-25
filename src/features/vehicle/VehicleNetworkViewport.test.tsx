@@ -575,12 +575,27 @@ describe("VehicleNetworkViewport", () => {
     expect(within(targetMap).getByText("Training OBD-II")).toBeInTheDocument()
     expect(within(targetMap).getByText("Toy Body ECU")).toBeInTheDocument()
     expect(within(targetMap).getByText("Left Door Effect")).toBeInTheDocument()
+    expect(within(targetMap).getAllByText("교육용 논리 ECU")).toHaveLength(4)
+    expect(within(targetMap).getAllByText("실제 OEM 위치 아님")).toHaveLength(4)
+    expect(within(targetMap).getByText("GLB 동작 기준점")).toBeInTheDocument()
     expect(
-      within(targetMap).getAllByText("교육용 논리 위치 · 실제 OEM 배치 아님"),
-    ).toHaveLength(4)
-    expect(
-      within(targetMap).getByText("GLB 동작 기준점 · 실제 actuator 위치 아님"),
+      within(targetMap).getByText("실제 actuator 위치 아님"),
     ).toBeInTheDocument()
+  })
+
+  it("renders target-map truth as distinct title and detail lines", () => {
+    renderDoorViewport()
+
+    const map = screen.getByRole("list", {
+      name: "Door spoofing route target map",
+    })
+    const logical = within(map).getByText("Toy Body ECU").closest("li")
+    const effect = within(map).getByText("Left Door Effect").closest("li")
+
+    expect(within(logical!).getByText("교육용 논리 ECU")).toBeInTheDocument()
+    expect(within(logical!).getByText("실제 OEM 위치 아님")).toBeInTheDocument()
+    expect(within(effect!).getByText("GLB 동작 기준점")).toBeInTheDocument()
+    expect(within(effect!).getByText("실제 actuator 위치 아님")).toBeInTheDocument()
   })
 
   it("matches the complete normal CAN scene presentation", () => {

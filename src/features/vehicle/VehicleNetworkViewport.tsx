@@ -1258,7 +1258,10 @@ export default function VehicleNetworkViewport({
               <div>
                 <strong>{node.label}</strong>
                 <span>{node.role}</span>
-                <small data-truth={node.truth}>{node.truthDetail}</small>
+                <small data-truth={node.truth}>
+                  <strong>{node.truthTitle}</strong>
+                  <span>{node.truthDetail}</span>
+                </small>
               </div>
             </li>
           )
