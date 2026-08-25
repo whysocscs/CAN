@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest"
-import { useEffect, type ReactNode } from "react"
+import { StrictMode, useEffect, type ReactNode } from "react"
 import { cleanup, render, screen } from "@testing-library/react"
 import * as THREE from "three"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -143,7 +143,7 @@ describe("SharedVehicleScene", () => {
       observe: true,
       margin: 0.9,
     })
-    expect(sharedState.centerRenders).toBe(1)
+    expect(sharedState.centerRenders).toBe(2)
     expect(sharedState.orbitProps).toMatchObject(
       NORMAL_CAN_SCENE_PRESET.orbit,
     )
@@ -240,6 +240,43 @@ describe("SharedVehicleScene", () => {
 
     expect(xrayDispose).toHaveBeenCalledOnce()
     expect(sourceDispose).not.toHaveBeenCalled()
+  })
+
+  it("gives every StrictMode and xray replacement clone commit-owned cleanup", () => {
+    const sourceMaterial = new THREE.MeshStandardMaterial({ color: "#334455" })
+    const sourceMesh = new THREE.Mesh(new THREE.BoxGeometry(), sourceMaterial)
+    const sourceScene = new THREE.Group()
+    sourceScene.add(sourceMesh)
+    const clonedMaterials: THREE.MeshStandardMaterial[] = []
+    vi.spyOn(sourceMaterial, "clone").mockImplementation(() => {
+      const clone = new THREE.MeshStandardMaterial({ color: "#334455" })
+      clone.dispose = vi.fn()
+      clonedMaterials.push(clone)
+      return clone
+    })
+    sharedState.useGLTF.mockReturnValue({ scene: sourceScene })
+
+    const view = render(
+      <StrictMode>
+        <SharedVehicleScene xray={false} />
+      </StrictMode>,
+    )
+    const opaqueCloneCount = clonedMaterials.length
+    expect(opaqueCloneCount).toBeGreaterThanOrEqual(2)
+
+    view.rerender(
+      <StrictMode>
+        <SharedVehicleScene xray />
+      </StrictMode>,
+    )
+    expect(clonedMaterials.length).toBeGreaterThan(opaqueCloneCount)
+    view.unmount()
+
+    expect(
+      clonedMaterials.map((material) =>
+        vi.mocked(material.dispose).mock.calls.length,
+      ),
+    ).toEqual(clonedMaterials.map(() => 1))
   })
 
   it("maps only real hinge ancestors to effect targets", () => {

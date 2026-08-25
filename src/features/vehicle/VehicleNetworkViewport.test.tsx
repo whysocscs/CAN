@@ -42,6 +42,16 @@ const canvasState = vi.hoisted(() => ({
   lineProps: [] as Array<{ current: Record<string, unknown> }>,
   orbitProps: undefined as Record<string, unknown> | undefined,
   boundsRefit: undefined as (() => void) | undefined,
+  overviewResets: [] as Array<{
+    camera: [number, number, number]
+    target: [number, number, number]
+  }>,
+  coordinateRoot: undefined as THREE.Group | undefined,
+  centerTransform: {
+    enabled: false,
+    position: [0, 0, 0] as [number, number, number],
+    rotationY: 0,
+  },
 }))
 const gltf = vi.hoisted(() => ({ useGLTF: vi.fn() }))
 const vehicleRig = vi.hoisted(() => ({ useVehicleRig: vi.fn() }))
@@ -106,6 +116,7 @@ vi.mock("@react-three/fiber", async () => {
 
 vi.mock("@react-three/drei", async () => {
   const React = await import("react")
+  const THREE = await import("three")
   const Wrapper = ({ children }: { children?: ReactNode }) =>
     React.createElement("div", null, children)
   const Bounds = ({ children }: { children?: ReactNode }) => {
@@ -121,11 +132,16 @@ vi.mock("@react-three/drei", async () => {
     return React.createElement("div", null, children)
   }
   const boundsApi = {
-    refresh: vi.fn(),
+    refresh: vi.fn(() => {
+      canvasState.overviewResets.push({
+        camera: canvasState.camera!.position.toArray(),
+        target: canvasState.controls!.target.toArray(),
+      })
+      return boundsApi
+    }),
     reset: vi.fn(),
     fit: vi.fn(),
   }
-  boundsApi.refresh.mockReturnValue(boundsApi)
   boundsApi.reset.mockReturnValue(boundsApi)
   boundsApi.fit.mockReturnValue(boundsApi)
   return {
@@ -137,7 +153,35 @@ vi.mock("@react-three/drei", async () => {
       children?: ReactNode
       onCentered?: () => void
     }) => {
-      useEffect(() => onCentered?.(), [onCentered])
+      const centerRoot = React.useMemo(() => new THREE.Group(), [])
+      const childrenRef = React.useRef(children)
+      childrenRef.current = children
+      React.useLayoutEffect(() => {
+        const child = React.Children.only(childrenRef.current)
+        const object = React.isValidElement(child)
+          ? (child.props as { object?: THREE.Group }).object
+          : undefined
+        if (!object) return
+        const transform = canvasState.centerTransform
+        const position: [number, number, number] = transform.enabled
+          ? transform.position
+          : [0, 0, 0]
+        centerRoot.position.set(...position)
+        centerRoot.rotation.set(
+          0,
+          transform.enabled ? transform.rotationY : 0,
+          0,
+        )
+        centerRoot.add(object)
+        canvasState.coordinateRoot = object
+        onCentered?.()
+        return () => {
+          centerRoot.remove(object)
+          if (canvasState.coordinateRoot === object) {
+            canvasState.coordinateRoot = undefined
+          }
+        }
+      }, [centerRoot, onCentered])
       return React.createElement("div", null, children)
     },
     Html: Wrapper,
@@ -213,6 +257,13 @@ describe("VehicleNetworkViewport", () => {
     canvasState.lineProps = []
     canvasState.orbitProps = undefined
     canvasState.boundsRefit = undefined
+    canvasState.overviewResets = []
+    canvasState.coordinateRoot = undefined
+    canvasState.centerTransform = {
+      enabled: false,
+      position: [0, 0, 0],
+      rotationY: 0,
+    }
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: false,
         addEventListener: vi.fn(),
@@ -456,6 +507,16 @@ describe("VehicleNetworkViewport", () => {
     const user = userEvent.setup()
     renderDoorViewport()
     await waitFor(() => expect(canvasState.mounts).toBe(1))
+    await waitFor(() =>
+      expect(canvasState.overviewResets.length).toBeGreaterThan(0),
+    )
+    const initialResetCount = canvasState.overviewResets.length
+
+    await user.click(screen.getByRole("button", { name: "영향 부위" }))
+    expect(screen.getByRole("button", { name: "영향 부위" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    )
 
     await user.click(screen.getByRole("button", { name: "Target ECU" }))
     expect(
@@ -464,18 +525,21 @@ describe("VehicleNetworkViewport", () => {
       }),
     ).toHaveAttribute("data-camera-preset", "target")
 
-    await user.click(screen.getByRole("button", { name: "영향 부위" }))
-    expect(screen.getByRole("button", { name: "영향 부위" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    )
-
+    canvasState.camera!.position.set(-7, 0.25, 3)
+    canvasState.controls!.target.set(2, 4, -3)
     await user.click(screen.getByRole("button", { name: "카메라 초기화" }))
     expect(
       screen.getByRole("region", {
         name: "Door spoofing route vehicle network",
       }),
     ).toHaveAttribute("data-camera-preset", "overview")
+    await waitFor(() =>
+      expect(canvasState.overviewResets).toHaveLength(initialResetCount + 1),
+    )
+    expect(canvasState.overviewResets.at(-1)).toEqual({
+      camera: [5.8, 3.8, 7.6],
+      target: [0, 0, 0],
+    })
     expect(canvasState.mounts).toBe(1)
   })
 
@@ -540,6 +604,79 @@ describe("VehicleNetworkViewport", () => {
     await waitFor(() =>
       expect(viewport).toHaveAttribute("data-camera-preset", "overview"),
     )
+    expect(canvasState.mounts).toBe(1)
+  })
+
+  it("resets an already-overview camera once per new playback from the shared direction", async () => {
+    const view = renderDoorViewport({
+      playback: {
+        playbackId: 7,
+        phase: "idle",
+        trace: null,
+        traceIndex: 0,
+        traceCount: 0,
+        segmentIndex: 0,
+      },
+    })
+    await waitFor(() =>
+      expect(canvasState.overviewResets.length).toBeGreaterThan(0),
+    )
+    const initialResetCount = canvasState.overviewResets.length
+    canvasState.camera!.position.set(-8, 1.2, 2.4)
+    canvasState.controls!.target.set(3, 2, 1)
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 7,
+          segmentIndex: 0,
+        }}
+      />,
+    )
+
+    await waitFor(() =>
+      expect(canvasState.overviewResets).toHaveLength(initialResetCount + 1),
+    )
+    expect(canvasState.camera!.position.toArray()).toEqual([5.8, 3.8, 7.6])
+    expect(canvasState.controls!.target.toArray()).toEqual([0, 0, 0])
+    expect(canvasState.overviewResets.at(-1)).toEqual({
+      camera: [5.8, 3.8, 7.6],
+      target: [0, 0, 0],
+    })
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 7,
+          segmentIndex: 4,
+        }}
+      />,
+    )
+    expect(canvasState.overviewResets).toHaveLength(initialResetCount + 1)
+
+    canvasState.camera!.position.set(-4, 0.5, 6)
+    canvasState.controls!.target.set(-2, 3, 1)
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          playbackId: 8,
+          segmentIndex: 0,
+        }}
+      />,
+    )
+    await waitFor(() =>
+      expect(canvasState.overviewResets).toHaveLength(initialResetCount + 2),
+    )
+    expect(canvasState.overviewResets.at(-1)).toEqual({
+      camera: [5.8, 3.8, 7.6],
+      target: [0, 0, 0],
+    })
     expect(canvasState.mounts).toBe(1)
   })
 
@@ -816,6 +953,50 @@ describe("VehicleNetworkViewport", () => {
       ).toHaveAttribute("data-active", "true")
     },
   )
+
+  it("wires a transformed shared root through rendered pin, packet, and camera focus", async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+        matches: false,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }))
+    canvasState.centerTransform = {
+      enabled: true,
+      position: [4, -2, 7],
+      rotationY: Math.PI / 2,
+    }
+    renderDoorViewport({
+      focusedNodeId: "gateway",
+      playback: playingDoorSnapshotAtGateway,
+    })
+
+    const root = await waitFor(() => {
+      expect(canvasState.coordinateRoot).toBeDefined()
+      return canvasState.coordinateRoot!
+    })
+    const pin = getCanvasMesh("vehicle-topology-hit-target:gateway")
+    const packet = getCanvasMesh("vehicle-flow-packet")
+    expect(pin).toHaveAttribute("position", "0.2,0.72,0.14")
+    expect(packet).toHaveAttribute("position", "0.2,0.72,0.14")
+    await user.click(
+      screen.getByRole("button", { name: "Toy Gateway 선택" }),
+    )
+    const expectedWorld = root.localToWorld(
+      new THREE.Vector3(0.2, 0.72, 0.14),
+    )
+
+    act(() => {
+      canvasState.frameCallbacks.at(-1)?.({}, 1)
+    })
+
+    await waitFor(() =>
+      expect(canvasState.controls!.target.toArray()).toEqual(
+        expectedWorld.toArray(),
+      ),
+    )
+    expect(expectedWorld.toArray()).not.toEqual([0.2, 0.72, 0.14])
+  })
 
   it("retains accessible loading and GLB error fallbacks", async () => {
     const never = new Promise<never>(() => undefined)

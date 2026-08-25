@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest"
 import { useEffect, type ReactNode } from "react"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import * as THREE from "three"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -11,6 +11,14 @@ const normalState = vi.hoisted(() => ({
   canvasMounts: 0,
   canvasProps: undefined as Record<string, unknown> | undefined,
   orbitProps: undefined as Record<string, unknown> | undefined,
+  camera: undefined as THREE.PerspectiveCamera | undefined,
+  controls: undefined as
+    | { target: THREE.Vector3; update: ReturnType<typeof vi.fn> }
+    | undefined,
+  overviewResets: [] as Array<{
+    camera: [number, number, number]
+    target: [number, number, number]
+  }>,
   useGLTF: vi.fn(),
 }))
 
@@ -36,6 +44,8 @@ vi.mock("@react-three/fiber", async () => {
       )
       return <div data-testid="normal-can-canvas">{renderedChildren}</div>
     },
+    useThree: (selector: (state: unknown) => unknown) =>
+      selector({ camera: normalState.camera, controls: normalState.controls }),
   }
 })
 
@@ -44,6 +54,19 @@ vi.mock("@react-three/drei", async () => {
   const Wrapper = ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>
   )
+  const boundsApi = {
+    refresh: vi.fn(() => {
+      normalState.overviewResets.push({
+        camera: normalState.camera!.position.toArray(),
+        target: normalState.controls!.target.toArray(),
+      })
+      return boundsApi
+    }),
+    reset: vi.fn(),
+    fit: vi.fn(),
+  }
+  boundsApi.reset.mockReturnValue(boundsApi)
+  boundsApi.fit.mockReturnValue(boundsApi)
   return {
     Bounds: Wrapper,
     Center: Wrapper,
@@ -53,6 +76,7 @@ vi.mock("@react-three/drei", async () => {
       normalState.orbitProps = props
       return null
     },
+    useBounds: () => boundsApi,
     useGLTF: Object.assign(normalState.useGLTF, { preload: vi.fn() }),
   }
 })
@@ -68,6 +92,10 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
     normalState.canvasMounts = 0
     normalState.canvasProps = undefined
     normalState.orbitProps = undefined
+    normalState.camera = new THREE.PerspectiveCamera()
+    normalState.camera.position.set(-3, 2, 8)
+    normalState.controls = { target: new THREE.Vector3(), update: vi.fn() }
+    normalState.overviewResets = []
     normalState.useGLTF.mockReset()
     clonedScenes.length = 0
     sourceMaterial = new THREE.MeshStandardMaterial({ color: "#334455" })
@@ -124,6 +152,7 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
       },
     })
     expect(normalState.orbitProps).toMatchObject({
+      makeDefault: true,
       minDistance: 3,
       maxDistance: 10,
       minPolarAngle: 0.32,
@@ -157,8 +186,14 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
     expect(rotation).toHaveAttribute("aria-pressed", "true")
     expect(normalState.orbitProps?.autoRotate).toBe(true)
 
-    expect(normalState.canvasMounts).toBe(1)
+    await waitFor(() => expect(normalState.overviewResets).toHaveLength(1))
+    normalState.camera!.position.set(-9, 1, 2)
+    normalState.controls!.target.set(3, 2, 1)
     await user.click(reset)
-    expect(normalState.canvasMounts).toBe(2)
+    await waitFor(() => expect(normalState.overviewResets).toHaveLength(2))
+    expect(normalState.camera!.position.toArray()).toEqual([5.8, 3.8, 7.6])
+    expect(normalState.controls!.target.toArray()).toEqual([0, 0, 0])
+    expect(normalState.canvasMounts).toBe(1)
+    expect(rotation).toHaveAttribute("aria-pressed", "true")
   })
 })

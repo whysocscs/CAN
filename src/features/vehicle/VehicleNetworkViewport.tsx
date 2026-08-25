@@ -15,7 +15,7 @@ import {
   useThree,
   type ThreeEvent,
 } from "@react-three/fiber"
-import { Html, Line, useBounds } from "@react-three/drei"
+import { Html, Line } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
   CircleNotch,
@@ -26,6 +26,7 @@ import VehicleFlowRail from "./VehicleFlowRail"
 import {
   NORMAL_CAN_SCENE_PRESET,
   SharedVehicleCanvas,
+  SharedVehicleOverviewController,
   SharedVehicleOrbitControls,
   SharedVehicleScene,
   effectTargetFromVehicleObject,
@@ -207,15 +208,14 @@ function createCameraPresets(
 
 function CameraPresetController({
   preset,
-  overview,
+  active,
   immediate,
 }: {
   preset: CameraPreset
-  overview: boolean
+  active: boolean
   immediate: boolean
 }) {
   const camera = useThree((state) => state.camera)
-  const bounds = useBounds()
   const controls = useThree(
     (state) =>
       (state as typeof state & { controls?: OrbitControlsState }).controls,
@@ -225,8 +225,7 @@ function CameraPresetController({
   const progress = useRef(1)
 
   useEffect(() => {
-    if (overview) {
-      bounds?.refresh().reset().fit()
+    if (!active) {
       progress.current = 1
       return
     }
@@ -252,11 +251,12 @@ function CameraPresetController({
       controls?.target ?? new THREE.Vector3(...CAMERA_TARGET),
     )
     progress.current = 0
-  }, [bounds, camera, controls, immediate, overview, preset])
+  }, [active, camera, controls, immediate, preset])
 
   useFrame((_, delta) => {
+    if (!active) return
     if (progress.current >= 1) {
-      if (!overview && controls && !controls.target.equals(preset.target)) {
+      if (controls && !controls.target.equals(preset.target)) {
         controls.target.copy(preset.target)
         controls.update()
       }
@@ -665,6 +665,7 @@ export default function VehicleNetworkViewport({
       ? cameraFocusForNode(focusedNodeId, route, targetId, effectId)
       : { view: initialView },
   )
+  const [overviewRevision, setOverviewRevision] = useState(0)
   const previousPlaybackRef = useRef({
     phase: IDLE_PLAYBACK.phase,
     playbackId: IDLE_PLAYBACK.playbackId,
@@ -691,6 +692,10 @@ export default function VehicleNetworkViewport({
     },
     [effectId, route, targetId],
   )
+  const requestOverview = useCallback(() => {
+    setCameraFocus({ view: "overview" })
+    setOverviewRevision((revision) => revision + 1)
+  }, [])
 
   useEffect(() => {
     if (!focusedNodeId) return
@@ -710,9 +715,9 @@ export default function VehicleNetworkViewport({
         || previousPlayback.playbackId !== playbackState.playbackId
       )
     ) {
-      setCameraFocus({ view: "overview" })
+      requestOverview()
     }
-  }, [playbackState.phase, playbackState.playbackId])
+  }, [playbackState.phase, playbackState.playbackId, requestOverview])
 
   const focusedId =
     cameraFocus.view === "node"
@@ -770,7 +775,7 @@ export default function VehicleNetworkViewport({
           <button
             type="button"
             aria-pressed={cameraFocus.view === "overview"}
-            onClick={() => setCameraFocus({ view: "overview" })}
+            onClick={requestOverview}
           >
             전체
           </button>
@@ -798,7 +803,7 @@ export default function VehicleNetworkViewport({
           <button
             type="button"
             className="vehicle-network-viewport__reset"
-            onClick={() => setCameraFocus({ view: "overview" })}
+            onClick={requestOverview}
           >
             <ArrowCounterClockwise size={13} aria-hidden="true" />
             카메라 초기화
@@ -880,8 +885,12 @@ export default function VehicleNetworkViewport({
                 />
                 <CameraPresetController
                   preset={cameraPreset}
-                  overview={cameraFocus.view === "overview"}
+                  active={cameraFocus.view !== "overview"}
                   immediate={reducedMotion}
+                />
+                <SharedVehicleOverviewController
+                  active={cameraFocus.view === "overview"}
+                  resetRevision={overviewRevision}
                 />
               </SharedVehicleScene>
             </Suspense>

@@ -144,3 +144,101 @@ implementation, topology data, CSS, or lab-answer files were changed.
   consumers use the same vehicle and presentation preset.
 - Only the two named GLB hinges are selectable effects; logical ECU positions
   remain explicitly educational anchors.
+
+## Review fix round 1
+
+### RED evidence
+
+Command:
+
+```powershell
+npm test -- src/features/vehicle/SharedVehicleScene.test.tsx src/features/vehicle/VehicleNetworkViewport.test.tsx src/pages/CanPracticeOnlyPage.test.tsx --reporter=dot
+```
+
+Result before production edits: 3 test files failed; 4 tests failed and 28
+passed.
+
+- An already-overview idle-to-playing transition left the observable Bounds
+  reset count unchanged (`2`, expected `3`). The camera and controls therefore
+  retained a manual orbit because the overview preset dependencies were equal.
+- Normal Reset View produced zero in-Canvas overview resets. The existing
+  `key={viewKey}` behavior could only remount the Canvas instead of resetting its
+  existing camera and controls.
+- StrictMode plus an X-ray replacement produced cloned-material disposal counts
+  `[2, 0, 1, 0]`, expected `[1, 1, 1, 1]`. This exposed both double cleanup of
+  committed render-time clones and leaked discarded-render clones.
+- The first transformed-root test revision reached the production tree but its
+  initial focused node was truthfully superseded by the automatic playback
+  overview reset, yielding target `[0, 0, 0]`. The test was corrected to select
+  the rendered gateway pin after playback reset; it then became a production-
+  wiring characterization test. It would fail if camera focus used the raw local
+  anchor instead of the shared root transform.
+
+No production edit was made until the three product regressions had observable
+behavior failures and the coordinate test no longer had a frame-mock exception.
+
+Self-review found one additional real-controls gap. Adding `makeDefault: true` to
+the normal-page controls contract and running
+`npm test -- src/pages/CanPracticeOnlyPage.test.tsx` produced 1 failed test: the
+received prop was `undefined`. After the one-line production change, the same
+command passed 1 of 1 test. This is required so `useThree(state.controls)` and
+Bounds address the actual normal-page OrbitControls target, not only the camera.
+
+### GREEN evidence
+
+Focused command:
+
+```powershell
+npm test -- src/features/vehicle/SharedVehicleScene.test.tsx src/pages/CanPracticeOnlyPage.test.tsx src/features/vehicle/VehicleNetworkViewport.test.tsx src/features/vehicle/VehicleFlowRail.test.tsx src/features/vehicle/useVehicleRig.test.tsx
+```
+
+Result: 5 test files passed; 38 tests passed. A separate viewport rerun passed 25
+of 25 tests after strengthening the existing target-focus reset test.
+
+### Reset and coordinate implementation
+
+- `SharedVehicleOverviewController` accepts primitive `active` and
+  `resetRevision` values. Each explicit overview request increments the revision,
+  so an already-overview new playback still invokes one reset while same-run
+  segment changes do not.
+- Before Bounds refresh/reset/fit, the controller restores camera position
+  `[5.8, 3.8, 7.6]` and target `[0, 0, 0]`. Bounds therefore derives its fit from
+  the shared normal-CAN direction instead of the current manual orbit direction.
+- Normal Reset View increments the same in-Canvas revision. The Canvas no longer
+  has a reset-derived React key, remains mounted once, and keeps auto-rotate and
+  owned GLTF resources intact. Its OrbitControls are `makeDefault`, making the
+  shared controller's target reset operative in the real R3F state.
+- The transformed Center mock attaches the actual shared coordinate root to a
+  translated and rotated `THREE.Group`. Rendered pin and packet local anchors and
+  the camera target are then checked through the real
+  `SharedVehicleScene`/`TopologyOverlay`/`createNodeCameraPreset` wiring.
+
+### Commit-owned clone lifecycle
+
+- GLTF scene/material cloning now occurs only in `useLayoutEffect`, never during
+  render. Each effect setup owns exactly one resource and its cleanup disposes
+  exactly that setup's cloned materials.
+- StrictMode setup/cleanup replay, X-ray replacement, and unmount are covered in
+  one test; every recorded material clone is disposed exactly once. The source
+  GLTF and source material remain immutable and undisposed.
+- A local numeric resource revision is used only as Center's cache key. No mutable
+  Three.js vectors or globally shared scene instances are exported.
+
+### Review-round final verification
+
+- Focused shared scene, normal page, viewport, rail, rig, and topology command:
+  6 test files passed, 42 tests passed.
+- `npm run typecheck`: passed on the final Task 6A tree.
+- `npm run build`: passed; Vite emitted only the existing chunk-size warning.
+- The final full `npm test` ran while Task 8's intentionally RED beginner tests
+  were present but not yet implemented: 16 files passed and 2 failed; 148 tests
+  passed and 8 failed. Seven failures are the new out-of-scope beginner playback
+  expectations, and one is the Door command-history test in that shared run.
+  The latter is `DoorAttackLabPage > clears the restricted terminal input and
+  command history on reset`: `runDoorLabCommand` had zero calls while the test
+  expected the `("session-1", "pwd", ...)` invocation. It is recorded for
+  follow-up isolation and is outside the Task 6A files.
+  Task 6A's focused files had zero failures. Earlier in this round, before those
+  concurrent Task 8 RED edits landed, full `npm test` passed 18 files and 151
+  tests.
+- Browser/rendered parity remains deferred to Task 9 and is not claimed here.

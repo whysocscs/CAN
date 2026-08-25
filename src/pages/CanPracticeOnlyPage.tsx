@@ -43,6 +43,7 @@ import type { CanCommand, CanEvent, CanNodeId } from "@/features/can/events/type
 import { REAL_TERMINAL_ENABLED } from "@/features/terminal/realTerminalConfig"
 import {
   SharedVehicleCanvas,
+  SharedVehicleOverviewController,
   SharedVehicleOrbitControls,
   SharedVehicleScene,
 } from "@/features/vehicle/SharedVehicleScene"
@@ -672,6 +673,7 @@ class VehicleLoadBoundary extends Component<{ children: ReactNode }, { failed: b
 
 function VehicleCanvas({
   autoRotate,
+  overviewRevision,
   orbitCommand,
   showLabels,
   showBus,
@@ -682,6 +684,7 @@ function VehicleCanvas({
   onSelectModule,
 }: {
   autoRotate: boolean
+  overviewRevision: number
   orbitCommand: { id: number; angle: number }
   showLabels: boolean
   showBus: boolean
@@ -716,6 +719,9 @@ function VehicleCanvas({
           }
         >
           <SharedVehicleScene xray={showLabels || showBus}>
+            <SharedVehicleOverviewController
+              resetRevision={overviewRevision}
+            />
             {(showLabels || showBus) && (
               <EcuVehicleNetwork
                 showLabels={showLabels}
@@ -733,6 +739,7 @@ function VehicleCanvas({
       </VehicleLoadBoundary>
       <SharedVehicleOrbitControls
         controlsRef={controlsRef}
+        makeDefault
         autoRotate={autoRotate}
         autoRotateSpeed={0.64}
         enableDamping={false}
@@ -884,7 +891,7 @@ export default function CanPracticeOnlyPage() {
   const [showLabels, setShowLabels] = useState(true)
   const [showBus, setShowBus] = useState(true)
   const [autoRotate, setAutoRotate] = useState(false)
-  const [viewKey, setViewKey] = useState(0)
+  const [overviewRevision, setOverviewRevision] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
   const [terminalStatus, setTerminalStatus] = useState<TerminalConnectionStatus>(
     REAL_TERMINAL_ENABLED ? "connecting" : "offline",
@@ -1076,7 +1083,12 @@ export default function CanPracticeOnlyPage() {
                   >
                     <Play size={13} weight="fill" /> {reducedMotion ? "회전 없음" : "회전"}
                   </button>
-                  <button type="button" onClick={() => setViewKey((value) => value + 1)}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOverviewRevision((revision) => revision + 1)
+                    }
+                  >
                     <ArrowClockwise size={15} /> Reset View
                   </button>
                 </div>
@@ -1085,6 +1097,7 @@ export default function CanPracticeOnlyPage() {
               <div className="canlab__vehicle-stage">
                 <VehicleCanvas
                   autoRotate={autoRotate && !reducedMotion}
+                  overviewRevision={overviewRevision}
                   orbitCommand={orbitCommand}
                   showLabels={showLabels}
                   showBus={showBus}
@@ -1093,7 +1106,6 @@ export default function CanPracticeOnlyPage() {
                   activeModules={activeVisualization.activeModules}
                   selectedModuleId={previewModuleId}
                   onSelectModule={handleSelectModule}
-                  key={viewKey}
                 />
                 <div className="canlab__vehicle-badge">
                   <Cube size={14} /> 교육용 Toy Car · GLB

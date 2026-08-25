@@ -5,12 +5,21 @@ import {
   useContext,
   useEffect,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
+  useRef,
+  useState,
   type ReactNode,
   type Ref,
 } from "react"
-import { Canvas, type ThreeEvent } from "@react-three/fiber"
-import { Bounds, Center, OrbitControls, useGLTF } from "@react-three/drei"
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber"
+import {
+  Bounds,
+  Center,
+  OrbitControls,
+  useBounds,
+  useGLTF,
+} from "@react-three/drei"
 import * as THREE from "three"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import type { VehicleEffectTargetId, VehicleAnchor } from "./vehicleTopology"
@@ -21,6 +30,7 @@ export const SHARED_VEHICLE_MODEL_PATH =
 export const NORMAL_CAN_SCENE_PRESET = Object.freeze({
   camera: Object.freeze({
     position: Object.freeze([5.8, 3.8, 7.6] as const),
+    target: Object.freeze([0, 0, 0] as const),
     fov: 38,
     near: 0.05,
     far: 100,
@@ -57,6 +67,56 @@ export const NORMAL_CAN_SCENE_PRESET = Object.freeze({
 const XRAY_TINT = new THREE.Color("#a8bac8")
 const MECHANICAL_MESH_NAME = /TIRE|WHEEL|BRAKE|CALIPER|STEER/i
 const SharedVehicleCloneContext = createContext<THREE.Group | null>(null)
+
+interface VehicleResource {
+  scene: THREE.Group
+  clonedMaterials: THREE.Material[]
+  revision: number
+}
+
+function createVehicleResource(
+  sourceScene: THREE.Group,
+  xray: boolean,
+  revision: number,
+): VehicleResource {
+  const scene = sourceScene.clone(true) as THREE.Group
+  const clonedMaterials: THREE.Material[] = []
+
+  scene.traverse((object) => {
+    const mesh = object as THREE.Mesh
+    if (!mesh.isMesh) return
+
+    const mechanical = MECHANICAL_MESH_NAME.test(mesh.name)
+    const cloneMaterial = (source: THREE.Material) => {
+      const material = source.clone()
+      if (xray) {
+        material.transparent = true
+        material.opacity = mechanical ? 0.72 : 0.4
+        material.depthWrite = false
+        material.side = THREE.DoubleSide
+        if ("color" in material && material.color instanceof THREE.Color) {
+          material.color.lerp(XRAY_TINT, 0.72)
+        }
+      } else {
+        material.transparent = false
+        material.opacity = 1
+        material.depthWrite = true
+      }
+      material.needsUpdate = true
+      clonedMaterials.push(material)
+      return material
+    }
+
+    mesh.material = Array.isArray(mesh.material)
+      ? mesh.material.map(cloneMaterial)
+      : cloneMaterial(mesh.material)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    mesh.frustumCulled = false
+  })
+
+  return { scene, clonedMaterials, revision }
+}
 
 export function useSharedVehicleClone(): THREE.Group {
   const scene = useContext(SharedVehicleCloneContext)
@@ -175,6 +235,37 @@ export function SharedVehicleOrbitControls({
   )
 }
 
+export function SharedVehicleOverviewController({
+  active = true,
+  resetRevision,
+}: {
+  active?: boolean
+  resetRevision: number
+}) {
+  const camera = useThree((state) => state.camera)
+  const controls = useThree(
+    (state) =>
+      (state as typeof state & { controls?: OrbitControlsImpl }).controls,
+  )
+  const bounds = useBounds()
+
+  useEffect(() => {
+    if (!active) return
+    const position = NORMAL_CAN_SCENE_PRESET.camera.position
+    const target = NORMAL_CAN_SCENE_PRESET.camera.target
+    camera.position.set(...position)
+    if (controls) {
+      controls.target.set(...target)
+      controls.update()
+    } else {
+      camera.lookAt(...target)
+    }
+    bounds.refresh().reset().fit()
+  }, [active, bounds, camera, controls, resetRevision])
+
+  return null
+}
+
 interface SharedVehicleSceneProps {
   xray: boolean
   children?: ReactNode
@@ -196,52 +287,21 @@ export const SharedVehicleScene = forwardRef<
     return root
   }, [])
   useImperativeHandle(rootRef, () => coordinateRoot, [coordinateRoot])
-  const { scene, clonedMaterials } = useMemo(() => {
-    const clonedScene = gltf.scene.clone(true) as THREE.Group
-    const materials: THREE.Material[] = []
+  const resourceRevision = useRef(0)
+  const [resource, setResource] = useState<VehicleResource | null>(null)
 
-    clonedScene.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh) return
-
-      const mechanical = MECHANICAL_MESH_NAME.test(mesh.name)
-      const cloneMaterial = (source: THREE.Material) => {
-        const material = source.clone()
-        if (xray) {
-          material.transparent = true
-          material.opacity = mechanical ? 0.72 : 0.4
-          material.depthWrite = false
-          material.side = THREE.DoubleSide
-          if ("color" in material && material.color instanceof THREE.Color) {
-            material.color.lerp(XRAY_TINT, 0.72)
-          }
-        } else {
-          material.transparent = false
-          material.opacity = 1
-          material.depthWrite = true
-        }
-        material.needsUpdate = true
-        materials.push(material)
-        return material
-      }
-
-      mesh.material = Array.isArray(mesh.material)
-        ? mesh.material.map(cloneMaterial)
-        : cloneMaterial(mesh.material)
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.frustumCulled = false
-    })
-
-    return { scene: clonedScene, clonedMaterials: materials }
+  useLayoutEffect(() => {
+    resourceRevision.current += 1
+    const nextResource = createVehicleResource(
+      gltf.scene,
+      xray,
+      resourceRevision.current,
+    )
+    setResource(nextResource)
+    return () => {
+      nextResource.clonedMaterials.forEach((material) => material.dispose())
+    }
   }, [gltf.scene, xray])
-
-  useEffect(
-    () => () => {
-      clonedMaterials.forEach((material) => material.dispose())
-    },
-    [clonedMaterials],
-  )
 
   const handleClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
@@ -256,12 +316,14 @@ export const SharedVehicleScene = forwardRef<
 
   return (
     <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds}>
-      <Center onCentered={onCentered}>
+      <Center onCentered={onCentered} cacheKey={resource?.revision ?? 0}>
         <primitive object={coordinateRoot} name={coordinateRoot.name}>
-          <SharedVehicleCloneContext.Provider value={scene}>
-            <primitive object={scene} onClick={handleClick} />
-            {children}
-          </SharedVehicleCloneContext.Provider>
+          {resource && (
+            <SharedVehicleCloneContext.Provider value={resource.scene}>
+              <primitive object={resource.scene} onClick={handleClick} />
+              {children}
+            </SharedVehicleCloneContext.Provider>
+          )}
         </primitive>
       </Center>
     </Bounds>
