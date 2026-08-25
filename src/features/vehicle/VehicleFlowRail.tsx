@@ -22,6 +22,7 @@ interface VehicleFlowRailProps {
   selectedNodeId?: VehicleFlowNodeId
   accent: string
   presentation?: VehicleFlowPresentation
+  reducedMotion?: boolean
 }
 
 interface RailNode {
@@ -123,6 +124,7 @@ export default function VehicleFlowRail({
   selectedNodeId,
   accent,
   presentation,
+  reducedMotion = false,
 }: VehicleFlowRailProps) {
   const trace = playback.trace
   const displayRoute = trace
@@ -149,7 +151,9 @@ export default function VehicleFlowRail({
       </ol>
       <div className="vehicle-flow-rail__hud">
         <span className="vehicle-flow-rail__mode">
-          교육용 처리/관찰 순서 · slow-motion trace
+          {reducedMotion
+            ? "정적 최종 상태 · reduced motion"
+            : "교육용 처리/관찰 순서 · slow-motion trace"}
         </span>
         <span className="vehicle-flow-rail__qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
         <code>{presentation?.commandLabel ?? trace?.commandLabel ?? "명령 대기 중"}</code>

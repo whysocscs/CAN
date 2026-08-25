@@ -168,12 +168,14 @@ type MonitorAction =
   | { type: "append"; frames: BeginnerCanAttackMonitorFrame[] }
   | { type: "select"; key: string }
   | { type: "clear" }
+  | { type: "deselect" }
 
 function monitorReducer(
   state: BeginnerCanAttackMonitorState,
   action: MonitorAction,
 ): BeginnerCanAttackMonitorState {
   if (action.type === "clear") return EMPTY_MONITOR
+  if (action.type === "deselect") return { ...state, selectedKey: null }
   if (action.type === "select") {
     return state.frames.some((frame) => frame.key === action.key)
       ? { ...state, selectedKey: action.key }
@@ -428,6 +430,7 @@ export default function BeginnerCanAttackLabPage({
     const controller = new AbortController()
     const actionGeneration = ++actionGenerationRef.current
     const origin: AttackLabActionOrigin = kind === "run" ? "script" : "terminal"
+    const predictionBeforeAction = predictionDraft
     const request = {
       controller,
       actionGeneration,
@@ -436,12 +439,24 @@ export default function BeginnerCanAttackLabPage({
       scenario: current.scenario,
       origin,
       actionId: `${current.scenario}:${current.sessionId}:${current.generation}:${origin}:${actionGeneration}`,
-      predictionBeforeAction: predictionDraft,
+      predictionBeforeAction,
     }
     actionControllerRef.current = controller
     busyRef.current = kind
     setBusy(kind)
     setActionError(null)
+    if (kind !== "reset") {
+      flow.clear()
+      pendingFlowRef.current = null
+      setLastAction(null)
+      setSelectedActivityId(null)
+      dispatchMonitor({ type: "deselect" })
+      setPredictionBeforeAction("")
+      setExplanation("")
+      setConfirmed(false)
+      setLastResult(null)
+      setIdsStatus(null)
+    }
     return request
   }
 
@@ -821,7 +836,7 @@ export default function BeginnerCanAttackLabPage({
         <div className="door-attack-lab__learning">
           <section role="region" aria-label="Hints"><header><Lightbulb size={17} aria-hidden="true" /><strong>Hints</strong></header><p>{hintIndex < 0 ? "힌트는 정답을 대신하지 않습니다." : config.hints[hintIndex]}</p><button type="button" onClick={() => setHintIndex((index) => Math.min(index + 1, config.hints.length - 1))}>다음 힌트</button></section>
           <section role="region" aria-label="Learning objective"><header><ShieldCheck size={17} aria-hidden="true" /><strong>Learning objective</strong></header><p>{config.objective}</p><p>물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만 검증합니다.</p></section>
-          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Toy 기술 결과 달성</dt><dd>{technicalComplete ? "달성" : "미달성"}</dd></div></dl></section>
+          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{busy && busy !== "reset" ? "PENDING" : lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Toy 기술 결과 달성</dt><dd>{technicalComplete ? "달성" : "미달성"}</dd></div></dl></section>
           <AttackLabFeedbackPanel feedback={feedback} />
           <AttackLabActivityLog
             entries={activity}

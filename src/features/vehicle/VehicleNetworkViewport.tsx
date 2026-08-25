@@ -162,6 +162,7 @@ const DYNAMIC_CALLOUT_STYLE: CSSProperties = {
   width: "clamp(160px, 22vw, 220px)",
   maxWidth: "min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)))",
   whiteSpace: "normal",
+  pointerEvents: "auto",
 }
 const DYNAMIC_CALLOUT_TITLE_STYLE: CSSProperties = { fontSize: "12px" }
 const DYNAMIC_CALLOUT_STATUS_STYLE: CSSProperties = { fontSize: "11px" }
@@ -170,6 +171,8 @@ const DYNAMIC_CALLOUT_META_STYLE: CSSProperties = { fontSize: "10px" }
 
 const HTML_PIN_LAYER_STYLE: CSSProperties = { pointerEvents: "none" }
 const PIN_BUTTON_STYLE: CSSProperties = { pointerEvents: "auto" }
+const PIN_Z_INDEX_RANGE: [number, number] = [100, 0]
+const FEEDBACK_Z_INDEX_RANGE: [number, number] = [200, 101]
 
 interface OrbitControlsState {
   target: THREE.Vector3
@@ -544,6 +547,7 @@ function DynamicTopologyFeedback({
       calculatePosition={calculatePosition}
       className="vehicle-network-viewport__feedback-layer"
       style={HTML_PIN_LAYER_STYLE}
+      zIndexRange={FEEDBACK_Z_INDEX_RANGE}
     >
       <span
         ref={setElementRef}
@@ -581,6 +585,7 @@ function TopologyPin({
   tooltipVisible,
   tooltipTranslucent,
   feedback,
+  contextSuppressed,
   onSelect,
 }: {
   node: VehicleTopologyNode
@@ -591,6 +596,7 @@ function TopologyPin({
   tooltipVisible: boolean
   tooltipTranslucent: boolean
   feedback?: VehicleFlowNodeFeedback
+  contextSuppressed: boolean
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
   const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
@@ -616,6 +622,7 @@ function TopologyPin({
     "--vehicle-pin-compact-offset-y": `${compactScreenOffset.y}px`,
     "--vehicle-pin-compact-leader-length": `${Math.hypot(compactScreenOffset.x, compactScreenOffset.y)}px`,
     "--vehicle-pin-compact-leader-angle": `${Math.atan2(-compactScreenOffset.y, -compactScreenOffset.x)}rad`,
+    opacity: contextSuppressed ? 0.24 : 1,
   } as CSSProperties
 
   const truthQualifier = node.kind === "effect"
@@ -631,11 +638,13 @@ function TopologyPin({
         sprite
         className="vehicle-network-viewport__html-layer"
         style={HTML_PIN_LAYER_STYLE}
+        zIndexRange={PIN_Z_INDEX_RANGE}
       >
         <span
           className="vehicle-network-viewport__marker"
           data-node-id={node.id}
           data-testid="vehicle-topology-marker"
+          data-context-suppressed={contextSuppressed ? "true" : undefined}
           style={markerStyle}
         >
           <span
@@ -651,6 +660,7 @@ function TopologyPin({
             data-testid="vehicle-topology-pin"
             aria-label={`${node.label} 선택`}
             onClick={handleSelect}
+            disabled={contextSuppressed}
             style={PIN_BUTTON_STYLE}
           >
             {node.number}
@@ -961,6 +971,7 @@ function TopologyOverlay({
               cameraFocusedNodeId !== undefined
             }
             feedback={feedback?.nodeId === node.id ? feedback : undefined}
+            contextSuppressed={Boolean(feedback) && feedback?.nodeId !== node.id}
             onSelect={onSelect}
             calloutKind={
               node.id === targetId
@@ -1275,6 +1286,7 @@ export default function VehicleNetworkViewport({
         selectedNodeId={focusedId}
         accent={accent}
         presentation={presentation}
+        reducedMotion={reducedMotion}
       />
 
       <div className="vehicle-network-viewport__canvas">

@@ -162,11 +162,13 @@ vi.mock("@react-three/drei", async () => {
     className,
     style,
     calculatePosition,
+    zIndexRange,
   }: {
     children?: ReactNode
     className?: string
     style?: CSSProperties
     calculatePosition?: MockCalculatePosition
+    zIndexRange?: [number, number]
   }) => {
     const wrapperRef = React.useRef<HTMLDivElement>(null)
     const object = React.useMemo(() => new THREE.Object3D(), [])
@@ -206,6 +208,7 @@ vi.mock("@react-three/drei", async () => {
       {
         ref: wrapperRef,
         className,
+        "data-z-index-range": zIndexRange?.join(":"),
         style: calculatePosition ? { ...style, position: "absolute" } : style,
       },
       children,
@@ -1256,6 +1259,39 @@ describe("VehicleNetworkViewport", () => {
       .toBe("10px")
   })
 
+  it("keeps dynamic feedback above pins, blocks click-through, and suppresses non-active pins", () => {
+    renderDoorViewport({
+      playback: {
+        playbackId: 12,
+        phase: "playing",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation(),
+    })
+
+    const feedback = screen.getByTestId("vehicle-flow-feedback")
+    const feedbackLayer = feedback.closest(".vehicle-network-viewport__feedback-layer")
+    const activeMarker = screen.getByTestId("canvas-boundary")
+      .querySelector('[data-node-id="body"].vehicle-network-viewport__marker')
+    const inactiveMarkers = [...screen.getAllByTestId("vehicle-topology-marker")]
+      .filter((marker) => marker.getAttribute("data-node-id") !== "body")
+    const pinLayer = activeMarker?.closest(".vehicle-network-viewport__html-layer")
+
+    expect(feedbackLayer).toHaveAttribute("data-z-index-range", "200:101")
+    expect(pinLayer).toHaveAttribute("data-z-index-range", "100:0")
+    expect(getComputedStyle(feedback).pointerEvents).toBe("auto")
+    expect(activeMarker).not.toHaveAttribute("data-context-suppressed")
+    expect(inactiveMarkers.length).toBeGreaterThan(0)
+    inactiveMarkers.forEach((marker) => {
+      expect(marker).toHaveAttribute("data-context-suppressed", "true")
+      expect(getComputedStyle(marker).opacity).toBe("0.24")
+      expect(within(marker).getByRole("button")).toBeDisabled()
+    })
+  })
+
   it.each([
     {
       name: "split desktop",
@@ -1581,6 +1617,8 @@ describe("VehicleNetworkViewport", () => {
     )).toBeInTheDocument()
     expect(screen.getByTestId("vehicle-flow-feedback"))
       .toHaveAttribute("data-status", "REJECTED")
+    expect(screen.getByText("정적 최종 상태 · reduced motion"))
+      .toBeInTheDocument()
     expect(
       canvasState.lineProps.every(
         ({ current }) => current.userData?.flowState === "passed",

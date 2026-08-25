@@ -39,6 +39,33 @@ const structuredPresentation: VehicleFlowPresentation = {
 }
 
 describe("VehicleFlowRail", () => {
+  it.each([
+    [false, "교육용 처리/관찰 순서 · slow-motion trace"],
+    [true, "정적 최종 상태 · reduced motion"],
+  ] as const)("reports the actual motion mode when reducedMotion is %s", (
+    reducedMotion,
+    label,
+  ) => {
+    render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 0,
+          phase: "idle",
+          trace: null,
+          traceIndex: 0,
+          traceCount: 0,
+          segmentIndex: 0,
+        }}
+        reducedMotion={reducedMotion}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText(label)).toBeInTheDocument()
+  })
+
   it.each(["idle", "complete"] as const)(
     "highlights the selected route node while playback is %s",
     (phase) => {

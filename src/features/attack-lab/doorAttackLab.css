@@ -590,8 +590,11 @@
   font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
   line-height: 1.4;
   overflow-wrap: anywhere;
-  pointer-events: none;
+  pointer-events: auto;
   word-break: keep-all;
+}
+.vehicle-network-viewport__marker[data-context-suppressed="true"] {
+  opacity: .24;
 }
 .vehicle-network-viewport__feedback[data-status="OBSERVED"] { border-color: #f59e0b; }
 .vehicle-network-viewport__feedback[data-status="REJECTED"] { border-color: #d12f2f; }
@@ -676,7 +679,7 @@
 .door-attack-lab__monitor td:nth-child(2), .door-attack-lab__monitor td:last-child { font-weight: 750; }
 .door-attack-lab__monitor td button { border: 0; padding: 0; background: transparent; color: var(--dal-accent); font-family: inherit; font-weight: 800; }
 
-.door-attack-lab__secondary { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .7fr); gap: 12px; margin-top: 12px; }
+.door-attack-lab__secondary { display: grid; grid-template-columns: minmax(0, 1.8fr) minmax(280px, .7fr); align-items: start; gap: 12px; margin-top: 12px; }
 .door-attack-lab__terminal { min-height: 230px; }
 .door-attack-lab__terminal-output { height: 145px; min-height: 145px; max-height: 145px; overflow: auto; padding: 10px 12px; background: #151b27; color: #cfd8e8; font-family: "JetBrains Mono Variable", monospace; font-size: 9px; }
 .door-attack-lab__terminal-output > p { margin: 0; color: #91a0b8; }

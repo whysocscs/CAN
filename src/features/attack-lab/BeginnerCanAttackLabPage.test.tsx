@@ -345,7 +345,7 @@ describe("BeginnerCanAttackLabPage", () => {
     )
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     await waitFor(() => expect(api.runBeginnerCanAttackTerminal).toHaveBeenCalled())
-    expect(within(evidence).getByText("NORMAL")).toBeInTheDocument()
+    expect(within(evidence).getByText("PENDING")).toBeInTheDocument()
 
     await user.click(screen.getByRole("button", { name: "실습 초기화" }))
     await waitFor(() =>
@@ -480,6 +480,83 @@ describe("BeginnerCanAttackLabPage", () => {
       expect(vehicle.isOpen(part)).toBe(true)
       expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
         .toHaveAttribute("data-playback-phase", "complete")
+    },
+  )
+
+  it.each(["spoofing", "replay"] as const)(
+    "invalidates the previous %s action as soon as a second accepted submit starts",
+    async (scenarioName) => {
+      stubReducedMotion(true)
+      const current = session(scenarioName)
+      const trace = executedBeginnerTrace(scenarioName)
+      const completed: BeginnerCanAttackState = {
+        ...current,
+        stage: "EVIDENCE",
+        completed: true,
+        vehicleState: {
+          ...current.vehicleState,
+          [scenarioName === "spoofing" ? "tailgate" : "leftDoor"]: "open",
+        },
+      }
+      const secondRequest = deferred<BeginnerCanAttackResult>()
+      api.runBeginnerCanAttackTerminal
+        .mockResolvedValueOnce(result(completed, {
+          code: "EXECUTED",
+          attempts: [{
+            attemptId: trace.attemptId!,
+            timestamp: 10,
+            sessionId: current.sessionId,
+            generation: current.generation,
+            canId: trace.canId!,
+            data: trace.data,
+            verdict: "EXECUTED",
+          }],
+          idsStatus: "NORMAL",
+          flowTraces: [trace],
+        }))
+        .mockReturnValueOnce(secondRequest.promise)
+      const user = userEvent.setup()
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      await screen.findByText(scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU")
+
+      const prediction = screen.getByLabelText("실행 전 예상")
+      await user.type(prediction, "첫 실행에서 차량 효과가 적용될 것으로 예상합니다.")
+      const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+      await user.type(terminal, trace.commandLabel)
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      await user.type(
+        screen.getByLabelText("선택한 근거와 결과 비교"),
+        "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
+      )
+      await user.click(screen.getByRole("button", { name: "학습 확인" }))
+      expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("완료")
+
+      await user.clear(prediction)
+      await user.type(prediction, "두 번째 요청에서 현재 캡처할 예상입니다.")
+      await user.type(terminal, "second accepted request")
+      await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      await waitFor(() =>
+        expect(api.runBeginnerCanAttackTerminal).toHaveBeenCalledTimes(2),
+      )
+
+      expect(screen.queryByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
+        .not.toBeInTheDocument()
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-presentation-status", "missing")
+      expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent("미달성")
+      expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("미완료")
+      expect(screen.getByText("실행 시 기록된 예상").parentElement)
+        .toHaveTextContent("아직 기록되지 않음")
+      expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+      expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+      expect(screen.getByRole("region", { name: "Binary inspector" }))
+        .toHaveTextContent("터미널 또는 monitor에서 프레임을 선택하세요.")
+      expect(screen.getByText("Last verdict").parentElement).toHaveTextContent("PENDING")
+      expect(screen.getByText("Toy IDS").parentElement).toHaveTextContent("PENDING")
+      expect(within(screen.getByRole("region", { name: "Virtual terminal transcript" }))
+        .getAllByTestId("attack-terminal-entry")).toHaveLength(1)
+      expect(within(screen.getByRole("region", { name: "Activity log" }))
+        .getByRole("button", { name: /EXECUTED/ })).toBeInTheDocument()
     },
   )
 

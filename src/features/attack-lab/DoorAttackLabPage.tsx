@@ -139,6 +139,8 @@ interface SelectMonitorAction {
 
 type MonitorAction = AppendMonitorAction | SelectMonitorAction | {
   type: "clear"
+} | {
+  type: "deselect"
 }
 
 const EMPTY_MONITOR: MonitorState = { frames: [], selectedKey: null }
@@ -148,6 +150,7 @@ function monitorReducer(
   action: MonitorAction,
 ): MonitorState {
   if (action.type === "clear") return EMPTY_MONITOR
+  if (action.type === "deselect") return { ...state, selectedKey: null }
   if (action.type === "select") {
     return state.frames.some((frame) => frame.key === action.key)
       ? { ...state, selectedKey: action.key }
@@ -403,10 +406,23 @@ export default function DoorAttackLabPage() {
     const generation = ++actionGenerationRef.current
     const origin: AttackLabActionOrigin = kind === "run" ? "script" : "terminal"
     const actionId = `door:${sessionId}:${sessionGeneration}:${origin}:${generation}`
+    const predictionBeforeAction = predictionDraft
     actionControllerRef.current = controller
     busyRef.current = kind
     setBusy(kind)
     setActionError(null)
+    if (kind !== "reset") {
+      flow.clear()
+      pendingFlowRef.current = null
+      setLastAction(null)
+      setSelectedActivityId(null)
+      dispatchMonitor({ type: "deselect" })
+      setPredictionBeforeAction("")
+      setExplanation("")
+      setConfirmed(false)
+      setIdsStatus(null)
+      setLastRunAttempts([])
+    }
     return {
       controller,
       generation,
@@ -414,7 +430,7 @@ export default function DoorAttackLabPage() {
       sessionGeneration,
       origin,
       actionId,
-      predictionBeforeAction: predictionDraft,
+      predictionBeforeAction,
     }
   }
 

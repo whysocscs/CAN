@@ -2,6 +2,7 @@
 
 import "@testing-library/jest-dom/vitest"
 import { StrictMode } from "react"
+import { readFileSync } from "node:fs"
 import {
   act,
   cleanup,
@@ -129,6 +130,11 @@ vi.mock("./DoorAttackVehicle", async () => {
 })
 
 import DoorAttackLabPage from "./DoorAttackLabPage"
+
+const doorAttackLabCss = readFileSync(
+  "src/features/attack-lab/doorAttackLab.css",
+  "utf8",
+)
 
 const initialSession: DoorLabSessionState = {
   sessionId: "session-1",
@@ -527,6 +533,16 @@ describe("DoorAttackLabPage", () => {
     expect(truthQualifier).toHaveClass("door-attack-lab__truth-qualifier")
     expect(truthQualifier).toBeVisible()
     expect(stream.connect).toHaveBeenCalledTimes(1)
+  })
+
+  it("keeps the terminal column at its content height instead of stretching it to the Activity column", async () => {
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    expect(document.querySelector(".door-attack-lab__secondary")).not.toBeNull()
+    expect(doorAttackLabCss).toMatch(
+      /\.door-attack-lab__secondary\s*\{[^}]*align-items:\s*start;/,
+    )
   })
 
   it("explains how terminal reconnaissance becomes a door lab script without revealing the answer", async () => {
@@ -1040,7 +1056,7 @@ describe("DoorAttackLabPage", () => {
     },
   )
 
-  it("does not erase the last authoritative IDS verdict when capture has no IDS result", async () => {
+  it("shows PENDING when the latest Door action has no IDS result", async () => {
     const user = userEvent.setup()
     api.runDoorLabCommand.mockResolvedValueOnce({
       ...captureResult,
@@ -1068,7 +1084,7 @@ describe("DoorAttackLabPage", () => {
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
 
     await waitFor(() => {
-      expect(evidence).toHaveTextContent(/Toy IDS\s*ALERT/)
+      expect(evidence).toHaveTextContent(/Toy IDS\s*PENDING/)
       expect(evidence).toHaveTextContent("capture: observed")
     })
   })
@@ -1624,6 +1640,76 @@ describe("DoorAttackLabPage", () => {
     await user.click(confirm)
     expect(screen.getByText("학습 확인 완료").parentElement)
       .toHaveTextContent("완료")
+  })
+
+  it("invalidates the previous Door action as soon as a second accepted submit starts", async () => {
+    const secondRequest = deferred<DoorLabTerminalResult>()
+    api.runDoorLabCommand
+      .mockResolvedValueOnce(acceptedTerminalResult)
+      .mockReturnValueOnce(secondRequest.promise)
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    const prediction = screen.getByLabelText("실행 전 예상")
+    await user.type(prediction, "첫 실행에서 왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(terminal, "cansend vcan0 555#0001")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "session-1-attempt-terminal",
+          lab: {
+            labId: "door-blackbox-v1",
+            sessionId: "session-1",
+            generation: 0,
+            attemptId: "session-1-attempt-terminal",
+          },
+        }),
+      ),
+    )
+    await flushCanEvents()
+    await user.type(
+      screen.getByLabelText("선택한 근거와 결과 비교"),
+      "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
+    )
+    await user.click(screen.getByRole("button", { name: "학습 확인" }))
+
+    expect(screen.getByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
+      .toBeInTheDocument()
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent("달성")
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("완료")
+    expect(screen.getByRole("region", { name: "Binary inspector" }))
+      .not.toHaveTextContent("Network monitor에서 frame을 선택하세요.")
+
+    await user.clear(prediction)
+    await user.type(prediction, "두 번째 요청에서 현재 캡처할 예상입니다.")
+    await user.type(terminal, "cansend vcan0 555#0002")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledTimes(2))
+
+    expect(screen.queryByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
+      .not.toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-presentation-status",
+      "missing",
+    )
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent("미달성")
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("미완료")
+    expect(screen.getByText("실행 시 기록된 예상").parentElement)
+      .toHaveTextContent("아직 기록되지 않음")
+    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+    expect(screen.getByRole("region", { name: "Binary inspector" }))
+      .toHaveTextContent("Network monitor에서 frame을 선택하세요.")
+    expect(screen.getByText("Toy IDS").parentElement).toHaveTextContent("PENDING")
+    expect(within(screen.getByRole("region", { name: "Virtual terminal transcript" }))
+      .getAllByTestId("attack-terminal-entry")).toHaveLength(1)
+    expect(within(screen.getByRole("region", { name: "Activity log" }))
+      .getByRole("button", { name: /EXECUTED/ })).toBeInTheDocument()
+
+    expect(api.runDoorLabCommand.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal)
   })
 
   it("invalidates the latest technical and learner result when the next Door trace payload is malformed", async () => {
