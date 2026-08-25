@@ -263,6 +263,26 @@ describe("DoorAttackLabPage", () => {
     expect(stream.connect).toHaveBeenCalledTimes(1)
   })
 
+  it("explains how terminal reconnaissance becomes a door lab script without revealing the answer", async () => {
+    render(<DoorAttackLabPage />)
+
+    expect(await screen.findByText("Script 사용법")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Terminal에서 로그와 프레임을 먼저 관찰/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/실행할 줄 앞의 #을 제거/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/interval_ms=<10\.\.2000>.*cansend/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Toy IDS.*Proof/)).toBeInTheDocument()
+
+    const guide = screen.getByText("Script 사용법").closest("details")
+    expect(guide).not.toBeNull()
+    expect(guide).not.toHaveTextContent(/456#|000113B7|000114B0|000115B1/i)
+  })
+
   it("shows an explicit offline error when session creation is rejected", async () => {
     api.createDoorLabSession.mockRejectedValueOnce(
       new Error("Door lab API is unavailable."),

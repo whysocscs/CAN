@@ -32,6 +32,7 @@ import {
   runBeginnerCanAttackTerminal,
 } from "./beginnerCanAttackApi"
 import type {
+  BeginnerCanAttackIdsStatus,
   BeginnerCanAttackMonitorFrame,
   BeginnerCanAttackMonitorState,
   BeginnerCanAttackResult,
@@ -52,6 +53,7 @@ import {
   parseBeginnerTerminalFrames,
   vehicleRatiosFromBeginnerState,
 } from "./beginnerCanAttackUtils"
+import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
 
 const CONFIG: Record<BeginnerCanAttackScenario, BeginnerCanAttackUiConfig> = {
@@ -206,6 +208,7 @@ export default function BeginnerCanAttackLabPage({
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
   const [lastResult, setLastResult] = useState<BeginnerCanAttackResult | null>(null)
+  const [idsStatus, setIdsStatus] = useState<BeginnerCanAttackIdsStatus | null>(null)
   const mountedRef = useRef(false)
   const scenarioRef = useRef(scenario)
   const lifecycleGenerationRef = useRef(0)
@@ -227,6 +230,7 @@ export default function BeginnerCanAttackLabPage({
     setHintIndex(-1)
     setScript(nextConfig.initialScript)
     setLastResult(null)
+    setIdsStatus(null)
     setActionError(null)
     setBusy(null)
     busyRef.current = null
@@ -382,6 +386,7 @@ export default function BeginnerCanAttackLabPage({
     sessionRef.current = result.state
     setSession(result.state)
     setLastResult(result)
+    if (result.idsStatus !== null) setIdsStatus(result.idsStatus)
     applyVehicleState(result.state.vehicleState)
     const restFrames = [
       ...attemptsToBeginnerMonitorFrames(result.attempts, source),
@@ -567,6 +572,7 @@ export default function BeginnerCanAttackLabPage({
 
         <section className="door-attack-lab__editor" role="region" aria-label="Code editor">
           <header className="door-attack-lab__panel-heading"><div><Code size={18} aria-hidden="true" /><span><strong>Restricted lab script</strong><small>comments + scenario final action</small></span></div><span>최대 20 lines</span></header>
+          <LabScriptGuide mode={scenario} />
           <textarea aria-label="공격 스크립트" value={script} onChange={(event) => setScript(event.target.value)} spellCheck={false} />
           <div className="door-attack-lab__editor-actions">
             <button type="button" className="is-secondary" onClick={() => void handleReset()} disabled={!session || busy !== null}><ArrowClockwise size={15} aria-hidden="true" />{busy === "reset" ? "초기화 중" : "실습 초기화"}</button>
@@ -603,7 +609,7 @@ export default function BeginnerCanAttackLabPage({
         <div className="door-attack-lab__learning">
           <section role="region" aria-label="Hints"><header><Lightbulb size={17} aria-hidden="true" /><strong>Hints</strong></header><p>{hintIndex < 0 ? "힌트는 정답을 대신하지 않습니다." : config.hints[hintIndex]}</p><button type="button" onClick={() => setHintIndex((index) => Math.min(index + 1, config.hints.length - 1))}>다음 힌트</button></section>
           <section role="region" aria-label="Learning objective"><header><ShieldCheck size={17} aria-hidden="true" /><strong>Learning objective</strong></header><p>{config.objective}</p><p>물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만 검증합니다.</p></section>
-          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Completed</dt><dd>{session?.completed ? "YES" : "NO"}</dd></div></dl></section>
+          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Completed</dt><dd>{session?.completed ? "YES" : "NO"}</dd></div></dl></section>
         </div>
       </div>
     </section>

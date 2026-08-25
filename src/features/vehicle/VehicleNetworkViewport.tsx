@@ -450,6 +450,7 @@ export default function VehicleNetworkViewport({
       <ol
         className="vehicle-network-viewport__target-map"
         aria-label={`${scenarioTitle} target map`}
+        tabIndex={0}
       >
         {routeNodes.map((node) => (
           <li

@@ -37,6 +37,7 @@ import type {
 } from "./doorLabTypes"
 import { formatFrameData, frameBits, parseTerminalFrames } from "./doorLabUtils"
 import DoorAttackVehicle from "./DoorAttackVehicle"
+import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
 
 const STAGES = [
@@ -610,6 +611,7 @@ export default function DoorAttackLabPage() {
             </div>
             <span>최대 20 lines</span>
           </header>
+          <LabScriptGuide mode="door" />
           <textarea
             aria-label="공격 스크립트"
             value={script}

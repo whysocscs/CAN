@@ -132,6 +132,61 @@ describe("BeginnerCanAttackLabPage", () => {
     expect(body).not.toContain("정적 UI 미리보기")
   })
 
+  it.each([
+    ["spoofing", "cansend"],
+    ["replay", "canplayer"],
+  ] as const)("explains the %s terminal-to-script workflow without exposing its solution", async (scenarioName, finalAction) => {
+    render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+
+    expect(await screen.findByText("Script 사용법")).toBeInTheDocument()
+    expect(
+      screen.getByText(/관찰·캡처 명령은 Virtual terminal에서 실행/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(new RegExp(`최종 ${finalAction} action 한 줄`)),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/실행할 action 줄 앞의 #을 제거/)).toBeInTheDocument()
+
+    const guide = screen.getByText("Script 사용법").closest("details")
+    expect(guide).not.toBeNull()
+    expect(guide).not.toHaveTextContent(/5A1#01|5A2#0001|capture\.log/i)
+  })
+
+  it("shows the Toy IDS verdict in Evidence after a script attempt", async () => {
+    const completed = {
+      ...session("spoofing"),
+      stage: "EVIDENCE" as const,
+      attemptCount: 1,
+      lastVerdict: "EXECUTED" as const,
+      completed: true,
+    }
+    api.runBeginnerCanAttackScript.mockResolvedValueOnce(
+      result(completed, { code: "EXECUTED", idsStatus: "NORMAL" }),
+    )
+    const user = userEvent.setup()
+
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await screen.findByText("REAR ECU")
+    await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
+
+    const evidence = screen.getByRole("region", { name: "Evidence" })
+    expect(within(evidence).getByText("Toy IDS")).toBeInTheDocument()
+    expect(within(evidence).getByText("NORMAL")).toBeInTheDocument()
+
+    await user.type(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      "pwd",
+    )
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() => expect(api.runBeginnerCanAttackTerminal).toHaveBeenCalled())
+    expect(within(evidence).getByText("NORMAL")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() =>
+      expect(within(evidence).getByText("PENDING")).toBeInTheDocument(),
+    )
+  })
+
   it("creates one StrictMode session and aborts the create when the page leaves", async () => {
     let resolve!: (value: BeginnerCanAttackState) => void
     api.createBeginnerCanAttackSession.mockReturnValueOnce(new Promise((done) => { resolve = done }))
