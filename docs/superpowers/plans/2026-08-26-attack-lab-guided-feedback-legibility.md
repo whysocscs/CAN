@@ -158,6 +158,8 @@ Update Door and Beginner local-command trace tests so a local rejection keeps `e
 Add Door regressions proving that script grammar/local validation returns
 `ids_status is None`, and that a three-attempt script exposes `idsVerdict=None`
 for attempts 1 and 2 and the whole-script verdict only on attempt 3.
+For emitted events, assert attempts 1 and 2 keep `idsObserved=True` with no
+`monitoring.status`, while attempt 3 carries the final `NORMAL` or `ALERT`.
 
 - [ ] **Step 3: Run the focused backend tests and verify RED**
 
@@ -245,6 +247,12 @@ For Door scripts, return `ids_status=None` from grammar/local validation errors.
 When `labs.py` builds attempt traces, pass `result.ids_status` only to the final
 attempt; every earlier trace gets `ids_verdict=None`. This prevents Frame 1/3
 from revealing the whole-sequence verdict before the final IDS observation.
+
+Make `_metadata_for(..., ids_status: str | None)` omit `monitoring.status` when
+the value is `None` while retaining `idsObserved=True`. In the script emission
+loop, pass the whole-script status only for the final attempt and `None` for
+earlier accepted frames. Their monitor event is therefore `OBSERVED/PENDING`,
+not a fabricated final IDS result.
 
 - [ ] **Step 6: Run focused backend tests and verify GREEN**
 
@@ -608,6 +616,12 @@ authoritative result:
    prediction with this action;
 7. derive presentation from `lastAction + flow.snapshot` with `useMemo`.
 
+Use the existing stale-guard identity as the action ID:
+`door:<sessionId>:<sessionGeneration>:<origin>:<actionGeneration>` for Door and
+`<scenario>:<sessionId>:<sessionGeneration>:<origin>:<actionGeneration>` for
+Spoofing/Replay. Reuse the exact same value as the playback `runKey`; do not add
+time- or randomness-based identity.
+
 For a Door script, use `origin: "script"`, do not create terminal transcript
 rows, and keep individual `trace.commandLabel` values for the visible script
 line. Only structured results update Activity; network/API failures remain
@@ -698,7 +712,9 @@ git commit -m "feat: separate attack evidence and learning checks"
 - Modify: `src/features/attack-lab/DoorAttackVehicle.tsx`
 - Modify: `src/features/attack-lab/DoorAttackVehicle.test.tsx`
 - Modify: `src/features/attack-lab/DoorAttackLabPage.tsx`
+- Modify: `src/features/attack-lab/DoorAttackLabPage.test.tsx`
 - Modify: `src/features/attack-lab/BeginnerCanAttackLabPage.tsx`
+- Modify: `src/features/attack-lab/BeginnerCanAttackLabPage.test.tsx`
 - Modify: `src/features/attack-lab/doorAttackLab.css`
 
 **Interfaces:**
@@ -755,7 +771,9 @@ Run:
   src/features/vehicle/useVehicleFlowPlayback.test.tsx `
   src/features/vehicle/VehicleFlowRail.test.tsx `
   src/features/vehicle/VehicleNetworkViewport.test.tsx `
-  src/features/attack-lab/DoorAttackVehicle.test.tsx
+  src/features/attack-lab/DoorAttackVehicle.test.tsx `
+  src/features/attack-lab/DoorAttackLabPage.test.tsx `
+  src/features/attack-lab/BeginnerCanAttackLabPage.test.tsx
 ```
 
 Expected: presentation props, progressive markup, observer style, second halo,
@@ -859,7 +877,7 @@ Expected: all selected tests and typecheck pass.
 - [ ] **Step 11: Commit Task 4**
 
 ```powershell
-git add -- src/features/vehicle/useVehicleFlowPlayback.ts src/features/vehicle/useVehicleFlowPlayback.test.tsx src/features/vehicle/VehicleNetworkViewport.tsx src/features/vehicle/VehicleNetworkViewport.test.tsx src/features/vehicle/VehicleFlowRail.tsx src/features/vehicle/VehicleFlowRail.test.tsx src/features/attack-lab/DoorAttackVehicle.tsx src/features/attack-lab/DoorAttackVehicle.test.tsx src/features/attack-lab/DoorAttackLabPage.tsx src/features/attack-lab/BeginnerCanAttackLabPage.tsx src/features/attack-lab/doorAttackLab.css
+git add -- src/features/vehicle/useVehicleFlowPlayback.ts src/features/vehicle/useVehicleFlowPlayback.test.tsx src/features/vehicle/VehicleNetworkViewport.tsx src/features/vehicle/VehicleNetworkViewport.test.tsx src/features/vehicle/VehicleFlowRail.tsx src/features/vehicle/VehicleFlowRail.test.tsx src/features/attack-lab/DoorAttackVehicle.tsx src/features/attack-lab/DoorAttackVehicle.test.tsx src/features/attack-lab/DoorAttackLabPage.tsx src/features/attack-lab/DoorAttackLabPage.test.tsx src/features/attack-lab/BeginnerCanAttackLabPage.tsx src/features/attack-lab/BeginnerCanAttackLabPage.test.tsx src/features/attack-lab/doorAttackLab.css
 git commit -m "feat: explain active vehicle flow in 3d"
 ```
 
