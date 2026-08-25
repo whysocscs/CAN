@@ -55,6 +55,15 @@ function complete(trace: VehicleFlowTrace): VehicleFlowPlaybackSnapshot {
   return playback(trace, trace.route.length - 1, { phase: "complete" })
 }
 
+function automaticTextFor(result: AttackLabActionResult, snapshot: VehicleFlowPlaybackSnapshot): string {
+  const feedback = classifyAttackLabFeedback({ result, playback: snapshot })
+  return [
+    feedback.explanation,
+    ...feedback.explanationRows.map((row) => row.value),
+    feedback.flow.nodeFeedback?.detail ?? "",
+  ].join(" ")
+}
+
 describe("attack lab feedback policy", () => {
   it("keeps an emitted rejected cansend silent while explaining the ECU verdict", () => {
     const result = actionResult({
@@ -77,6 +86,7 @@ describe("attack lab feedback policy", () => {
 
     expect(feedback.explanation).toContain("rolling counter")
     expect(feedback.explanationRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "터미널 결과", value: "오류 없음" }),
       expect.objectContaining({ label: "가상 CAN 경로 입력", value: "성공" }),
       expect.objectContaining({ label: "ECU 판정", value: "COUNTER_REJECTED" }),
     ]))
@@ -138,6 +148,8 @@ describe("attack lab feedback policy", () => {
 
   it.each([
     "COMMAND_REJECTED",
+    "SCRIPT_COMMAND_INVALID",
+    "FILE_NOT_FOUND",
     "CAPTURE_FILE_UNKNOWN",
     "REPEAT_COUNT_INVALID",
   ])("keeps local or preflight %s in stderr without a vehicle path", (resultCode) => {
@@ -158,6 +170,33 @@ describe("attack lab feedback policy", () => {
     })
     expect(feedback.flow.nodeFeedback).toMatchObject({
       nodeId: "terminal",
+      status: "NO VEHICLE PATH",
+    })
+    expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "ECU 판정" }),
+      expect.objectContaining({ label: "Toy IDS 관찰" }),
+    ]))
+  })
+
+  it("keeps an evidence-stop Replay preflight in stderr with no vehicle path", () => {
+    const evidencePreflight: VehicleFlowTrace = {
+      ...terminalLocalRejectionTrace,
+      traceId: "replay-evidence-preflight",
+      route: ["terminal", "evidence"],
+      stoppedAt: "evidence",
+    }
+    const result = actionResult({
+      scenario: "replay",
+      ok: false,
+      resultCode: "CAPTURE_SESSION_MISMATCH",
+      rawOutput: "virtual replay preflight error",
+      traces: [evidencePreflight],
+    })
+    const feedback = classifyAttackLabFeedback({ result, playback: complete(evidencePreflight) })
+
+    expect(classifyTerminalTranscript(result)).toMatchObject({ stream: "stderr" })
+    expect(feedback.flow.nodeFeedback).toMatchObject({
+      nodeId: "evidence",
       status: "NO VEHICLE PATH",
     })
     expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
@@ -236,52 +275,81 @@ describe("attack lab feedback policy", () => {
   })
 
   it("discloses IDS, ECU, and effect facts only at their authoritative segments", () => {
-    const result = actionResult()
+    const rejectedResult = actionResult({
+      ok: false,
+      resultCode: "COUNTER_REJECTED",
+      traces: [rejectedBodyTrace],
+    })
 
-    expect(classifyAttackLabFeedback({
-      result,
-      playback: playback(executedDoorTrace, 1),
-    }).explanationRows).not.toEqual(expect.arrayContaining([
+    const beforeIds = classifyAttackLabFeedback({
+      result: rejectedResult,
+      playback: playback(rejectedBodyTrace, 1),
+    })
+    expect(beforeIds.explanationRows).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Toy IDS 관찰" }),
       expect.objectContaining({ label: "ECU 판정" }),
       expect.objectContaining({ label: "차량 영향" }),
     ]))
+    expect(beforeIds.explanation).not.toContain("rolling counter")
 
-    expect(classifyAttackLabFeedback({
-      result,
-      playback: playback(executedDoorTrace, 2),
-    }).explanationRows).toEqual(expect.arrayContaining([
+    const atIds = classifyAttackLabFeedback({
+      result: rejectedResult,
+      playback: playback(rejectedBodyTrace, 2),
+    })
+    expect(atIds.explanationRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "Toy IDS 관찰" }),
     ]))
+    expect(atIds.explanation).not.toContain("rolling counter")
 
-    expect(classifyAttackLabFeedback({
-      result,
-      playback: playback(executedDoorTrace, 4),
-    }).explanationRows).toEqual(expect.arrayContaining([
+    const atEcu = classifyAttackLabFeedback({
+      result: rejectedResult,
+      playback: complete(rejectedBodyTrace),
+    })
+    expect(atEcu.explanationRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "ECU 판정" }),
     ]))
+    expect(atEcu.explanation).toContain("Toy ECU")
 
-    expect(classifyAttackLabFeedback({
-      result,
-      playback: complete(executedDoorTrace),
-    }).explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "차량 영향" }),
-    ]))
-  })
-
-  it("does not derive automatic explanation text from an untrusted output payload", () => {
-    const privateText = "unobserved-private-answer"
-    const feedback = classifyAttackLabFeedback({
-      result: actionResult({ resultCode: "UNKNOWN", rawOutput: privateText }),
+    const atEffect = classifyAttackLabFeedback({
+      result: actionResult(),
       playback: complete(executedDoorTrace),
     })
-    const automaticText = [
-      feedback.explanation,
-      ...feedback.explanationRows.map((row) => row.value),
-      feedback.flow.nodeFeedback?.detail ?? "",
-    ].join(" ")
+    expect(atEffect.explanationRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "차량 영향" }),
+    ]))
+    expect(atEffect.explanation).toContain("차량 효과가 적용")
+  })
 
-    expect(automaticText).not.toContain(privateText)
+  it("never exposes synthetic private values or an unknown ECU verdict in automatic feedback", () => {
+    const privateValues = [
+      "private-id-sentinel",
+      "private-payload-sentinel",
+      "private-checksum-formula-sentinel",
+      "private-expected-counter-sentinel",
+      "private-full-command-sentinel",
+      "private-ecu-verdict-sentinel",
+    ]
+    const trace: VehicleFlowTrace = {
+      ...rejectedBodyTrace,
+      ecuVerdict: privateValues.at(-1)!,
+    }
+    const result = actionResult({
+      resultCode: "COUNTER_REJECTED",
+      rawOutput: privateValues.slice(0, -1).join(" "),
+      traces: [trace],
+    })
+    const feedback = classifyAttackLabFeedback({ result, playback: complete(trace) })
+    const automaticText = automaticTextFor(result, complete(trace))
+
+    for (const privateValue of privateValues) {
+      expect(automaticText).not.toContain(privateValue)
+    }
+    expect(feedback.flow.ecuVerdict).toBeNull()
+    expect(feedback.flow.nodeFeedback?.detail)
+      .toBe("교육용 분석에 필요한 안전한 판정 정보가 없습니다.")
+    expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "ECU 판정" }),
+    ]))
   })
 
   it("keeps the newest twenty authoritative actions including local and script results", () => {
@@ -321,6 +389,29 @@ describe("attack lab feedback policy", () => {
       origin: "script",
       frameEmitted: true,
     })
+  })
+
+  it("preserves an evidence-stop Replay preflight in bounded activity without a frame", () => {
+    const evidencePreflight: VehicleFlowTrace = {
+      ...terminalLocalRejectionTrace,
+      traceId: "replay-preflight-activity",
+      route: ["terminal", "evidence"],
+      stoppedAt: "evidence",
+    }
+    const entries = appendAttackLabActivity([], actionResult({
+      actionId: "replay-preflight",
+      scenario: "replay",
+      ok: false,
+      resultCode: "CAPTURE_GENERATION_MISMATCH",
+      traces: [evidencePreflight],
+    }))
+
+    expect(entries).toEqual([expect.objectContaining({
+      id: "replay-preflight",
+      resultCode: "CAPTURE_GENERATION_MISMATCH",
+      frameEmitted: false,
+      stoppedAt: "evidence",
+    })])
   })
 
   it("keeps the newest one hundred terminal transcript entries", () => {

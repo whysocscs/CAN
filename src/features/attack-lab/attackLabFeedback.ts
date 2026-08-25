@@ -79,6 +79,26 @@ function reasonFor(resultCode: string): string {
   return SAFE_REASON[resultCode] ?? "교육용 분석에 필요한 안전한 판정 정보가 없습니다."
 }
 
+function isSafeVerdictCode(value: string | null): value is string {
+  return value !== null && Object.prototype.hasOwnProperty.call(SAFE_REASON, value)
+}
+
+function emittedFrame(traces: readonly VehicleFlowTrace[]): boolean {
+  return traces.some(
+    (trace) => trace.kind === "inject" && trace.route.includes("obd"),
+  )
+}
+
+function capturedToFile(traces: readonly VehicleFlowTrace[]): boolean {
+  return traces.some((trace) => trace.kind === "capture")
+}
+
+function terminalOutcome(result: AttackLabActionResult): "오류 없음" | "로컬 오류" {
+  return result.ok || emittedFrame(result.traces) || capturedToFile(result.traces)
+    ? "오류 없음"
+    : "로컬 오류"
+}
+
 function visibleSegmentIndex(
   playback: VehicleFlowPlaybackSnapshot,
   trace: VehicleFlowTrace,
@@ -156,11 +176,14 @@ function nodeFeedbackFor(
   }
 
   if (isTargetNode(currentNodeId) && atFinalNode) {
+    const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict) ? trace.ecuVerdict : null
     return {
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
       status: trace.outcome === "REJECTED" ? "REJECTED" : "ACCEPTED",
-      detail: trace.ecuVerdict ?? reason,
+      detail: ecuVerdict
+        ? reasonFor(ecuVerdict)
+        : "교육용 분석에 필요한 안전한 판정 정보가 없습니다.",
       source: "Toy ECU",
       persist,
     }
@@ -219,6 +242,7 @@ function presentationFor(
   const idsIndex = trace.route.indexOf("ids")
   const targetIndex = trace.route.findIndex(isTargetNode)
   const effectIndex = trace.effectTarget ? trace.route.indexOf(trace.effectTarget) : -1
+  const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict) ? trace.ecuVerdict : null
   const nodeFeedback = currentNodeId
     ? nodeFeedbackFor(trace, currentNodeId, atFinalNode, result.resultCode, playback.phase)
     : null
@@ -239,7 +263,7 @@ function presentationFor(
     stoppedAt: atFinalNode ? trace.stoppedAt : null,
     effectTarget: effectIndex >= 0 && segmentIndex >= effectIndex ? trace.effectTarget : null,
     effectApplied: effectIndex >= 0 && segmentIndex >= effectIndex && trace.effectApplied,
-    ecuVerdict: targetIndex >= 0 && segmentIndex >= targetIndex ? trace.ecuVerdict : null,
+    ecuVerdict: targetIndex >= 0 && segmentIndex >= targetIndex ? ecuVerdict : null,
     idsVerdict: idsIndex >= 0 && segmentIndex >= idsIndex ? trace.idsVerdict : null,
     nodeFeedback,
   }
@@ -254,7 +278,7 @@ function explanationRowsFor(
   const rows: AttackLabExplanationRow[] = [{
     key: "terminal",
     label: "터미널 결과",
-    value: result.ok ? "오류 없음" : "로컬 오류",
+    value: terminalOutcome(result),
     source: "Terminal",
   }]
   if (!trace || !flow.currentNodeId) return rows
@@ -313,28 +337,31 @@ function explanationRowsFor(
 }
 
 function explanationFor(result: AttackLabActionResult, flow: VehicleFlowPresentation): string {
-  const reason = reasonFor(result.resultCode)
   if (flow.effectApplied) {
-    return `${reason} 가상 CAN 경로 입력 후 교육용 차량 효과가 적용되었습니다.`
+    return `${reasonFor(result.resultCode)} 가상 CAN 경로 입력 후 교육용 차량 효과가 적용되었습니다.`
   }
-  if (flow.ecuVerdict && flow.outcome === "REJECTED") {
-    return `${reason} 가상 CAN 경로 입력은 성공했지만 Toy ECU가 차량 효과를 적용하지 않았습니다.`
+  if (flow.ecuVerdict) {
+    return `Toy ECU 판정: ${reasonFor(flow.ecuVerdict)}`
   }
   if (flow.currentNodeId === "evidence" || flow.currentNodeId === "monitor") {
-    return `${reason} Evidence가 차량 효과와 분리되어 기록되었습니다.`
+    if (!emittedFrame(result.traces) && !capturedToFile(result.traces)) {
+      return reasonFor(result.resultCode)
+    }
+    return "Evidence가 차량 효과와 분리되어 기록되었습니다."
   }
-  return reason
+  if (
+    flow.currentNodeId === "terminal"
+    && !emittedFrame(result.traces)
+    && !capturedToFile(result.traces)
+  ) return reasonFor(result.resultCode)
+  return "가상 CAN 경로가 교육용 노드 순서에 따라 진행 중입니다."
 }
 
 export function classifyTerminalTranscript(
   result: AttackLabActionResult,
 ): AttackLabTerminalTranscript | null {
   if (result.origin !== "terminal") return null
-  const emitted = result.traces.some(
-    (trace) => trace.kind === "inject" && trace.route.includes("obd"),
-  )
-  const capturedToFile = result.traces.some((trace) => trace.kind === "capture")
-  if (emitted || capturedToFile) {
+  if (emittedFrame(result.traces) || capturedToFile(result.traces)) {
     return { command: result.commandLabel, stream: "silent", text: "" }
   }
   return {
@@ -366,9 +393,7 @@ export function appendAttackLabActivity(
 ): AttackLabActivityEntry[] {
   const traces = action.traces
   const finalTrace = traces.at(-1) ?? null
-  const frameEmitted = traces.some(
-    (trace) => trace.kind === "inject" && trace.route.includes("obd"),
-  )
+  const frameEmitted = emittedFrame(traces)
   return [...entries, {
     id: action.actionId,
     origin: action.origin,
