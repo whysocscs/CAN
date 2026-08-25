@@ -109,6 +109,7 @@ export interface BeginnerCanAttackResult {
   captures: BeginnerCanAttackCapture[]
   state: BeginnerCanAttackState
   idsStatus: BeginnerCanAttackIdsStatus | null
+  flowTraces?: unknown
 }
 
 export interface BeginnerCanAttackMonitorFrame {
