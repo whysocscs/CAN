@@ -532,11 +532,12 @@ function EvidenceLedger({ scenario }: { scenario: AttackScenario }) {
 }
 
 export default function AttackPracticePage({ route }: { route: AttackRoute }) {
+  const { completeItem, progress } = useApp()
   if (route === "attacks/chain") {
     return (
       <main className="attack-preview attack-preview--door-lab">
         <ScenarioTabs current={route} />
-        <DoorAttackLabPage />
+        <DoorAttackLabPage onComplete={() => completeItem("attacks/chain")} />
       </main>
     )
   }
@@ -546,12 +547,17 @@ export default function AttackPracticePage({ route }: { route: AttackRoute }) {
     return (
       <main className="attack-preview attack-preview--door-lab">
         <ScenarioTabs current={route} />
-        <BeginnerCanAttackLabPage key={route} scenario={scenario} />
+        <BeginnerCanAttackLabPage
+          key={route}
+          scenario={scenario}
+          onComplete={() => completeItem(route)}
+        />
       </main>
     )
   }
 
   const scenario = scenarios[route]
+  const completed = progress.completedItems.includes(route)
 
   return (
     <main className="attack-preview">
@@ -578,6 +584,24 @@ export default function AttackPracticePage({ route }: { route: AttackRoute }) {
       </div>
 
       <EvidenceLedger scenario={scenario} />
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+        <button
+          type="button"
+          disabled={completed}
+          onClick={() => completeItem(route)}
+          style={{
+            padding: "9px 16px",
+            borderRadius: 8,
+            border: "1px solid var(--border-default)",
+            background: completed ? "var(--state-success-bg)" : "var(--brand-accent)",
+            color: completed ? "var(--state-success)" : "white",
+            fontWeight: 700,
+            cursor: completed ? "default" : "pointer",
+          }}
+        >
+          {completed ? "DoS 실습 완료 · 배지 획득" : "DoS 실습 완료하기"}
+        </button>
+      </div>
     </main>
   )
 }

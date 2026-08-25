@@ -191,8 +191,10 @@ function sequenceFrames(
 
 export default function BeginnerCanAttackLabPage({
   scenario,
+  onComplete,
 }: {
   scenario: BeginnerCanAttackScenario
+  onComplete?: () => void
 }) {
   const config = CONFIG[scenario]
   const [session, setSession] = useState<BeginnerCanAttackState | null>(null)
@@ -507,6 +509,10 @@ export default function BeginnerCanAttackLabPage({
     : session && session.stage !== "RECON"
       ? "OBSERVED"
       : "UNKNOWN"
+
+  useEffect(() => {
+    if (session?.completed) onComplete?.()
+  }, [onComplete, session?.completed])
 
   return (
     <section className="door-attack-lab beginner-can-attack-lab" aria-labelledby="beginner-can-attack-title">

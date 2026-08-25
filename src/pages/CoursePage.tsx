@@ -19,6 +19,7 @@ import { Reward16Regular } from "@fluentui/react-icons/svg/reward"
 import { Shield20Regular } from "@fluentui/react-icons/svg/shield"
 import { Checkmark12Regular } from "@fluentui/react-icons/svg/checkmark"
 import { designVersion, previewAccessOpen } from "@/design/version"
+import { badgeCatalog } from "@/features/badges/catalog"
 
 type CourseIconKey = "theory" | "practice" | "attack"
 
@@ -111,7 +112,7 @@ const courses = [
     difficulty: "입문",
     totalItems: 3,
     maxScore: 300,
-    badge: "Frame Reader",
+    badge: "CAN 기초 완료",
     items: ["CAN 프로토콜", "CAN 프레임", "ECU와 Gateway"],
     resumeLabel: "CAN 프레임",
     startRoute: "can-basics/protocol" as Route,
@@ -130,7 +131,7 @@ const courses = [
     difficulty: "초급",
     totalItems: 2,
     maxScore: 300,
-    badge: "Bus Observer",
+    badge: "CAN 실습 완료",
     items: ["정상 CAN 송수신", "CAN Frame 송신기"],
     resumeLabel: "정상 CAN 송수신",
     startRoute: "practice/normal" as Route,
@@ -149,7 +150,7 @@ const courses = [
     difficulty: "중급",
     totalItems: 4,
     maxScore: 600,
-    badge: "Spoofing Analyst",
+    badge: "공격 실습 완료",
     items: ["전체 공격 체인", "Spoofing", "Replay", "DoS"],
     resumeLabel: "전체 공격 체인",
     startRoute: "attacks/chain" as Route,
@@ -170,6 +171,9 @@ const difficultyColor: Record<string, string> = {
 
 export default function CoursePage() {
   const { navigate, progress, devMode } = useApp()
+  const earnedBadgeCount = badgeCatalog.filter((badge) =>
+    badge.isEarned(progress),
+  ).length
 
   const isLocked = (unlockKey: string | null) => {
     if (previewAccessOpen || devMode || !unlockKey) return false
@@ -253,7 +257,7 @@ export default function CoursePage() {
               value: `${progress.totalScore.toLocaleString()}점`,
             },
             { label: "완료 수업", value: `${completedCount}개` },
-            { label: "획득 배지", value: `${progress.badges.length}개` },
+            { label: "획득 배지", value: `${earnedBadgeCount}개` },
           ].map((stat) => (
             <CourseSurface
               className="course-summary__stat"

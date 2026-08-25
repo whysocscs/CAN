@@ -16,6 +16,7 @@ import { LockClosed16Regular } from "@fluentui/react-icons/svg/lock-closed"
 import { Reward20Regular } from "@fluentui/react-icons/svg/reward"
 import { Wrench20Regular } from "@fluentui/react-icons/svg/wrench"
 import { designVersion, previewAccessOpen } from "@/design/version"
+import { badgeCatalog } from "@/features/badges/catalog"
 
 const recentActivity = [
   {
@@ -138,6 +139,9 @@ function DashboardArrow() {
 
 export default function DashboardPage() {
   const { progress, navigate, devMode } = useApp()
+  const earnedBadgeCount = badgeCatalog.filter((badge) =>
+    badge.isEarned(progress),
+  ).length
   const overallProgress = Math.round(
     visibleCourses.reduce(
       (total, course) => total + (progress.courseProgress[course.key] || 0),
@@ -265,7 +269,7 @@ export default function DashboardPage() {
           <p
             style={{ fontSize: 11, color: "var(--text-secondary)", margin: 0 }}
           >
-            배지 {progress.badges.length}개 보유
+            배지 {earnedBadgeCount}개 보유
           </p>
         </DashboardPanel>
         <DashboardPanel

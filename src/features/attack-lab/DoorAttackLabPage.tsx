@@ -223,7 +223,7 @@ function StageRail({ current }: { current?: string }) {
   )
 }
 
-export default function DoorAttackLabPage() {
+export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => void } = {}) {
   const [session, setSession] = useState<DoorLabSessionState | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<"run" | "reset" | "terminal" | null>(null)
@@ -240,6 +240,10 @@ export default function DoorAttackLabPage() {
   const [lastRunAttempts, setLastRunAttempts] = useState<DoorLabFrameAttempt[]>(
     [],
   )
+
+  useEffect(() => {
+    if (session?.completed) onComplete?.()
+  }, [onComplete, session?.completed])
   const mountedRef = useRef(false)
   const lifecycleGenerationRef = useRef(0)
   const actionGenerationRef = useRef(0)

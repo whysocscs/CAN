@@ -75,13 +75,19 @@ const initialBadges: BadgeInfo[] = [
     earnedAt: "2024-01-15",
   },
   {
-    id: "can-basics",
-    name: "Frame Reader",
+    id: "course-can-basics",
+    name: "CAN 기초 완료",
     emoji: "CAN",
     description: "CAN 기초 과정을 완료했습니다.",
     earnedAt: "2024-01-16",
   },
 ]
+
+const courseItemCounts: Record<string, number> = {
+  "can-basics": 3,
+  practice: 2,
+  attacks: 4,
+}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -156,10 +162,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (current.completedItems.includes(itemId)) return current
 
       const nextCourseProgress = { ...current.courseProgress }
-      if (itemId.startsWith("can-basics")) {
-        nextCourseProgress["can-basics"] = Math.min(
+      const courseId = Object.keys(courseItemCounts).find((id) =>
+        itemId.startsWith(`${id}/`),
+      )
+      if (courseId) {
+        const completed = [...current.completedItems, itemId].filter((id) =>
+          id.startsWith(`${courseId}/`),
+        ).length
+        nextCourseProgress[courseId] = Math.min(
           100,
-          (nextCourseProgress["can-basics"] || 0) + 34,
+          Math.round((completed / courseItemCounts[courseId]) * 100),
         )
       }
 
