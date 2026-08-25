@@ -86,6 +86,22 @@ describe("vehicle flow contract", () => {
     }])).toBeNull()
   })
 
+  it("requires rejected traces to end exactly at a non-null stoppedAt node", () => {
+    expect(parseVehicleFlowTraces([validRejectedTrace])).not.toBeNull()
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      stoppedAt: null,
+    }])).toBeNull()
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      route: ["terminal", "obd", "ids", "gateway"],
+    }])).toBeNull()
+    expect(parseVehicleFlowTraces([{
+      ...validRejectedTrace,
+      route: ["terminal", "obd", "ids", "gateway", "body", "rear"],
+    }])).toBeNull()
+  })
+
   it("applies only an executed effect trace", () => {
     vehicle.reset()
     const trace = parseVehicleFlowTraces([validExecutedTrace])![0]

@@ -150,7 +150,11 @@ import VehicleNetworkViewport, {
   effectTargetFromObject,
   type VehicleNetworkViewportProps,
 } from "./VehicleNetworkViewport"
-import { playingDoorSnapshotAtGateway } from "./vehicleFlowTestFixtures"
+import {
+  playingDoorSnapshotAtGateway,
+  rejectedBodyTrace,
+} from "./vehicleFlowTestFixtures"
+import type { VehicleFlowTrace } from "./vehicleFlowTypes"
 
 const defaultDoorViewportProps = {
   route: ["obd", "ids", "gateway", "body", "leftDoor"],
@@ -164,6 +168,14 @@ function renderDoorViewport(props: Partial<VehicleNetworkViewportProps> = {}) {
   return render(
     <VehicleNetworkViewport {...defaultDoorViewportProps} {...props} />,
   )
+}
+
+function getCanvasMesh(name: string): Element {
+  const mesh = screen
+    .getByTestId("canvas-boundary")
+    .querySelector(`mesh[name="${name}"]`)
+  if (!mesh) throw new Error(`Missing Canvas mesh: ${name}`)
+  return mesh
 }
 
 describe("VehicleNetworkViewport", () => {
@@ -458,9 +470,7 @@ describe("VehicleNetworkViewport", () => {
   it("shares node selection with invisible 3D anchor hit targets", () => {
     renderDoorViewport()
 
-    fireEvent.click(
-      screen.getByTestId("vehicle-topology-hit-target-gateway"),
-    )
+    fireEvent.click(getCanvasMesh("vehicle-topology-hit-target:gateway"))
 
     expect(
       screen.getByRole("region", {
@@ -480,26 +490,79 @@ describe("VehicleNetworkViewport", () => {
         name: "Door spoofing route command timeline",
       }),
     ).toBeInTheDocument()
-    expect(screen.getByTestId("vehicle-flow-packet")).toBeInTheDocument()
-    expect(screen.getByTestId("vehicle-flow-node-halo")).toHaveAttribute(
-      "data-node-id",
-      "gateway",
-    )
+    expect(getCanvasMesh("vehicle-flow-packet")).toBeInTheDocument()
+    expect(getCanvasMesh("vehicle-flow-node-halo:gateway:active")).toBeInTheDocument()
     expect(
       canvasState.lineProps.map(({ current }) => current.userData),
     ).toEqual([
       { flowState: "passed" },
+      { flowState: "passed" },
       { flowState: "active" },
       { flowState: "queued" },
+    ])
+  })
+
+  it("marks the current node and outgoing edge cancelled without a packet", () => {
+    renderDoorViewport({
+      playback: { ...playingDoorSnapshotAtGateway, phase: "cancelled" },
+    })
+
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('mesh[name="vehicle-flow-packet"]'),
+    ).not.toBeInTheDocument()
+    expect(
+      getCanvasMesh("vehicle-flow-node-halo:gateway:cancelled"),
+    ).toBeInTheDocument()
+    expect(
+      canvasState.lineProps.map(({ current }) => current.userData),
+    ).toEqual([
+      { flowState: "passed" },
+      { flowState: "passed" },
+      { flowState: "cancelled" },
       { flowState: "queued" },
     ])
+  })
+
+  it("defensively stops rejected rendering at stoppedAt", () => {
+    const malformedRejectedTrace: VehicleFlowTrace = {
+      ...rejectedBodyTrace,
+      route: [...rejectedBodyTrace.route, "rear"],
+    }
+    renderDoorViewport({
+      playback: {
+        playbackId: 8,
+        phase: "playing",
+        trace: malformedRejectedTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 5,
+      },
+    })
+
+    const rail = screen.getByRole("list", {
+      name: "Door spoofing route command flow",
+    })
+    expect(within(rail).queryByText("Toy Rear ECU")).not.toBeInTheDocument()
+    expect(canvasState.lineProps).toHaveLength(3)
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('mesh[name^="vehicle-flow-node-halo:rear:"]'),
+    ).not.toBeInTheDocument()
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('mesh[name="vehicle-flow-packet"]'),
+    ).not.toBeInTheDocument()
   })
 
   it("resets the packet exactly once per playback segment without remounting Canvas", () => {
     const view = renderDoorViewport({
       playback: playingDoorSnapshotAtGateway,
     })
-    const firstPacket = screen.getByTestId("vehicle-flow-packet")
+    const firstPacket = getCanvasMesh("vehicle-flow-packet")
 
     view.rerender(
       <VehicleNetworkViewport
@@ -507,7 +570,7 @@ describe("VehicleNetworkViewport", () => {
         playback={playingDoorSnapshotAtGateway}
       />,
     )
-    expect(screen.getByTestId("vehicle-flow-packet")).toBe(firstPacket)
+    expect(getCanvasMesh("vehicle-flow-packet")).toBe(firstPacket)
     expect(canvasState.frameCallbacks).toHaveLength(2)
 
     view.rerender(
@@ -516,7 +579,7 @@ describe("VehicleNetworkViewport", () => {
         playback={{ ...playingDoorSnapshotAtGateway, segmentIndex: 4 }}
       />,
     )
-    expect(screen.getByTestId("vehicle-flow-packet")).not.toBe(firstPacket)
+    expect(getCanvasMesh("vehicle-flow-packet")).not.toBe(firstPacket)
     expect(canvasState.frameCallbacks).toHaveLength(2)
     expect(canvasState.mounts).toBe(1)
   })
@@ -530,11 +593,29 @@ describe("VehicleNetworkViewport", () => {
 
     renderDoorViewport({ playback: playingDoorSnapshotAtGateway })
 
-    expect(screen.queryByTestId("vehicle-flow-packet")).not.toBeInTheDocument()
-    expect(screen.getByTestId("vehicle-flow-node-halo")).toHaveAttribute(
-      "data-node-id",
-      "gateway",
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('mesh[name="vehicle-flow-packet"]'),
+    ).not.toBeInTheDocument()
+    expect(getCanvasMesh("vehicle-flow-node-halo:gateway:active")).toBeInTheDocument()
+  })
+
+  it("passes no DOM-only data attributes to R3F mesh hosts", () => {
+    renderDoorViewport({ playback: playingDoorSnapshotAtGateway })
+
+    const unsupportedProps = Array.from(
+      screen.getByTestId("canvas-boundary").querySelectorAll("mesh"),
+    ).flatMap((mesh) =>
+      Array.from(mesh.attributes)
+        .map((attribute) => attribute.name)
+        .filter((name) => name.startsWith("data-")),
     )
+
+    expect(unsupportedProps).toEqual([])
+    expect(getCanvasMesh("vehicle-topology-hit-target:gateway")).toBeInTheDocument()
+    expect(getCanvasMesh("vehicle-flow-node-halo:gateway:active")).toBeInTheDocument()
+    expect(getCanvasMesh("vehicle-flow-packet")).toBeInTheDocument()
   })
 
   it("maps only truthful GLB hinge groups to effect targets", () => {

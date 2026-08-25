@@ -307,6 +307,8 @@
   background: #fff1f1;
 }
 .vehicle-flow-rail__node[data-flow-state="rejected"] span { color: #a51f1f; font-weight: 800; }
+.vehicle-flow-rail__node[data-flow-state="cancelled"] { border-color: #718096; background: #f1f4f8; }
+.vehicle-flow-rail__node[data-flow-state="cancelled"] span { color: #526174; font-weight: 800; }
 
 .vehicle-flow-rail__hud {
   display: flex;

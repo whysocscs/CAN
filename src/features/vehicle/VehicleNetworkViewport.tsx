@@ -85,7 +85,13 @@ interface NodeCameraFocus {
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
 type TopologyCalloutKind = "target" | "effect"
-type VehicleFlowEdgeState = "idle" | "queued" | "active" | "passed"
+type VehicleFlowEdgeState =
+  | "idle"
+  | "queued"
+  | "active"
+  | "passed"
+  | "cancelled"
+type VehicleFlowNodeVisualState = "active" | "cancelled"
 
 interface VehicleRouteNode {
   node: VehicleTopologyNode
@@ -107,6 +113,35 @@ function isVehicleTopologyNodeId(
   nodeId: VehicleFlowNodeId,
 ): nodeId is VehicleTopologyNodeId {
   return VEHICLE_TOPOLOGY_BY_ID.has(nodeId as VehicleTopologyNodeId)
+}
+
+function playbackSnapshotForRendering(
+  playback: VehicleFlowPlaybackSnapshot,
+): VehicleFlowPlaybackSnapshot {
+  const trace = playback.trace
+  if (!trace || trace.outcome !== "REJECTED") return playback
+
+  const stoppedIndex = trace.stoppedAt
+    ? trace.route.indexOf(trace.stoppedAt)
+    : -1
+  const boundedRoute =
+    stoppedIndex >= 0 ? trace.route.slice(0, stoppedIndex + 1) : []
+  const segmentIndex = Math.min(
+    playback.segmentIndex,
+    Math.max(0, boundedRoute.length - 1),
+  )
+  if (
+    boundedRoute.length === trace.route.length &&
+    segmentIndex === playback.segmentIndex
+  ) {
+    return playback
+  }
+
+  return {
+    ...playback,
+    trace: { ...trace, route: boundedRoute },
+    segmentIndex,
+  }
 }
 
 export function effectTargetFromObject(
@@ -360,13 +395,15 @@ function TopologyPin({
 }
 
 function flowEdgeState(
+  sourceTraceIndex: number,
   destinationTraceIndex: number,
   playback: VehicleFlowPlaybackSnapshot,
 ): VehicleFlowEdgeState {
   if (!playback.trace || playback.phase === "idle") return "idle"
-  if (destinationTraceIndex < playback.segmentIndex) return "passed"
-  if (destinationTraceIndex === playback.segmentIndex) {
-    return playback.phase === "playing" ? "active" : "passed"
+  if (destinationTraceIndex <= playback.segmentIndex) return "passed"
+  if (sourceTraceIndex === playback.segmentIndex) {
+    if (playback.phase === "playing") return "active"
+    if (playback.phase === "cancelled") return "cancelled"
   }
   return "queued"
 }
@@ -374,6 +411,7 @@ function flowEdgeState(
 function lineOpacity(state: VehicleFlowEdgeState): number {
   if (state === "active") return 1
   if (state === "passed") return 0.92
+  if (state === "cancelled") return 0.52
   if (state === "queued") return 0.28
   return 0.68
 }
@@ -397,7 +435,8 @@ function TopologyHitTarget({
     <mesh
       position={node.anchor}
       onClick={handleClick}
-      data-testid={`vehicle-topology-hit-target-${node.id}`}
+      name={`vehicle-topology-hit-target:${node.id}`}
+      userData={{ vehicleNodeId: node.id, role: "hit-target" }}
     >
       <sphereGeometry args={[0.12, 12, 12]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} />
@@ -408,15 +447,17 @@ function TopologyHitTarget({
 function FlowNodeHalo({
   node,
   accent,
+  state,
 }: {
   node: VehicleTopologyNode
   accent: string
+  state: VehicleFlowNodeVisualState
 }) {
   return (
     <mesh
       position={node.anchor}
-      data-testid="vehicle-flow-node-halo"
-      data-node-id={node.id}
+      name={`vehicle-flow-node-halo:${node.id}:${state}`}
+      userData={{ vehicleNodeId: node.id, flowState: state }}
     >
       <sphereGeometry args={[0.17, 16, 16]} />
       <meshBasicMaterial
@@ -464,7 +505,8 @@ function FlowPacket({
     <mesh
       ref={ref}
       position={from.anchor}
-      data-testid="vehicle-flow-packet"
+      name="vehicle-flow-packet"
+      userData={{ role: "flow-packet" }}
     >
       <sphereGeometry args={[0.055, 14, 14]} />
       <meshStandardMaterial
@@ -482,6 +524,7 @@ function TopologyOverlay({
   playback,
   accent,
   activeNodeId,
+  activeNodeState,
   cameraFocusedNodeId,
   visibleTooltipNodeId,
   targetId,
@@ -494,6 +537,7 @@ function TopologyOverlay({
   playback: VehicleFlowPlaybackSnapshot
   accent: string
   activeNodeId?: VehicleTopologyNodeId
+  activeNodeState: VehicleFlowNodeVisualState
   cameraFocusedNodeId?: VehicleTopologyNodeId
   visibleTooltipNodeId?: VehicleTopologyNodeId
   targetId: VehicleLogicalNodeId
@@ -503,8 +547,12 @@ function TopologyOverlay({
 }) {
   const activeEdgeIndex = flowRoute
     .slice(1)
-    .findIndex(
-      ({ traceIndex }) => flowEdgeState(traceIndex, playback) === "active",
+    .findIndex(({ traceIndex }, index) =>
+      flowEdgeState(
+        flowRoute[index].traceIndex,
+        traceIndex,
+        playback,
+      ) === "active",
     )
   const activeEdge =
     activeEdgeIndex >= 0
@@ -518,7 +566,11 @@ function TopologyOverlay({
     <group rotation={MODEL_ROTATION}>
       {flowRoute.slice(0, -1).map(({ node }, index) => {
         const destination = flowRoute[index + 1]
-        const state = flowEdgeState(destination.traceIndex, playback)
+        const state = flowEdgeState(
+          flowRoute[index].traceIndex,
+          destination.traceIndex,
+          playback,
+        )
         return (
           <Line
             key={`${node.id}-${destination.node.id}`}
@@ -531,7 +583,13 @@ function TopologyOverlay({
           />
         )
       })}
-      {activeNode ? <FlowNodeHalo node={activeNode} accent={accent} /> : null}
+      {activeNode ? (
+        <FlowNodeHalo
+          node={activeNode}
+          accent={accent}
+          state={activeNodeState}
+        />
+      ) : null}
       {!reducedMotion && activeEdge ? (
         <FlowPacket
           key={[
@@ -633,7 +691,10 @@ export default function VehicleNetworkViewport({
   playback,
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
-  const playbackState = playback ?? IDLE_PLAYBACK
+  const playbackState = useMemo(
+    () => playbackSnapshotForRendering(playback ?? IDLE_PLAYBACK),
+    [playback],
+  )
   const routeNodes = useMemo(() => route.map(getTopologyNode), [route])
   const flowRoute = useMemo<VehicleRouteNode[]>(() => {
     if (!playbackState.trace) {
@@ -680,14 +741,20 @@ export default function VehicleNetworkViewport({
             ? effectId
             : undefined
   const playbackNodeId =
-    playbackState.phase === "playing"
+    playbackState.phase === "playing" || playbackState.phase === "cancelled"
       ? playbackState.trace?.route[playbackState.segmentIndex]
       : undefined
-  const playbackActiveNodeId =
+  const playbackCurrentNodeId =
     playbackNodeId && isVehicleTopologyNodeId(playbackNodeId)
       ? playbackNodeId
       : undefined
-  const activeNodeId = playbackActiveNodeId ?? focusedId ?? currentNodeId
+  const playbackActiveNodeId =
+    playbackState.phase === "playing" ? playbackCurrentNodeId : undefined
+  const activeNodeId = playbackCurrentNodeId ?? focusedId ?? currentNodeId
+  const activeNodeState: VehicleFlowNodeVisualState =
+    playbackState.phase === "cancelled" && playbackCurrentNodeId
+      ? "cancelled"
+      : "active"
   const visibleTooltipNodeId = playbackActiveNodeId ?? focusedId
   const cameraPreset = useMemo(
     () =>
@@ -846,6 +913,7 @@ export default function VehicleNetworkViewport({
                 playback={playbackState}
                 accent={accent}
                 activeNodeId={activeNodeId}
+                activeNodeState={activeNodeState}
                 cameraFocusedNodeId={focusedId}
                 visibleTooltipNodeId={visibleTooltipNodeId}
                 targetId={targetId}

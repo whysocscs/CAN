@@ -61,6 +61,40 @@ describe("VehicleFlowRail", () => {
     )
   })
 
+  it("marks the current node cancelled while preserving only completed nodes", () => {
+    render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 4,
+          phase: "cancelled",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 3,
+        }}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAttribute(
+      "data-flow-state",
+      "passed",
+    )
+    expect(screen.getByText("Toy Gateway").closest("li")).toHaveAttribute(
+      "data-flow-state",
+      "cancelled",
+    )
+    expect(screen.getByText("Toy Gateway").closest("li")).toHaveTextContent(
+      "취소됨",
+    )
+    expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAttribute(
+      "data-flow-state",
+      "queued",
+    )
+  })
+
   it("uses the active capture trace route and labels it as an educational logical path", () => {
     render(
       <VehicleFlowRail

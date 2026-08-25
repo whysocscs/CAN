@@ -146,7 +146,9 @@ function parseVehicleFlowTrace(value: unknown): VehicleFlowTrace | null {
   if (
     outcome === "REJECTED"
     && (
-      effectApplied
+      stoppedAt === null
+      || route.at(-1) !== stoppedAt
+      || effectApplied
       || effectTarget !== null
       || effectState !== null
       || route.at(-1) === "leftDoor"

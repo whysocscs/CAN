@@ -6,7 +6,14 @@ import type {
   VehicleFlowTrace,
 } from "./vehicleFlowTypes"
 
-type FlowNodeState = "idle" | "queued" | "active" | "passed" | "effect" | "rejected"
+type FlowNodeState =
+  | "idle"
+  | "queued"
+  | "active"
+  | "passed"
+  | "effect"
+  | "rejected"
+  | "cancelled"
 
 interface VehicleFlowRailProps {
   scenarioTitle: string
@@ -35,6 +42,9 @@ function nodeState(
 ): FlowNodeState {
   const index = playback.trace?.route.indexOf(nodeId) ?? -1
   if (index < 0 || playback.phase === "idle") return "idle"
+  if (playback.phase === "cancelled" && index === playback.segmentIndex) {
+    return "cancelled"
+  }
   if (
     playback.trace?.outcome === "REJECTED"
     && playback.trace.stoppedAt === nodeId
@@ -65,6 +75,7 @@ function nodeStatus(state: FlowNodeState): string {
   if (state === "passed") return "통과"
   if (state === "effect") return "효과 적용"
   if (state === "rejected") return "거부됨"
+  if (state === "cancelled") return "취소됨"
   if (state === "queued") return "대기 중"
   return "대기"
 }
