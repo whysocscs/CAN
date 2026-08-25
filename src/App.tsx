@@ -8,6 +8,7 @@ import { designVersion, previewAccessOpen } from "@/design/version"
 import CoursePage from "@/pages/CoursePage"
 import DashboardPage from "@/pages/DashboardPage"
 import BadgePage from "@/pages/BadgePage"
+import ProfilePage from "@/pages/ProfilePage"
 import AttackPracticePage, {
   type AttackRoute,
 } from "@/pages/AttackPracticePage"
@@ -147,15 +148,6 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
       { title: "과정별 진행", description: "과정 완료 상태 영역" },
       { title: "점수 기록", description: "학습 점수와 활동 이력 영역" },
       { title: "다음 학습", description: "추천 학습 경로 영역" },
-    ],
-  },
-  profile: {
-    title: "프로필",
-    description: "학습자 정보와 활동을 보여줄 화면 구조입니다.",
-    slots: [
-      { title: "기본 정보", description: "학습자 정보 영역" },
-      { title: "학습 현황", description: "과정 진행 상태 영역" },
-      { title: "최근 활동", description: "학습 활동 기록 영역" },
     ],
   },
   models: {
@@ -357,6 +349,8 @@ function Router() {
     if (currentRoute === "models") return <ModelManagerPage />
 
     if (currentRoute === "badges") return <BadgePage />
+
+    if (currentRoute === "profile") return <ProfilePage />
 
     if (scaffold) return <ScaffoldPage {...scaffold} />
 
