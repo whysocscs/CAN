@@ -20,8 +20,10 @@ export type CanMonitoringStatus = "NORMAL" | "SUSPICIOUS" | "ALERT"
 
 export interface CanLabMetadata {
   labId?: string
+  scenario?: "spoofing" | "replay"
   sessionId?: string
   generation?: number
+  attemptId?: string
   stage?: string
 }
 

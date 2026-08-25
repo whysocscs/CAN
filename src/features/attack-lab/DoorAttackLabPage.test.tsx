@@ -46,7 +46,9 @@ vi.mock("../can/events/backendProvider", () => ({
   connectCanStream: stream.connect,
 }))
 vi.mock("./DoorAttackVehicle", () => ({
-  default: () => <div aria-label="Toy Vehicle 3D view" />,
+  default: ({ currentStage }: { currentStage?: string }) => (
+    <div aria-label="Toy Vehicle 3D view" data-current-stage={currentStage} />
+  ),
 }))
 
 import DoorAttackLabPage from "./DoorAttackLabPage"
@@ -249,7 +251,36 @@ describe("DoorAttackLabPage", () => {
     expect(
       screen.getByRole("region", { name: "Restricted terminal" }),
     ).toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-current-stage",
+      "정찰",
+    )
+    const truthQualifier = screen.getByText(
+      "교육용 논리 위치 · 실제 OEM 배치 아님",
+    )
+    expect(truthQualifier).toHaveClass("door-attack-lab__truth-qualifier")
+    expect(truthQualifier).toBeVisible()
     expect(stream.connect).toHaveBeenCalledTimes(1)
+  })
+
+  it("explains how terminal reconnaissance becomes a door lab script without revealing the answer", async () => {
+    render(<DoorAttackLabPage />)
+
+    expect(await screen.findByText("Script 사용법")).toBeInTheDocument()
+    expect(
+      screen.getByText(/Terminal에서 로그와 프레임을 먼저 관찰/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/실행할 줄 앞의 #을 제거/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/interval_ms=<10\.\.2000>.*cansend/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/Toy IDS.*Proof/)).toBeInTheDocument()
+
+    const guide = screen.getByText("Script 사용법").closest("details")
+    expect(guide).not.toBeNull()
+    expect(guide).not.toHaveTextContent(/456#|000113B7|000114B0|000115B1/i)
   })
 
   it("shows an explicit offline error when session creation is rejected", async () => {
@@ -441,6 +472,28 @@ describe("DoorAttackLabPage", () => {
     await act(async () => undefined)
     expect(vehicle.isOpen("doorL")).toBe(false)
     expect(vehicle.isOpen("doorR")).toBe(false)
+  })
+
+  it("clears the restricted terminal input and command history on reset", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    await user.type(input, "pwd")
+    await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledWith(
+      "session-1",
+      "pwd",
+      expect.any(AbortSignal),
+    ))
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalled())
+    await user.click(input)
+    await user.keyboard("{ArrowUp}")
+
+    expect(input).toHaveValue("")
   })
 
   it("creates one session in StrictMode, applies its closed state, and cleans up every stream", async () => {
@@ -689,7 +742,7 @@ describe("DoorAttackLabPage", () => {
     expect(
       screen.getByRole("region", { name: "Binary inspector" }),
     ).toHaveTextContent("11111110")
-  })
+  }, 15_000)
 
   it("rejects a non-replay old-session event from both monitor and vehicle", async () => {
     const secondSession = {

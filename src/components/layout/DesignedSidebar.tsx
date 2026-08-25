@@ -179,7 +179,7 @@ const mobileItems = [
   navItems[1],
   navItems[3].children![0],
   navItems[8],
-  navItems[9],
+  { ...navItems[4], route: "attacks/chain" as const, children: undefined },
 ]
 
 function isLocked(

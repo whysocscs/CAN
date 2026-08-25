@@ -582,6 +582,35 @@ async def publish_observed_event(event: dict[str, Any]) -> bool:
     return True
 
 
+async def publish_virtual_event(
+    can_id: str,
+    data: list[str],
+    *,
+    context: dict[str, Any],
+    processing: dict[str, Any],
+    monitoring: dict[str, Any],
+    lab: dict[str, Any],
+) -> bool:
+    """Publish one accepted virtual-lab event without touching SocketCAN.
+
+    This bridge intentionally bypasses ``emit``.  Its input is already a Toy
+    ECU verdict, so MODE, pending kernel echoes, and physical CAN interfaces
+    are outside this path.
+    """
+    event = build_event(
+        normalize_can_id(can_id),
+        normalize_data(data),
+        timestamp_ms=int(time.time() * 1000),
+        channel=CHANNEL,
+        context=context,
+        processing=processing,
+        monitoring=monitoring,
+        lab=lab,
+    )
+    await broadcast(event)
+    return True
+
+
 async def send_snapshot(websocket: WebSocket) -> None:
     """접속 직후 현재 상태를 한 번 재생합니다.
 

@@ -7,7 +7,7 @@ CANLite는 자동차 보안 입문자가 CAN 프레임과 ECU 흐름을 학습�
 - React + TypeScript + Vite 기반 CAN 기초·실습 UI
 - 실제 GLB 차량 모델과 CAN WebSocket 이벤트 시각화
 - FastAPI 기반 loopback CAN event stream
-- in-memory Toy Body ECU/Toy IDS 및 Black-box Door Attack 실습
+- in-memory Toy ECU/Toy IDS 기반 Door, Spoofing, Replay 실습
 - 제한 명령만 해석하는 공격 실습용 virtual terminal
 - localhost 전용 Docker Compose 패키징
 
@@ -27,7 +27,14 @@ docker compose up --build
 docker compose down
 ```
 
-기본 배포는 `127.0.0.1:8447`(frontend), `127.0.0.1:8010`(backend), `CANLITE_CAN_MODE=loopback`만 사용한다. TLS/HTTPS를 제공하지 않으므로 외부 네트워크에 공개하지 않는다. 상세한 학습자·교사용 절차는 [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)를 참고한다.
+기본 배포는 `127.0.0.1:8447`(frontend), `127.0.0.1:8010`(backend), `CANLITE_CAN_MODE=loopback`만 사용한다. TLS/HTTPS를 제공하지 않으므로 외부 네트워크에 공개하지 않는다.
+
+학습·검증 문서:
+
+- 학습자용(정답 없음): [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)
+- 학습자용(정답 없음): [CAN Spoofing·Replay 기초 실습 가이드](docs/labs/can-spoofing-replay-basics.md)
+- **교사용(정답 포함, 학습자 배포 금지)**: [CAN 공격 실습 빠른 통과표](docs/instructors/can-attack-lab-quick-pass.md)
+- **교사용(정답 포함, 학습자 배포 금지)**: [CAN Attack Lab 검증 가이드](docs/instructors/can-attack-lab-validation.md)
 
 ## 로컬 개발
 
@@ -54,7 +61,7 @@ corepack pnpm@10.34.3 dev:ver4
 
 공격 실습 페이지의 `/labs/door-blackbox/.../terminal`은 whitelist parser이며 실제 shell을 만들지 않는다. `pwd`, `ls`, `cat`, 제한된 `candump`/`cansend` 문법만 Toy 결과로 처리한다.
 
-별도의 `/ws/terminal`은 호스트 권한으로 POSIX PTY를 여는 기존 기능이다. 보안상 `CANLITE_ENABLE_REAL_TERMINAL=true`를 명시하고 허용된 `Origin`으로 접속한 경우에만 lazy-load되며, Docker Compose에서는 항상 비활성화한다. 이 기능은 공격 실습에 필요하지 않으며 공개 서버에서 활성화하면 안 된다.
+별도의 `/ws/terminal`은 호스트 권한으로 POSIX PTY를 여는 기존 기능이다. frontend의 `VITE_ENABLE_REAL_TERMINAL=true`와 backend의 `CANLITE_ENABLE_REAL_TERMINAL=true`를 모두 명시하고 허용된 `Origin`으로 접속한 경우에만 연결되며, Docker Compose에서는 항상 비활성화한다. 이 기능은 공격 실습에 필요하지 않으며 공개 서버에서 활성화하면 안 된다.
 
 ## 검사와 빌드
 

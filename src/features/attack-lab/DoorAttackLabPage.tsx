@@ -37,6 +37,7 @@ import type {
 } from "./doorLabTypes"
 import { formatFrameData, frameBits, parseTerminalFrames } from "./doorLabUtils"
 import DoorAttackVehicle from "./DoorAttackVehicle"
+import LabScriptGuide from "./LabScriptGuide"
 import "./doorAttackLab.css"
 
 const STAGES = [
@@ -420,6 +421,9 @@ export default function DoorAttackLabPage() {
       setSession(next)
       dispatchMonitor({ type: "clear" })
       setTerminalEntries([])
+      setTerminalCommand("")
+      setCommandHistory([])
+      setHistoryIndex(-1)
       setIdsStatus(null)
       setLastRunAttempts([])
       setScript(INITIAL_SCRIPT)
@@ -585,9 +589,11 @@ export default function DoorAttackLabPage() {
                 <small>Toy Body ECU → Left Door</small>
               </span>
             </div>
-            <span>교육용 논리 ECU 위치</span>
+            <span className="door-attack-lab__truth-qualifier">
+              교육용 논리 위치 · 실제 OEM 배치 아님
+            </span>
           </header>
-          <DoorAttackVehicle />
+          <DoorAttackVehicle currentStage={session?.stage} />
         </section>
 
         <section
@@ -605,6 +611,7 @@ export default function DoorAttackLabPage() {
             </div>
             <span>최대 20 lines</span>
           </header>
+          <LabScriptGuide mode="door" />
           <textarea
             aria-label="공격 스크립트"
             value={script}
