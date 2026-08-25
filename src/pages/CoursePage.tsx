@@ -8,7 +8,6 @@ import {
   Clock,
   LockSimple,
   Medal,
-  Scan,
   ShieldWarning,
   TerminalWindow,
 } from "@phosphor-icons/react"
@@ -16,13 +15,12 @@ import { BookOpen20Regular } from "@fluentui/react-icons/svg/book-open"
 import { Clock16Regular } from "@fluentui/react-icons/svg/clock"
 import { DataUsage20Regular } from "@fluentui/react-icons/svg/data-usage"
 import { LockClosed16Regular } from "@fluentui/react-icons/svg/lock-closed"
-import { Radar20Regular } from "@fluentui/react-icons/svg/radar"
 import { Reward16Regular } from "@fluentui/react-icons/svg/reward"
 import { Shield20Regular } from "@fluentui/react-icons/svg/shield"
 import { Checkmark12Regular } from "@fluentui/react-icons/svg/checkmark"
 import { designVersion, previewAccessOpen } from "@/design/version"
 
-type CourseIconKey = "theory" | "practice" | "attack" | "ids"
+type CourseIconKey = "theory" | "practice" | "attack"
 
 function CourseIcon({ kind }: { kind: CourseIconKey }) {
   if (designVersion === "ver1") {
@@ -30,7 +28,6 @@ function CourseIcon({ kind }: { kind: CourseIconKey }) {
       theory: "◈",
       practice: "▷",
       attack: "⬡",
-      ids: "◉",
     }
     return legacy[kind]
   }
@@ -38,14 +35,14 @@ function CourseIcon({ kind }: { kind: CourseIconKey }) {
     if (kind === "theory") return <BookOpen20Regular />
     if (kind === "practice") return <DataUsage20Regular />
     if (kind === "attack") return <Shield20Regular />
-    return <Radar20Regular />
+    return <Shield20Regular />
   }
 
   const props = { size: 19, weight: "regular" as const, "aria-hidden": true }
   if (kind === "theory") return <BookOpenText {...props} />
   if (kind === "practice") return <TerminalWindow {...props} />
   if (kind === "attack") return <ShieldWarning {...props} />
-  return <Scan {...props} />
+  return <ShieldWarning {...props} />
 }
 
 function LockIcon() {
@@ -128,13 +125,13 @@ const courses = [
     id: "practice",
     icon: "practice" as CourseIconKey,
     title: "CAN 실습",
-    desc: "vcan 환경에서 CAN 메시지를 직접 송수신하고 CAN Monitor로 분석합니다.",
-    time: "약 90분",
+    desc: "vcan 환경에서 CAN 메시지를 직접 송수신하고 프레임 동작을 확인합니다.",
+    time: "약 60분",
     difficulty: "초급",
-    totalItems: 3,
-    maxScore: 450,
+    totalItems: 2,
+    maxScore: 300,
     badge: "Bus Observer",
-    items: ["정상 CAN 송수신", "CAN Frame 송신기", "CAN Monitor"],
+    items: ["정상 CAN 송수신", "CAN Frame 송신기"],
     resumeLabel: "정상 CAN 송수신",
     startRoute: "practice/normal" as Route,
     prerequisite: "CAN 기초 완료",
@@ -162,31 +159,6 @@ const courses = [
     bg: "var(--course-attacks-bg)",
     border: "var(--course-attacks-border)",
   },
-  {
-    id: "ids",
-    icon: "ids" as CourseIconKey,
-    title: "IDS 실습",
-    desc: "IDS 규칙을 이해하고 다양한 이상 트래픽을 탐지하는 실습을 수행합니다.",
-    time: "약 120분",
-    difficulty: "중급",
-    totalItems: 5,
-    maxScore: 750,
-    badge: "IDS Operator",
-    items: [
-      "Unknown ID",
-      "Frequency Anomaly",
-      "Payload Jump",
-      "DoS Detection",
-      "Gateway Policy",
-    ],
-    resumeLabel: "Unknown ID 탐지",
-    startRoute: "ids/unknown-id" as Route,
-    prerequisite: "공격 실습 완료",
-    unlockKey: "attacks",
-    accent: "var(--course-ids-accent)",
-    bg: "var(--course-ids-bg)",
-    border: "var(--course-ids-border)",
-  },
 ]
 
 const difficultyColor: Record<string, string> = {
@@ -205,9 +177,16 @@ export default function CoursePage() {
   }
 
   const totalPct = Math.round(
-    Object.values(progress.courseProgress).reduce((a, b) => a + b, 0) / 4,
+    courses.reduce(
+      (total, course) => total + (progress.courseProgress[course.id] || 0),
+      0,
+    ) / courses.length,
   )
-  const completedCount = progress.completedItems.length
+  const completedCount = progress.completedItems.filter(
+    (itemId) =>
+      itemId !== "practice/monitor" &&
+      courses.some((course) => itemId.startsWith(course.id)),
+  ).length
 
   return (
     <div
@@ -243,8 +222,8 @@ export default function CoursePage() {
               }}
             >
               {previewAccessOpen
-                ? "프리뷰 기간에는 CAN 기초부터 IDS 실습까지 원하는 과정부터 바로 살펴볼 수 있습니다."
-                : "CAN 기초부터 IDS 실습까지 4개 과정을 순서대로 완료하세요."}
+                ? "프리뷰 기간에는 CAN 기초부터 공격 실습까지 원하는 과정부터 바로 살펴볼 수 있습니다."
+                : "CAN 기초부터 공격 실습까지 3개 과정을 순서대로 완료하세요."}
             </p>
           </div>
           {devMode && !previewAccessOpen && (
