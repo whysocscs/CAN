@@ -845,6 +845,54 @@ def test_door_results_expose_authoritative_flow_traces() -> None:
     assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
 
 
+@pytest.mark.parametrize("command", ["cat missing.log", "candump vcan1"])
+def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str) -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": command},
+    ).json()
+
+    assert result["ok"] is False
+    assert result["code"] == "COMMAND_REJECTED"
+    assert result["flowTraces"] == [
+        {
+            "traceId": f"terminal:{command}",
+            "attemptId": None,
+            "sequence": 1,
+            "kind": "local",
+            "commandLabel": command,
+            "commandIndex": None,
+            "canId": None,
+            "data": [],
+            "route": ["terminal"],
+            "stoppedAt": "terminal",
+            "outcome": "REJECTED",
+            "ecuVerdict": "COMMAND_REJECTED",
+            "idsVerdict": None,
+            "effectTarget": None,
+            "effectState": None,
+            "effectApplied": False,
+        }
+    ]
+    assert result["state"]["vehicleState"] == {
+        "leftDoor": "closed",
+        "rightDoor": "closed",
+    }
+    assert emitted == []
+
+
 def test_terminal_flow_trace_normalizes_leading_whitespace_for_cansend() -> None:
     emitted: list[dict[str, object]] = []
 

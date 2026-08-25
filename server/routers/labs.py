@@ -134,7 +134,9 @@ def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str
                 ids_status=result.ids_status,
             )
         ]
-    if normalized_command.startswith("cat "):
+    if not result.ok:
+        kind, route, outcome = "local", ["terminal"], "REJECTED"
+    elif normalized_command.startswith("cat "):
         kind, route, outcome = "observe", ["terminal", "evidence"], "OBSERVED"
     elif normalized_command.startswith("candump "):
         kind, route, outcome = "observe", ["terminal", "obd", "monitor"], "OBSERVED"
@@ -152,8 +154,8 @@ def _door_terminal_traces(command: str, result: TerminalResult) -> list[dict[str
             data=[],
             route=route,
             stopped_at="terminal" if not result.ok else None,
-            outcome="REJECTED" if not result.ok else outcome,
-            ecu_verdict=None,
+            outcome=outcome,
+            ecu_verdict=result.code if not result.ok else None,
             ids_verdict=None,
             effect_target=None,
             effect_state=None,

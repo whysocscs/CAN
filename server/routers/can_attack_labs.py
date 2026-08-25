@@ -175,12 +175,7 @@ def _beginner_result_traces(
         ]
 
     capture = result.captures[0] if result.captures else None
-    if command_label.startswith("cat "):
-        kind, route = "observe", ["terminal", "evidence"]
-    elif command_label.startswith("candump "):
-        kind = "capture" if ">" in command_label else "observe"
-        route = ["terminal", "obd", "monitor"]
-    elif not result.ok:
+    if not result.ok:
         return [
             make_flow_trace(
                 trace_id="result:" + result.code,
@@ -201,6 +196,11 @@ def _beginner_result_traces(
                 effect_applied=False,
             )
         ]
+    if command_label.startswith("cat "):
+        kind, route = "observe", ["terminal", "evidence"]
+    elif command_label.startswith("candump "):
+        kind = "capture" if ">" in command_label else "observe"
+        route = ["terminal", "obd", "monitor"]
     else:
         kind, route = "local", ["terminal"]
 
