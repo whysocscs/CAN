@@ -458,6 +458,7 @@ describe("VehicleNetworkViewport", () => {
     const calloutCopy = () =>
       within(canvas)
         .getAllByTestId("vehicle-topology-callout")
+        .filter((callout) => callout.getAttribute("data-kind") !== "logical")
         .map((callout) => callout.textContent)
 
     expect(calloutCopy()).toEqual([
@@ -501,6 +502,99 @@ describe("VehicleNetworkViewport", () => {
       "Toy Body ECUTarget ECU · 교육용 위치",
       "GLB Left Door영향 부위",
     ])
+  })
+
+  it("selects every route pin with one truthful compact tooltip", async () => {
+    const user = userEvent.setup()
+    renderDoorViewport()
+    const canvas = screen.getByTestId("canvas-boundary")
+    const cases = [
+      {
+        button: "Training OBD-II 선택",
+        label: "Training OBD-II",
+        detail: "공격 프레임 진입점 · 실제 OEM 배치 아님",
+        kind: "logical",
+      },
+      {
+        button: "Toy IDS 선택",
+        label: "Toy IDS",
+        detail: "프레임 관찰/규칙 판정 · 실제 OEM 배치 아님",
+        kind: "logical",
+      },
+      {
+        button: "Toy Gateway 선택",
+        label: "Toy Gateway",
+        detail: "대상 네트워크로 라우팅 · 실제 OEM 배치 아님",
+        kind: "logical",
+      },
+      {
+        button: "Toy Body ECU 선택",
+        label: "Toy Body ECU",
+        detail: "Target ECU · 교육용 위치",
+        kind: "target",
+      },
+      {
+        button: "Left Door Effect 선택",
+        label: "GLB Left Door",
+        detail: "영향 부위",
+        kind: "effect",
+      },
+    ] as const
+
+    for (const expected of cases) {
+      await user.click(
+        within(canvas).getByRole("button", { name: expected.button }),
+      )
+
+      const activePins = within(canvas)
+        .getAllByTestId("vehicle-topology-pin")
+        .filter((pin) => pin.getAttribute("data-active") === "true")
+      expect(activePins).toHaveLength(1)
+      expect(activePins[0]).toHaveAccessibleName(expected.button)
+
+      const visibleCallouts = within(canvas)
+        .getAllByTestId("vehicle-topology-callout")
+        .filter((callout) => callout.getAttribute("data-visible") === "true")
+      expect(visibleCallouts).toHaveLength(1)
+      expect(visibleCallouts[0]).toHaveAttribute("data-kind", expected.kind)
+      expect(visibleCallouts[0]).toHaveTextContent(expected.label)
+      expect(visibleCallouts[0]).toHaveTextContent(expected.detail)
+    }
+  })
+
+  it("keeps route anchors fixed while separating projected HTML pins with leaders", () => {
+    renderDoorViewport()
+    const canvas = screen.getByTestId("canvas-boundary")
+    const markers = within(canvas).getAllByTestId("vehicle-topology-marker")
+    const offsets = markers.map((marker) =>
+      [
+        marker.style.getPropertyValue("--vehicle-pin-offset-x"),
+        marker.style.getPropertyValue("--vehicle-pin-offset-y"),
+      ].join(","),
+    )
+
+    expect(markers).toHaveLength(5)
+    expect(new Set(offsets).size).toBe(5)
+    expect(offsets).not.toContain("0px,0px")
+    expect(
+      within(canvas).getAllByTestId("vehicle-topology-leader"),
+    ).toHaveLength(5)
+
+    expect(getCanvasMesh("vehicle-topology-hit-target:obd")).toHaveAttribute(
+      "position",
+      "0.55,0.69,1.08",
+    )
+    expect(getCanvasMesh("vehicle-topology-hit-target:ids")).toHaveAttribute(
+      "position",
+      "0.27,0.55,-0.84",
+    )
+    expect(
+      getCanvasMesh("vehicle-topology-hit-target:gateway"),
+    ).toHaveAttribute("position", "0.2,0.72,0.14")
+    expect(getCanvasMesh("vehicle-topology-hit-target:body")).toHaveAttribute(
+      "position",
+      "0.67,0.73,-0.54",
+    )
   })
 
   it("changes focus presets and resets without remounting Canvas", async () => {

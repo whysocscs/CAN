@@ -12,6 +12,75 @@ import VehicleFlowRail from "./VehicleFlowRail"
 afterEach(cleanup)
 
 describe("VehicleFlowRail", () => {
+  it.each(["idle", "complete"] as const)(
+    "highlights the selected route node while playback is %s",
+    (phase) => {
+      render(
+        <VehicleFlowRail
+          scenarioTitle="Door attack route"
+          route={["obd", "ids", "gateway", "body", "leftDoor"]}
+          playback={
+            phase === "idle"
+              ? {
+                  playbackId: 0,
+                  phase,
+                  trace: null,
+                  traceIndex: 0,
+                  traceCount: 0,
+                  segmentIndex: 0,
+                }
+              : {
+                  playbackId: 1,
+                  phase,
+                  trace: executedAlertTrace,
+                  traceIndex: 0,
+                  traceCount: 1,
+                  segmentIndex: 5,
+                }
+          }
+          selectedNodeId="gateway"
+          accent="#d94b4b"
+        />,
+      )
+
+      const gateway = screen.getByText("Toy Gateway").closest("li")
+      expect(gateway).toHaveAttribute("data-selected", "true")
+      expect(gateway).toHaveAttribute("aria-current", "location")
+    },
+  )
+
+  it("lets the active playback node win over an inspected selection", () => {
+    render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 1,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 2,
+        }}
+        selectedNodeId="body"
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAttribute(
+      "data-flow-state",
+      "active",
+    )
+    expect(screen.getByText("Toy Body ECU").closest("li")).not.toHaveAttribute(
+      "data-selected",
+    )
+    expect(
+      screen
+        .getByRole("list", { name: "Door attack route command flow" })
+        .querySelectorAll('[data-selected="true"]'),
+    ).toHaveLength(0)
+  })
+
   it("shows the active device transition and separate verdicts", () => {
     render(
       <VehicleFlowRail

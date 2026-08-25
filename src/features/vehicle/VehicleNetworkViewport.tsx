@@ -86,7 +86,7 @@ interface NodeCameraFocus {
 }
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
-type TopologyCalloutKind = "target" | "effect"
+type TopologyCalloutKind = "logical" | "target" | "effect"
 type VehicleFlowEdgeState =
   | "idle"
   | "queued"
@@ -98,6 +98,21 @@ type VehicleFlowNodeVisualState = "active" | "cancelled"
 interface VehicleRouteNode {
   node: VehicleTopologyNode
   traceIndex: number
+}
+
+interface PinScreenOffset {
+  x: number
+  y: number
+}
+
+const PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> = {
+  obd: { x: -72, y: 54 },
+  ids: { x: -68, y: -34 },
+  gateway: { x: 0, y: -74 },
+  body: { x: 70, y: -30 },
+  rear: { x: 74, y: -36 },
+  leftDoor: { x: 54, y: 58 },
+  tailgate: { x: 15, y: 65 },
 }
 
 interface OrbitControlsState {
@@ -302,13 +317,30 @@ function TopologyPin({
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
   const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
+  const screenOffset = PIN_SCREEN_OFFSETS[node.id]
+  const calloutKindForNode =
+    calloutKind ??
+    (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
+  const markerStyle = {
+    "--vehicle-route-accent": accent,
+    "--vehicle-pin-offset-x": `${screenOffset.x}px`,
+    "--vehicle-pin-offset-y": `${screenOffset.y}px`,
+    "--vehicle-pin-leader-length": `${Math.hypot(screenOffset.x, screenOffset.y)}px`,
+    "--vehicle-pin-leader-angle": `${Math.atan2(-screenOffset.y, -screenOffset.x)}rad`,
+  } as CSSProperties
 
   return (
     <Html position={node.anchor} center distanceFactor={7.2} sprite>
       <span
         className="vehicle-network-viewport__marker"
-        style={{ "--vehicle-route-accent": accent } as CSSProperties}
+        data-testid="vehicle-topology-marker"
+        style={markerStyle}
       >
+        <span
+          className="vehicle-network-viewport__leader"
+          data-testid="vehicle-topology-leader"
+          aria-hidden="true"
+        />
         <button
           type="button"
           className="vehicle-network-viewport__pin"
@@ -319,12 +351,16 @@ function TopologyPin({
         >
           {node.number}
         </button>
-        {calloutKind && node.calloutLabel ? (
+        {calloutKindForNode ? (
           <span
             className="vehicle-network-viewport__callout"
-            data-kind={calloutKind}
+            data-kind={calloutKindForNode}
             data-placement={
-              calloutKind === "target" ? "target-far-left" : "effect-high-right"
+              calloutKindForNode === "target"
+                ? "target-far-left"
+                : calloutKindForNode === "effect"
+                  ? "effect-high-right"
+                  : "logical-compact"
             }
             data-camera-focused={cameraFocused ? "true" : undefined}
             data-visible={tooltipVisible ? "true" : undefined}
@@ -332,11 +368,13 @@ function TopologyPin({
             data-testid="vehicle-topology-callout"
             aria-hidden="true"
           >
-            <strong>{node.calloutLabel}</strong>
+            <strong>{node.calloutLabel ?? node.label}</strong>
             <small>
-              {calloutKind === "target"
+              {calloutKindForNode === "target"
                 ? "Target ECU · 교육용 위치"
-                : "영향 부위"}
+                : calloutKindForNode === "effect"
+                  ? "영향 부위"
+                  : `${node.role} · 실제 OEM 배치 아님`}
             </small>
           </span>
         ) : null}
@@ -839,6 +877,7 @@ export default function VehicleNetworkViewport({
         scenarioTitle={scenarioTitle}
         route={route}
         playback={playbackState}
+        selectedNodeId={focusedId}
         accent={accent}
       />
 

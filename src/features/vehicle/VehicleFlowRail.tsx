@@ -19,6 +19,7 @@ interface VehicleFlowRailProps {
   scenarioTitle: string
   route: readonly VehicleFlowNodeId[]
   playback: VehicleFlowPlaybackSnapshot
+  selectedNodeId?: VehicleFlowNodeId
   accent: string
 }
 
@@ -113,12 +114,19 @@ function liveAnnouncement(playback: VehicleFlowPlaybackSnapshot): string {
 function FlowNode({
   node,
   state,
+  selected,
 }: {
   node: RailNode
   state: FlowNodeState
+  selected: boolean
 }) {
   return (
-    <li className="vehicle-flow-rail__node" data-flow-state={state}>
+    <li
+      className="vehicle-flow-rail__node"
+      data-flow-state={state}
+      data-selected={selected ? "true" : undefined}
+      aria-current={selected ? "location" : undefined}
+    >
       <strong>{node.label}</strong>
       <span>{nodeStatus(state)}</span>
     </li>
@@ -129,6 +137,7 @@ export default function VehicleFlowRail({
   scenarioTitle,
   route,
   playback,
+  selectedNodeId,
   accent,
 }: VehicleFlowRailProps) {
   const trace = playback.trace
@@ -136,6 +145,8 @@ export default function VehicleFlowRail({
   const displayRoute = trace
     ? trace.route.filter((nodeId) => nodeId !== "terminal")
     : route
+  const showSelection =
+    playback.phase === "idle" || playback.phase === "complete"
 
   return (
     <section
@@ -145,7 +156,12 @@ export default function VehicleFlowRail({
     >
       <ol className="vehicle-flow-rail__nodes" aria-label={`${scenarioTitle} command flow`}>
         {railNodes(displayRoute).map((node) => (
-          <FlowNode key={node.id} node={node} state={nodeState(node.id, playback)} />
+          <FlowNode
+            key={node.id}
+            node={node}
+            state={nodeState(node.id, playback)}
+            selected={showSelection && node.id === selectedNodeId}
+          />
         ))}
       </ol>
       <div className="vehicle-flow-rail__hud">
