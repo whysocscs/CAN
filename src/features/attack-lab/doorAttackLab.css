@@ -253,6 +253,89 @@
 
 .door-attack-lab__vehicle-flow > .vehicle-network-viewport { height: auto; min-height: 0; flex: 1; }
 
+.vehicle-flow-rail {
+  --flow-accent: var(--vehicle-route-accent);
+  display: grid;
+  min-width: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--dal-line);
+  background: #f8fafc;
+}
+
+.vehicle-flow-rail__nodes {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(108px, 1fr));
+  margin: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 0;
+  list-style: none;
+}
+
+.vehicle-flow-rail__node {
+  position: relative;
+  display: grid;
+  min-width: 108px;
+  gap: 3px;
+  padding: 8px 10px;
+  border-right: 1px solid var(--dal-line);
+  border-bottom: 2px solid transparent;
+  background: #fff;
+}
+
+.vehicle-flow-rail__node:not(:last-child)::after {
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  z-index: 1;
+  width: 13px;
+  color: var(--dal-muted);
+  content: "→";
+  font-weight: 800;
+  transform: translateY(-50%);
+}
+
+.vehicle-flow-rail__node strong { font-size: 11px; line-height: 1.35; }
+.vehicle-flow-rail__node span { color: var(--dal-muted); font-size: 10px; line-height: 1.35; }
+.vehicle-flow-rail__node[data-flow-state="active"] {
+  border-color: var(--flow-accent);
+  background: color-mix(in srgb, var(--flow-accent) 10%, #fff);
+}
+.vehicle-flow-rail__node[data-flow-state="effect"] { border-color: #287a52; background: #f0faf4; }
+.vehicle-flow-rail__node[data-flow-state="rejected"] {
+  border-color: #d12f2f;
+  background: #fff1f1;
+}
+.vehicle-flow-rail__node[data-flow-state="rejected"] span { color: #a51f1f; font-weight: 800; }
+
+.vehicle-flow-rail__hud {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  overflow-x: auto;
+  background: #101827;
+  color: #e8eef8;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.vehicle-flow-rail__hud > * { flex: none; }
+.vehicle-flow-rail__hud code { overflow: hidden; max-width: 34ch; color: #a9c6ff; text-overflow: ellipsis; white-space: nowrap; }
+.vehicle-flow-rail__mode { color: #f6cb72; font-weight: 800; }
+.vehicle-flow-rail__hud strong { color: #ffd3d3; }
+.vehicle-flow-rail__announcement {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .vehicle-network-viewport__toolbar {
   display: flex;
   flex: none;
@@ -564,6 +647,11 @@
 }
 
 @media (max-width: 820px) {
+  .vehicle-flow-rail__nodes {
+    grid-auto-columns: 108px;
+    grid-auto-flow: column;
+    grid-template-columns: repeat(6, 108px);
+  }
   .attack-preview--door-lab { padding: 0; }
   .attack-preview--door-lab > .attack-preview__tabs { padding-inline: 14px; }
   .door-attack-lab { padding: 18px 14px 32px; }
