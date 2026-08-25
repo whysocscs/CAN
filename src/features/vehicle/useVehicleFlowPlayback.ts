@@ -19,7 +19,7 @@ const IDLE: VehicleFlowPlaybackSnapshot = {
 type SnapshotAction = {
   type: "replace"
   snapshot: VehicleFlowPlaybackSnapshot
-} | { type: "finish" } | { type: "cancel" }
+} | { type: "finish" } | { type: "cancel" } | { type: "clear" }
 
 function snapshotReducer(
   snapshot: VehicleFlowPlaybackSnapshot,
@@ -34,6 +34,8 @@ function snapshotReducer(
       return snapshot.phase === "playing"
         ? { ...snapshot, phase: "cancelled" }
         : snapshot
+    case "clear":
+      return IDLE
   }
 }
 
@@ -195,16 +197,19 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
     [ownsRun],
   )
 
-  const cancel = useCallback(() => {
+  const stop = useCallback((clearSnapshot: boolean) => {
     generationRef.current += 1
     if (timerRef.current !== null) clearTimeout(timerRef.current)
     timerRef.current = null
     const cancelled = runRef.current
     runRef.current = null
     cursorRef.current = null
-    dispatchSnapshot({ type: "cancel" })
+    dispatchSnapshot({ type: clearSnapshot ? "clear" : "cancel" })
     if (cancelled) optionsRef.current.onCancel?.(cancelled.runKey)
   }, [])
+
+  const cancel = useCallback(() => stop(false), [stop])
+  const clear = useCallback(() => stop(true), [stop])
 
   const play = useCallback(
     (run: VehicleFlowRun) => {
@@ -256,5 +261,6 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
     isPlaying: snapshot.phase === "playing",
     play,
     cancel,
+    clear,
   }
 }

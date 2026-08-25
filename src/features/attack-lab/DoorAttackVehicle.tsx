@@ -1,4 +1,5 @@
 import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
+import type { VehicleFlowPlaybackSnapshot } from "../vehicle/vehicleFlowTypes"
 import {
   VEHICLE_ROUTES,
   type VehicleTopologyNodeId,
@@ -17,11 +18,13 @@ const STAGE_NODE: Record<string, VehicleTopologyNodeId> = {
 export interface DoorAttackVehicleProps {
   currentStage?: string
   focusedNodeId?: VehicleTopologyNodeId
+  playback?: VehicleFlowPlaybackSnapshot
 }
 
 export default function DoorAttackVehicle({
   currentStage,
   focusedNodeId,
+  playback,
 }: DoorAttackVehicleProps) {
   return (
     <VehicleNetworkViewport
@@ -32,6 +35,7 @@ export default function DoorAttackVehicle({
       focusedNodeId={focusedNodeId}
       scenarioTitle="Door attack route"
       accent="#d94b4b"
+      playback={playback}
     />
   )
 }

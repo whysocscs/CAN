@@ -223,6 +223,59 @@ describe("useVehicleFlowPlayback", () => {
     expect(vi.getTimerCount()).toBe(0)
   })
 
+  it("keeps cancellation visible until clear resets the playback to idle", () => {
+    const onEffect = vi.fn()
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({
+        stepMs: 200,
+        reducedMotion: false,
+        onEffect,
+      }),
+    )
+
+    act(() =>
+      result.current.play({
+        runKey: "session:0:clear",
+        traces: [executedDoorTrace],
+      }),
+    )
+    act(() => result.current.cancel())
+    expect(result.current.snapshot.phase).toBe("cancelled")
+
+    act(() => result.current.clear())
+    act(() => vi.runAllTimers())
+
+    expect(result.current.snapshot).toMatchObject({
+      playbackId: 0,
+      phase: "idle",
+      trace: null,
+      traceCount: 0,
+      segmentIndex: 0,
+    })
+    expect(onEffect).not.toHaveBeenCalled()
+  })
+
+  it("clears a completed playback without presenting it as cancelled", () => {
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: true }),
+    )
+
+    act(() =>
+      result.current.play({
+        runKey: "session:0:completed-clear",
+        traces: [rejectedBodyTrace],
+      }),
+    )
+    expect(result.current.snapshot.phase).toBe("complete")
+
+    act(() => result.current.cancel())
+    expect(result.current.snapshot.phase).toBe("complete")
+
+    act(() => result.current.clear())
+    expect(result.current.snapshot.phase).toBe("idle")
+    expect(result.current.snapshot.trace).toBeNull()
+  })
+
   it("keeps a replacement started by an effect callback authoritative", () => {
     const onComplete = vi.fn()
     const onCancel = vi.fn()

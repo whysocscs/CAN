@@ -3,6 +3,7 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { playingDoorSnapshotAtGateway } from "../vehicle/vehicleFlowTestFixtures"
 
 const viewport = vi.hoisted(() => ({
   props: undefined as Record<string, unknown> | undefined,
@@ -37,5 +38,11 @@ describe("DoorAttackVehicle topology selection", () => {
       scenarioTitle: "Door attack route",
       currentNodeId: "gateway",
     })
+  })
+
+  it("forwards the shared playback snapshot to the network viewport", () => {
+    render(<DoorAttackVehicle playback={playingDoorSnapshotAtGateway} />)
+
+    expect(viewport.props?.playback).toBe(playingDoorSnapshotAtGateway)
   })
 })
