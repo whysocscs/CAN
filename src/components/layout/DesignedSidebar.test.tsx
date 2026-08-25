@@ -25,5 +25,6 @@ describe("DesignedSidebar fresh mobile navigation", () => {
     expect(within(desktop).queryByText("IDS 실습")).not.toBeInTheDocument()
     expect(within(desktop).queryByText("학습 결과")).not.toBeInTheDocument()
     expect(within(desktop).queryByText("3D 모델 관리")).not.toBeInTheDocument()
+    expect(within(desktop).queryByText("프로젝트 소개")).not.toBeInTheDocument()
   })
 })

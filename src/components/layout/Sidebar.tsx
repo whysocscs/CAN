@@ -285,7 +285,13 @@ const navItems: NavItem[] = [
   { id: "about", label: "프로젝트 소개", icon: "book", route: "about" },
 ]
 
-const hiddenNavItemIds = new Set(["practice/monitor", "ids", "results", "models"])
+const hiddenNavItemIds = new Set([
+  "practice/monitor",
+  "ids",
+  "results",
+  "models",
+  "about",
+])
 
 function getIcon(icon: string, size = 16) {
   const props = { width: size, height: size }

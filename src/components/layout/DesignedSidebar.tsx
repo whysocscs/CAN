@@ -174,7 +174,13 @@ const navItems: NavItem[] = [
   { id: "about", label: "프로젝트 소개", icon: "about", route: "about" },
 ]
 
-const hiddenNavItemIds = new Set(["practice/monitor", "ids", "results", "models"])
+const hiddenNavItemIds = new Set([
+  "practice/monitor",
+  "ids",
+  "results",
+  "models",
+  "about",
+])
 
 const mobileItems = [
   navItems[0],
