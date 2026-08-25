@@ -557,14 +557,133 @@ describe("BeginnerCanAttackLabPage", () => {
     expect(within(screen.getByRole("region", { name: "Network monitor" })).getAllByText("EXECUTED")).toHaveLength(1)
   })
 
-  it("leaves reconnect snapshot ownership with accepted REST state", async () => {
+  it.each([
+    ["spoofing", "tailgate"],
+    ["replay", "doorL"],
+  ] as const)(
+    "restores the current idle %s reconnect snapshot without monitor or playback duplication",
+    async (scenarioName, part) => {
+      const current = session(scenarioName)
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      await screen.findByText(scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU")
+
+      act(() =>
+        stream.options?.onEvent(liveEvent(current, { replay: true })),
+      )
+      await flushStream()
+
+      expect(vehicle.isOpen(part)).toBe(true)
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-playback-phase", "idle")
+      expect(within(screen.getByRole("region", { name: "Network monitor" }))
+        .queryByText("EXECUTED")).not.toBeInTheDocument()
+    },
+  )
+
+  it("does not apply a reconnect snapshot while a REST action is in flight", async () => {
+    const current = session("spoofing")
+    const actionRequest = deferred<BeginnerCanAttackResult>()
+    api.runBeginnerCanAttackScript.mockReturnValueOnce(actionRequest.promise)
+    const user = userEvent.setup()
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() =>
+      expect(api.runBeginnerCanAttackScript).toHaveBeenCalledOnce(),
+    )
+    act(() =>
+      stream.options?.onEvent(liveEvent(current, { replay: true })),
+    )
+    await flushStream()
+
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+    expect(within(screen.getByRole("region", { name: "Network monitor" }))
+      .queryByText("EXECUTED")).not.toBeInTheDocument()
+
+    await act(async () => actionRequest.resolve(result(current)))
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "스크립트 실행" }))
+        .toBeEnabled(),
+    )
+  })
+
+  it("does not let a reconnect snapshot overtake active endpoint playback", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const current = session("spoofing")
+    api.runBeginnerCanAttackScript.mockResolvedValueOnce(
+      result(
+        {
+          ...current,
+          stage: "EVIDENCE",
+          completed: true,
+          vehicleState: { ...current.vehicleState, tailgate: "open" },
+        },
+        {
+          code: "EXECUTED",
+          flowTraces: [executedBeginnerTrace("spoofing")],
+        },
+      ),
+    )
+    render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText("CAN Spoofing Basics vehicle network"))
+        .toHaveAttribute("data-playback-phase", "playing"),
+    )
+    act(() =>
+      stream.options?.onEvent(liveEvent(current, { replay: true })),
+    )
+    await flushStream()
+
+    expect(vehicle.isOpen("tailgate")).toBe(false)
+    act(() => vi.runAllTimers())
+    expect(vehicle.isOpen("tailgate")).toBe(true)
+  })
+
+  it("rejects stale-session and stale-generation reconnect snapshots", async () => {
     const current = session("replay")
     render(<BeginnerCanAttackLabPage scenario="replay" />)
     await screen.findByText("BODY ECU")
-    act(() => stream.options?.onEvent(liveEvent(current, { replay: true })))
+
+    act(() => {
+      stream.options?.onEvent(liveEvent(current, {
+        eventId: "stale-session-replay",
+        replay: true,
+        lab: {
+          labId: current.labId,
+          scenario: current.scenario,
+          sessionId: "obsolete-session",
+          generation: current.generation,
+          attemptId: "attempt-stale-session",
+          stage: "impact",
+        },
+      }))
+      stream.options?.onEvent(liveEvent(current, {
+        eventId: "stale-generation-replay",
+        replay: true,
+        lab: {
+          labId: current.labId,
+          scenario: current.scenario,
+          sessionId: current.sessionId,
+          generation: current.generation + 1,
+          attemptId: "attempt-stale-generation",
+          stage: "impact",
+        },
+      }))
+    })
     await flushStream()
+
     expect(vehicle.isOpen("doorL")).toBe(false)
-    expect(within(screen.getByRole("region", { name: "Network monitor" })).queryByText("EXECUTED")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("CAN Replay Basics vehicle network"))
+      .toHaveAttribute("data-playback-phase", "idle")
+    expect(within(screen.getByRole("region", { name: "Network monitor" }))
+      .queryByText("EXECUTED")).not.toBeInTheDocument()
   })
 
   it("resets all local evidence and advances the authoritative generation", async () => {

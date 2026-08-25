@@ -363,10 +363,19 @@ export default function BeginnerCanAttackLabPage({
     })
   }, [currentAcceptedEventPredicate, nextMonitorSequence])
 
+  const currentReplayVehiclePredicate = useCallback(
+    (event: CanEvent) =>
+      event.replay === true &&
+      busyRef.current === null &&
+      pendingFlowRef.current === null &&
+      currentAcceptedEventPredicate(event),
+    [currentAcceptedEventPredicate],
+  )
+
   const streamStatus = useCanVehicleStream({
     url: resolveBeginnerCanAttackStreamUrl(),
     onEvent: handleCanEvents,
-    vehicleEventPredicate: () => false,
+    vehicleEventPredicate: currentReplayVehiclePredicate,
   })
 
   const beginAction = (kind: Exclude<BusyState, null>): ActionRequest | null => {
