@@ -32,7 +32,7 @@ export default function AttackLabActivityLog({
                 <strong>{entry.resultCode}</strong>
                 <span>{entry.commandLabel}</span>
                 <small>
-                  {entry.frameEmitted ? "CAN frame 기록됨" : "차량 경로 없음"}
+                  {entry.frameEmitted ? "가상 CAN 경로 입력 기록됨" : "차량 경로 없음"}
                   {entry.stoppedAt ? ` · ${entry.stoppedAt}` : ""}
                   {entry.effectApplied ? " · 차량 영향 적용" : ""}
                 </small>

@@ -60,7 +60,7 @@ cansend vcan0 456#000115B1
 - 3D: 각 frame이 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`; final callout `GLB Left Door · EFFECT APPLIED · 교육용 분석`
 - Monitor/Binary Inspector: accepted 세 행의 DATA가 차례로 `00 01 13 B7`, `00 01 14 B0`, `00 01 15 B1`
 - Why: 마지막 trace에서 IDS node 이후 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, Body ECU 이후 `ECU 판정=EXECUTED`/source `Toy ECU`, endpoint 이후 `차량 영향=적용됨`/source `교육용 분석`
-- Activity: `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`/Proof는 structured trace에서 먼저 달성될 수 있지만 GLB/Why effect는 endpoint에서 적용·공개, 각 trace node `600 ms`, trace 사이 `900 ms`
+- Activity: `EXECUTED · 가상 CAN 경로 입력 기록됨 · 차량 영향 적용`; `공격 조건 충족`/Proof는 structured trace에서 먼저 달성될 수 있지만 GLB/Why effect는 endpoint에서 적용·공개, 각 trace node `600 ms`, trace 사이 `900 ms`
 - GLB: Left Door만 열리고 Right Door는 닫힘
 - Self-check: `공격 조건 충족=달성`, `학습 확인 완료`는 prediction/evidence/reflection 전까지 `미완료`
 
@@ -97,7 +97,7 @@ cansend vcan0 5A1#01
 - Binary inspector의 live DATA: `01`
 - 3D: `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`; final callout `GLB Tailgate · EFFECT APPLIED · 교육용 분석`
 - Why: IDS/Rear ECU/Tailgate 도달 순서대로 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, `ECU 판정=EXECUTED`/source `Toy ECU`, `차량 영향=적용됨`/source `교육용 분석`
-- Activity: `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개
+- Activity: `EXECUTED · 가상 CAN 경로 입력 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개
 - GLB: Tailgate만 열림
 - Self-check: `공격 조건 충족=달성`과 `학습 확인 완료=완료`를 별도로 확인
 
@@ -134,7 +134,7 @@ canplayer -I capture.log -l 1
 - 두 프레임 DATA: 모두 `00 01`
 - 3D playback: `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`; final callout `GLB Left Door · EFFECT APPLIED · 교육용 분석`
 - Why: IDS/Body ECU/Left Door 도달 순서대로 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, `ECU 판정=EXECUTED`/source `Toy ECU`, `차량 영향=적용됨`/source `교육용 분석`
-- Activity: completion `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Left Door endpoint에서만 적용·공개
+- Activity: completion `EXECUTED · 가상 CAN 경로 입력 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Left Door endpoint에서만 적용·공개
 - GLB: Left Door만 열림
 - Self-check: `공격 조건 충족=달성`과 `학습 확인 완료=완료`를 별도로 확인
 

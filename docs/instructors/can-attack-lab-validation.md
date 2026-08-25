@@ -118,7 +118,7 @@ $DoorReplay | ConvertTo-Json -Depth 8
 - 화면 Stage `Replay 실패`, Toy IDS `ALERT`, Attempts `1`, Proof `NOT YET`
 - monitor는 replay rejected 행을 포함해 총 13행
 - rejected 행을 선택하면 Binary inspector가 `01 01 10 B5`를 표시
-- Activity에는 `COUNTER_REJECTED`, `CAN frame 기록됨`, `body`가 같은 action으로 남는다.
+- Activity에는 `COUNTER_REJECTED`, `가상 CAN 경로 입력 기록됨`, `body`가 같은 action으로 남는다.
 - GLB left/right door는 모두 closed로 유지
 
 ### Editor 성공
@@ -154,7 +154,7 @@ $DoorSuccess | ConvertTo-Json -Depth 8
 - accepted 세 행을 차례로 선택하면 Binary Inspector DATA가 `00 01 13 B7`, `00 01 14 B0`, `00 01 15 B1`로 각 command와 일치한다.
 - 각 trace의 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`이며 final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
 - progressive reveal에서 OBD-II 전에는 `가상 CAN 경로 입력` row가 없고, IDS 전에는 `Toy IDS`, Body ECU 전에는 `Toy ECU`, endpoint 전에는 `차량 영향` row가 없다. 첫 두 trace의 IDS는 관찰 중이며 전체 sequence `NORMAL`은 마지막 trace의 IDS node에서만 공개된다.
-- Activity에는 script action의 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용` evidence가 남는다.
+- Activity에는 script action의 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용` evidence가 남는다.
 - structured trace를 수락하면 `공격 조건 충족=달성`과 Proof `COMPLETE`가 먼저 보일 수 있지만, GLB effect와 Why의 `차량 영향` row는 각 trace가 Left Door endpoint에 도달할 때만 적용·공개된다. `600 ms` node progression과 trace 사이 `900 ms` final hold를 확인한다.
 - GLB left door open, right door closed이며 `학습 확인 완료`는 prediction/evidence/reflection을 마칠 때까지 `미완료`다.
 
@@ -217,7 +217,7 @@ $SpoofSuccess | ConvertTo-Json -Depth 8
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택 시 Binary inspector `01`
 - 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`, final callout은 `GLB Tailgate · EFFECT APPLIED · 교육용 분석`이다.
 - Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Rear ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
-- Activity에는 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개된다.
+- Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개된다.
 - target은 Toy Rear ECU; GLB는 tailgate만 open, left/right door closed
 - Evidence에는 `kind=attempt`, `status=EXECUTED`
 - `공격 조건 충족=달성`과 `학습 확인 완료`는 자동으로 같아지지 않는다. prediction, accepted monitor frame 선택, 20자 이상 reflection 후에만 후자를 확인한다.
@@ -289,7 +289,7 @@ $ReplaySuccess | ConvertTo-Json -Depth 8
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택한 Binary inspector는 `00`, `01`
 - 정확한 playback 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`, final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
 - Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Body ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
-- completion Activity에는 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Left Door endpoint에서만 적용·공개된다.
+- completion Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Left Door endpoint에서만 적용·공개된다.
 - Toy Body ECU가 target이고 GLB는 left door open, right door/tailgate closed
 - `공격 조건 충족=달성` 뒤에도 prediction, accepted live frame 선택, byte-identical 비교 reflection 없이는 `학습 확인 완료=미완료`다.
 
@@ -353,11 +353,34 @@ git diff --check
 - bundle secrecy: 두 instructor guide의 성공 섹션에서 추출한 완료 command 집합이 각각 동일한 `5`개임을 확인했다. 중복 제거한 full literal `5`개 각각을 `dist`에 `rg -F`로 검사했으며 모두 exit `1`, match `0`, error `0`이었다. command literal 자체는 이 결과 기록에 반복하지 않는다.
 - generated `dist/`는 Git ignore 상태이고 tracked diff는 계획된 네 문서뿐이다.
 
-이 CLI 기록은 terminal/Vehicle Flow/Why/monitor/inspector/3D를 live browser에서 관찰한 증거가 아니다. Browser QA는 메인 에이전트 검증 대기 상태다.
+이 CLI 기록 자체는 terminal/Vehicle Flow/Why/monitor/inspector/3D를 live browser에서 관찰한 증거가 아니다. 실제 Browser-plugin 관찰 결과는 다음 절에 별도로 기록한다.
 
-## 7. 브라우저 판정 체크리스트
+## 7. Browser-plugin 실측 기록 — 2026-08-26
 
-> Task 6 CLI 담당 단계에서는 이 Browser QA를 실행하거나 관찰했다고 주장하지 않는다. 아래 항목은 메인 에이전트의 live Browser-plugin 검증 대기 상태다.
+로컬 frontend `http://127.0.0.1:8447/`와 backend `http://127.0.0.1:8010/`를 feature worktree에서 직접 실행하고, in-app Browser-plugin으로 아래 결과를 관찰했다.
+
+### 실제로 확인한 시나리오
+
+- **Door**: 정상 3-frame script 뒤 `GLB Left Door · EFFECT APPLIED`까지 진행되는 것과, 다음 rejected terminal action이 시작되면 이전 final callout/Why/learning selection이 새 action에 귀속되지 않도록 초기화되는 것을 확인했다. rejected frame은 `Toy Body ECU · REJECTED`에서 멈추고 door effect를 적용하지 않았다.
+- **Spoofing**: 관찰 command, 다른 target ID frame, valid target frame을 차례로 실행했다. Virtual Terminal은 정상 `cansend` 뒤 ECU verdict를 출력하지 않았고, Network Monitor/Activity의 structured result는 `OBSERVED → TARGET_ID_MISMATCH → EXECUTED`로 구분됐다. valid frame은 `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`를 거쳐 Tailgate effect를 적용했다.
+- **Replay**: capture 전에 playback을 실행했을 때 Virtual Terminal `stderr=CAPTURE_REQUIRED`, Vehicle Flow는 `Lab Terminal · 거부됨` 한 node만 표시하고 Monitor에는 placeholder 외 새 frame이 없었다. 그 뒤 capture redirection, `cat`, byte-identical playback을 실행했을 때 Monitor는 capture/live source를 구분했고 `CAPTURED → EXECUTED`, `Body ECU → Left Door`, `IDS NORMAL`, Left Door effect가 일치했다.
+- Lab script action은 terminal transcript row를 추가하지 않았고, terminal-origin action만 command echo와 `stdout`/`stderr`/`silent`를 남겼다.
+
+### 실측 geometry와 접근성 상태
+
+- desktop `1440×900`: Learning column이 `949 px`까지 늘어난 상태에서도 Terminal outer height는 약 `238.8 px`, output은 `145 px`로 유지됐다. 이전처럼 Terminal panel 자체가 sibling 높이에 맞춰 늘어나지 않았다.
+- `820×900`: document/body horizontal overflow `0`; lab viewport `475 px`; stage connector와 stage label rectangle 교차 `0`; final feedback callout의 Canvas inset은 네 방향 모두 양수였다.
+- `390×844`: document/body horizontal overflow `0`; lab viewport `350 px`; stage connector와 label 교차 `0`; Terminal outer height 약 `238.8 px`; callout text `14 px`이고 Canvas 밖으로 나가지 않았다. stage/target route는 의도한 내부 horizontal scroll을 유지했다.
+- dynamic feedback surface는 pointer interaction을 받으며, feedback/pin Drei HTML layer는 서로 겹치지 않는 range를 사용했다. final feedback 중 non-active pins는 disabled/dim 상태이고 active effect pin만 강조됐다.
+- host가 `prefers-reduced-motion: reduce`인 live run에서는 packet travel 없이 최종 의미 상태로 이동했고 HUD는 `정적 최종 상태 · reduced motion`이라고 정확히 표시했다.
+- browser console error는 없었다. Three.js의 기존 `THREE.Clock` 및 `PCFSoftShadowMap` deprecation warning은 남아 있으며 이 실습 결과의 오류는 아니지만 후속 dependency maintenance 대상이다.
+
+### 직접 확인하지 못한 항목
+
+- in-app Browser-plugin에서 실제 browser zoom을 125%/150%로 바꾸는 제어가 동작하지 않아 `1440×900 @ 125%/150%`는 직접 관찰하지 못했다. 더 좁은 `820 px`와 `390 px` responsive geometry는 확인했지만 browser zoom 검증을 대체했다고 주장하지 않는다.
+- host가 reduced-motion으로 고정돼 normal-motion live timing은 직접 관찰하지 못했다. 일반 node `600 ms`, final hold `900 ms`, synchronous reduced-motion 의미 동등성은 fake timer/frontend regression test가 검증했다.
+
+### 후속 수동 판정 체크리스트
 
 각 viewport를 새 page load로 확인한다.
 

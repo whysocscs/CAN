@@ -55,11 +55,17 @@ describe("AttackLabActivityLog", () => {
     expect(scrollRegion).toHaveClass("attack-lab-activity__scroll")
     expect(within(scrollRegion).queryByRole("row")).not.toBeInTheDocument()
     expect(within(scrollRegion).getAllByText(/차량 경로 없음/)).toHaveLength(2)
+    const localResult = screen.getByRole("button", { name: /COMMAND_REJECTED/ })
+    const emittedResult = screen.getByRole("button", { name: /COUNTER_REJECTED/ })
+    expect(localResult).toHaveTextContent("차량 경로 없음")
+    expect(localResult).not.toHaveTextContent("가상 CAN 경로 입력 기록됨")
+    expect(emittedResult).toHaveTextContent("가상 CAN 경로 입력 기록됨")
+    expect(emittedResult).not.toHaveTextContent("CAN frame 기록됨")
     expect(
       screen.getByRole("button", { name: /CAPTURE_SESSION_MISMATCH/ }),
     ).toHaveAttribute("aria-current", "true")
 
-    await user.click(screen.getByRole("button", { name: /COUNTER_REJECTED/ }))
+    await user.click(emittedResult)
     expect(onSelect).toHaveBeenCalledWith("emitted-1")
   })
 })

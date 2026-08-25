@@ -1,7 +1,7 @@
 # CAN Attack Lab 목적 적합성 설계회의 기록
 
-Date: 2026-08-26  
-Branch: `feat/can-attack-basics-expansion`  
+Date: 2026-08-26
+Branch: `feat/can-attack-basics-expansion`
 Decision: 필수 보완을 명세와 구현 계획에 반영하는 조건으로 승인
 
 ## 참석 역할
