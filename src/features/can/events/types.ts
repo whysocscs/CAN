@@ -18,6 +18,13 @@ export type CanFilterResult = "ACCEPT" | "DROP" | "NOT_CHECKED"
 export type CanExecutionResult = "EXECUTED" | "BLOCKED" | "PENDING"
 export type CanMonitoringStatus = "NORMAL" | "SUSPICIOUS" | "ALERT"
 
+export interface CanLabMetadata {
+  labId?: string
+  sessionId?: string
+  generation?: number
+  stage?: string
+}
+
 export interface CanFrameData {
   canId: string
   dlc: number
@@ -35,6 +42,10 @@ export interface CanEvent {
    */
   replay?: boolean
   frame: CanFrameData
+  /** Optional verdict metadata for educational lab attempts. */
+  reasonCode?: string
+  ruleIds?: string[]
+  lab?: CanLabMetadata
   context: {
     command?: CanCommand
     source?: CanNodeId

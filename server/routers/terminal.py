@@ -30,6 +30,10 @@ def is_allowed_origin(origin: str | None) -> bool:
 router = APIRouter()
 
 
+def _real_terminal_enabled() -> bool:
+    return os.environ.get("CANLITE_ENABLE_REAL_TERMINAL", "").strip().lower() == "true"
+
+
 @router.get("/health")
 async def health() -> dict[str, str]:
     return {
@@ -42,13 +46,17 @@ async def health() -> dict[str, str]:
 
 @router.websocket("/ws/terminal")
 async def terminal_socket(websocket: WebSocket) -> None:
+    if not _real_terminal_enabled():
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
     origin = websocket.headers.get("origin")
     if not is_allowed_origin(origin):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Windows에서는 PTY 전용 fcntl을 사용할 수 없다. CAN API 기동은 막지 않고,
-    # 실제 Linux 터미널 요청이 들어온 경우에만 해당 서비스를 불러온다.
+    # PTY support is POSIX-specific. Keep the health/CAN routers importable on
+    # Windows and load it only when a real terminal session is requested.
     from server.services.terminal_service import run_terminal_session
 
     await websocket.accept()

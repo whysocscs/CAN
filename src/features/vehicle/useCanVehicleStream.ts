@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import type { CanEvent } from "../can/events/types"
-import { connectCanStream, type CanStreamStatus } from "../can/events/backendProvider"
+import {
+  connectCanStream,
+  type CanStreamStatus,
+} from "../can/events/backendProvider"
 import { vehicle } from "./vehicleStore"
 
 /**
@@ -17,11 +20,13 @@ export function useCanVehicleStream(options?: {
   url?: string
   /** 프레임 단위로 묶인 이벤트. Monitor·Inspector 목록에 씁니다. */
   onEvent?: (events: CanEvent[]) => void
+  /** Return false to observe an event without applying it to the global vehicle store. */
+  vehicleEventPredicate?: (event: CanEvent) => boolean
   enabled?: boolean
   /**
    * 접속 직후 재생되는 스냅샷 프레임도 onEvent로 넘길지 여부.
    * 기본은 false — 지금 버스에서 일어난 일이 아니라 과거 상태이기 때문입니다.
-   * (차량 상태에는 이 값과 무관하게 항상 반영됩니다.)
+   * (차량 반영 여부는 이 값과 무관하며 vehicleEventPredicate가 결정합니다.)
    */
   includeReplay?: boolean
 }): CanStreamStatus {
@@ -31,6 +36,8 @@ export function useCanVehicleStream(options?: {
   // onEvent가 매 렌더 새 함수여도 재연결하지 않도록 ref로 잡아 둡니다.
   const onEventRef = useRef(options?.onEvent)
   onEventRef.current = options?.onEvent
+  const vehicleEventPredicateRef = useRef(options?.vehicleEventPredicate)
+  vehicleEventPredicateRef.current = options?.vehicleEventPredicate
 
   useEffect(() => {
     if (!enabled) return
@@ -48,8 +55,10 @@ export function useCanVehicleStream(options?: {
       url,
       onStatus: setStatus,
       onEvent: (event) => {
-        // 스냅샷이든 실시간이든 차량 상태에는 항상 반영합니다.
-        vehicle.applyCanEvent(event)
+        // Monitor 관찰과 global vehicle mutation ownership을 분리합니다.
+        if (vehicleEventPredicateRef.current?.(event) ?? true) {
+          vehicle.applyCanEvent(event)
+        }
         if (!onEventRef.current) return
         if (event.replay && !includeReplay) return
         pending.push(event)

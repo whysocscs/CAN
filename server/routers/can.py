@@ -16,9 +16,15 @@ API로 열든 실습생이 터미널로 열든 화면이 똑같이 반응하고,
 from __future__ import annotations
 
 import asyncio
+from collections import defaultdict, deque
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 import json
 import os
 import shutil
+import threading
+import time
 from itertools import count
 from typing import Any, Final, Literal
 
@@ -50,7 +56,25 @@ def resolve_mode() -> Mode:
 
 MODE: Final[Mode] = resolve_mode()
 
-_clients: set[WebSocket] = set()
+
+@dataclass(eq=False, slots=True)
+class _ClientConnection:
+    """One ordered CAN WebSocket stream owned by the server event loop."""
+
+    websocket: WebSocket
+    loop: asyncio.AbstractEventLoop
+    evicted_event: asyncio.Event = field(default_factory=asyncio.Event)
+    backlog: deque[str] = field(default_factory=deque)
+    writer_task: asyncio.Task[None] | None = None
+    replaying: bool = True
+    evicted: bool = False
+
+
+_clients: set[_ClientConnection] = set()
+_CLIENT_SEND_TIMEOUT_SECONDS: Final = 0.25
+_CLIENT_HANDOFF_TIMEOUT_SECONDS: Final = 1.0
+_CLIENT_DRAIN_TIMEOUT_SECONDS: Final = 0.5
+_CLIENT_BACKLOG_MAX_MESSAGES: Final = 256
 _sequence = count(1)
 
 # CAN ID별 마지막 프레임. 새로 접속한 브라우저에게 현재 상태를 알려주는 데 씁니다.
@@ -60,6 +84,26 @@ _sequence = count(1)
 # 마지막으로 본 바이트를 그대로 다시 보낼 뿐이고, 해석은 브라우저가 합니다.
 # 표준 CAN 프레임 ID는 0x7ff까지라 이 dict는 자연히 2048개로 묶입니다.
 _last_frames: dict[str, dict[str, Any]] = {}
+# SocketCAN emits are observed later by candump.  Keep metadata keyed by the
+# frame until that observation reaches the shared event stream.
+EchoKey = tuple[str, tuple[str, ...]]
+
+
+@dataclass(frozen=True, slots=True)
+class PendingEcho:
+    metadata: Mapping[str, Any]
+    sent_at_us: int
+
+
+_echo_state_lock = threading.RLock()
+_pending_echoes: dict[EchoKey, deque[PendingEcho]] = defaultdict(deque)
+_background_emit_tasks: set[asyncio.Task[None]] = set()
+_OBSERVED_AT_US_KEY: Final = "_observedAtUs"
+_CLEARED_ECHO_TTL_SECONDS: Final = 5.0
+_MAX_CLEARED_ECHO_TOMBSTONES: Final = 128
+_cleared_echo_tombstones: deque[
+    tuple[EchoKey, int, float]
+] = deque()
 
 
 # --------------------------------------------------------------- 프레임 표현
@@ -78,17 +122,34 @@ def normalize_data(data: list[str] | str | None) -> list[str]:
     return [p.lower().removeprefix("0x").rjust(2, "0").upper() for p in parts if p]
 
 
-def build_event(can_id: str, data: list[str], *, timestamp_ms: int, channel: str) -> dict[str, Any]:
+def build_event(
+    can_id: str,
+    data: list[str],
+    *,
+    timestamp_ms: int,
+    channel: str,
+    context: dict[str, Any] | None = None,
+    processing: dict[str, Any] | None = None,
+    monitoring: dict[str, Any] | None = None,
+    lab: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """프론트의 CanEvent(types.ts)와 같은 모양의 dict를 만듭니다."""
-    return {
+    event: dict[str, Any] = {
         "eventId": f"can-{next(_sequence):06d}",
         "timestamp": timestamp_ms,
         "channel": channel,
         "origin": "backend",
         "frame": {"canId": can_id, "dlc": len(data), "data": data},
         # 의미 해석은 프론트가 합니다. 여기서는 비워 둡니다.
-        "context": {},
+        "context": context or {},
     }
+    if processing is not None:
+        event["processing"] = processing
+    if monitoring is not None:
+        event["monitoring"] = monitoring
+    if lab is not None:
+        event["lab"] = lab
+    return event
 
 
 def parse_candump(line: str) -> dict[str, Any] | None:
@@ -101,23 +162,424 @@ def parse_candump(line: str) -> dict[str, Any] | None:
     if not sep:
         return None
     try:
-        timestamp_ms = int(float(raw_ts.strip("()")) * 1000)
+        timestamp_us = int(Decimal(raw_ts.strip("()")) * 1_000_000)
         can_id = normalize_can_id(raw_id)
-    except ValueError:
+    except (InvalidOperation, ValueError):
         return None
-    return build_event(can_id, normalize_data(payload), timestamp_ms=timestamp_ms, channel=channel)
+    event = build_event(
+        can_id,
+        normalize_data(payload),
+        timestamp_ms=timestamp_us // 1000,
+        channel=channel,
+    )
+    # Public CanEvent timestamps stay in milliseconds.  Echo correlation keeps
+    # candump's microsecond ordering until attach_pending_metadata consumes it.
+    event[_OBSERVED_AT_US_KEY] = timestamp_us
+    return event
+
+
+def _purge_expired_cleared_echoes() -> None:
+    with _echo_state_lock:
+        now = time.monotonic()
+        while _cleared_echo_tombstones and _cleared_echo_tombstones[0][2] <= now:
+            _cleared_echo_tombstones.popleft()
+
+
+def _remember_cleared_echo(
+    key: EchoKey,
+    sent_at_us: int,
+) -> None:
+    with _echo_state_lock:
+        _purge_expired_cleared_echoes()
+        while len(_cleared_echo_tombstones) >= _MAX_CLEARED_ECHO_TOMBSTONES:
+            _cleared_echo_tombstones.popleft()
+        _cleared_echo_tombstones.append(
+            (key, sent_at_us, time.monotonic() + _CLEARED_ECHO_TTL_SECONDS)
+        )
+
+
+def _has_cleared_echo(key: EchoKey) -> bool:
+    with _echo_state_lock:
+        _purge_expired_cleared_echoes()
+        return any(tombstone[0] == key for tombstone in _cleared_echo_tombstones)
+
+
+def _consume_cleared_echo(
+    key: EchoKey,
+    *,
+    observed_at_us: int,
+    before_sent_at_us: int | None,
+) -> bool:
+    with _echo_state_lock:
+        _purge_expired_cleared_echoes()
+        for tombstone in _cleared_echo_tombstones:
+            tombstone_key, sent_at_us, _expires_at = tombstone
+            if tombstone_key != key:
+                continue
+            if observed_at_us < sent_at_us:
+                continue
+            if (
+                before_sent_at_us is not None
+                and sent_at_us >= before_sent_at_us
+            ):
+                continue
+            _cleared_echo_tombstones.remove(tombstone)
+            return True
+        return False
+
+
+def _forget_obsolete_cleared_echoes(
+    key: EchoKey,
+    *,
+    current_sent_at_us: int,
+) -> None:
+    """A matched current echo proves older same-key echoes were lost."""
+    with _echo_state_lock:
+        _purge_expired_cleared_echoes()
+        for tombstone in list(_cleared_echo_tombstones):
+            tombstone_key, sent_at_us, _expires_at = tombstone
+            if tombstone_key == key and sent_at_us <= current_sent_at_us:
+                _cleared_echo_tombstones.remove(tombstone)
+
+
+def _pop_pending_echo(key: EchoKey) -> PendingEcho | None:
+    with _echo_state_lock:
+        pending = _pending_echoes.get(key)
+        if not pending:
+            return None
+        echo = pending.popleft()
+        if not pending:
+            _pending_echoes.pop(key, None)
+        return echo
+
+
+def _remove_pending_echo(
+    key: EchoKey,
+    echo: PendingEcho,
+    *,
+    remember_cleared: bool = False,
+) -> bool:
+    """Remove this exact emit without touching byte-identical peers."""
+    with _echo_state_lock:
+        pending = _pending_echoes.get(key)
+        if not pending:
+            return False
+        pending_index = next(
+            (index for index, item in enumerate(pending) if item is echo),
+            None,
+        )
+        if pending_index is None:
+            return False
+        del pending[pending_index]
+        if not pending:
+            _pending_echoes.pop(key, None)
+        if remember_cleared:
+            _remember_cleared_echo(key, echo.sent_at_us)
+        return True
+
+
+def _invalidate_pending_echoes(key: EchoKey) -> None:
+    """Turn unobserved SocketCAN emits into bounded, expiring tombstones."""
+    with _echo_state_lock:
+        pending = _pending_echoes.pop(key, None)
+        if MODE != "socketcan" or not pending:
+            return
+        for echo in pending:
+            _remember_cleared_echo(key, echo.sent_at_us)
+
+
+async def _finish_cancelled_process_creation(
+    creation: asyncio.Task[Any],
+    key: EchoKey,
+    pending_echo: PendingEcho | None,
+) -> None:
+    """Recover and reap a subprocess whose caller was cancelled mid-creation."""
+    try:
+        process = await creation
+    except asyncio.CancelledError:
+        if pending_echo is not None:
+            _remove_pending_echo(key, pending_echo, remember_cleared=True)
+        return
+    except BaseException:
+        if pending_echo is not None:
+            _remove_pending_echo(key, pending_echo)
+        return
+
+    try:
+        await process.wait()
+    except BaseException:
+        returncode = process.returncode
+        if pending_echo is not None and returncode != 0:
+            _remove_pending_echo(
+                key,
+                pending_echo,
+                remember_cleared=returncode is None,
+            )
+        return
+
+    if pending_echo is not None and process.returncode != 0:
+        _remove_pending_echo(key, pending_echo)
+
+
+def _track_background_emit(task: asyncio.Task[None]) -> None:
+    """Keep cancellation cleanup alive until the child has been reaped."""
+    _background_emit_tasks.add(task)
+    task.add_done_callback(_background_emit_tasks.discard)
+
+
+def attach_pending_metadata(event: dict[str, Any]) -> dict[str, Any] | None:
+    """Attach metadata recorded by ``emit`` when SocketCAN echoes a frame."""
+    frame = event["frame"]
+    key = (frame["canId"], tuple(frame["data"]))
+    observed_at_us = int(event.pop(_OBSERVED_AT_US_KEY, int(event["timestamp"]) * 1000))
+    with _echo_state_lock:
+        pending = _pending_echoes.get(key)
+        current = pending[0] if pending else None
+        current_sent_at_us = current.sent_at_us if current is not None else None
+        # With a reset tombstone present, byte equality is insufficient.  Prefer a
+        # current pending emit only when the observed kernel timestamp is at/after
+        # that send; an older observation still consumes the stale tombstone.
+        if current is not None:
+            if (
+                not _has_cleared_echo(key)
+                or observed_at_us >= current.sent_at_us
+            ):
+                resolved = _pop_pending_echo(key)
+                assert resolved is not None
+                event.update(resolved.metadata)
+                _forget_obsolete_cleared_echoes(
+                    key,
+                    current_sent_at_us=resolved.sent_at_us,
+                )
+                return event
+        if _consume_cleared_echo(
+            key,
+            observed_at_us=observed_at_us,
+            before_sent_at_us=current_sent_at_us,
+        ):
+            return None
+        return event
+
+
+def clear_frame_snapshot(can_id: str) -> bool:
+    """Remove one CAN ID's replay state and any unobserved accepted metadata."""
+    normalized_id = normalize_can_id(can_id)
+    with _echo_state_lock:
+        removed = _last_frames.pop(normalized_id, None) is not None
+        for key in [key for key in _pending_echoes if key[0] == normalized_id]:
+            _invalidate_pending_echoes(key)
+        return removed
 
 
 # --------------------------------------------------------------- 브로드캐스트
 
-async def broadcast(event: dict[str, Any]) -> None:
-    _last_frames[event["frame"]["canId"]] = event
-    payload = json.dumps(event)
-    for client in list(_clients):
+
+def _signal_client_evicted(client: _ClientConnection) -> None:
+    """Wake the connection handler, including a handler on another test loop."""
+    def signal() -> None:
+        if not client.evicted_event.is_set():
+            client.evicted_event.set()
+
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is client.loop:
+        signal()
+    else:
         try:
-            await client.send_text(payload)
-        except Exception:
-            _clients.discard(client)  # 끊긴 클라이언트는 조용히 정리합니다.
+            client.loop.call_soon_threadsafe(signal)
+        except RuntimeError:
+            pass
+
+
+def _cancel_client_writer(
+    client: _ClientConnection,
+    writer: asyncio.Task[None] | None,
+) -> None:
+    """Cancel an owner-loop task without touching it from a foreign loop."""
+    if writer is None:
+        return
+
+    def cancel() -> None:
+        if writer.done() or writer is asyncio.current_task():
+            return
+        writer.cancel()
+
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    if running_loop is client.loop:
+        cancel()
+    else:
+        try:
+            client.loop.call_soon_threadsafe(cancel)
+        except RuntimeError:
+            pass
+
+
+def _evict_client(client: _ClientConnection) -> asyncio.Task[None] | None:
+    """Atomically stop routing events to a failed or disconnected client."""
+    with _echo_state_lock:
+        if client.evicted:
+            writer = client.writer_task
+        else:
+            client.evicted = True
+            client.backlog.clear()
+            _clients.discard(client)
+            writer = client.writer_task
+            _signal_client_evicted(client)
+    _cancel_client_writer(client, writer)
+    return writer
+
+
+def _route_event_locked(
+    event: dict[str, Any],
+    *,
+    store_snapshot: bool,
+) -> tuple[str, tuple[_ClientConnection, ...]]:
+    """Commit replay state and choose recipients at one linearization point."""
+    if store_snapshot:
+        _last_frames[event["frame"]["canId"]] = event
+    payload = json.dumps(event)
+    ready: list[_ClientConnection] = []
+    for client in list(_clients):
+        if client.evicted:
+            _clients.discard(client)
+        elif len(client.backlog) >= _CLIENT_BACKLOG_MAX_MESSAGES:
+            _evict_client(client)
+        else:
+            client.backlog.append(payload)
+            if not client.replaying:
+                ready.append(client)
+    return payload, tuple(ready)
+
+
+async def _drain_live_backlog(client: _ClientConnection) -> None:
+    """Drain one client only on its owner loop and within one total budget."""
+    try:
+        async with asyncio.timeout(_CLIENT_DRAIN_TIMEOUT_SECONDS):
+            while True:
+                with _echo_state_lock:
+                    if client.evicted or client not in _clients:
+                        return
+                    if not client.backlog:
+                        return
+                    payload = client.backlog.popleft()
+                await asyncio.wait_for(
+                    client.websocket.send_text(payload),
+                    timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        _evict_client(client)
+
+
+def _writer_finished(
+    client: _ClientConnection,
+    writer: asyncio.Task[None],
+) -> None:
+    """Consume task errors and close the empty-queue/reschedule race."""
+    try:
+        writer.result()
+    except asyncio.CancelledError:
+        pass
+    except BaseException:
+        _evict_client(client)
+
+    with _echo_state_lock:
+        if client.writer_task is writer:
+            client.writer_task = None
+        should_reschedule = (
+            not client.evicted
+            and client in _clients
+            and not client.replaying
+            and bool(client.backlog)
+            and client.writer_task is None
+        )
+    if should_reschedule:
+        _schedule_client_drain(client)
+
+
+def _ensure_client_writer(client: _ClientConnection) -> None:
+    """Start at most one writer; this callback always runs on ``client.loop``."""
+    with _echo_state_lock:
+        if (
+            client.evicted
+            or client not in _clients
+            or client.replaying
+            or not client.backlog
+        ):
+            return
+        existing = client.writer_task
+        if existing is not None and not existing.done():
+            return
+        writer = client.loop.create_task(_drain_live_backlog(client))
+        client.writer_task = writer
+        writer.add_done_callback(
+            lambda done, connection=client: _writer_finished(connection, done)
+        )
+
+
+def _schedule_client_drain(client: _ClientConnection) -> None:
+    """Thread-safely enqueue writer startup onto the client's owner loop."""
+    with _echo_state_lock:
+        if (
+            client.evicted
+            or client not in _clients
+            or client.replaying
+            or not client.backlog
+        ):
+            return
+    try:
+        running_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        running_loop = None
+    try:
+        if running_loop is client.loop:
+            _ensure_client_writer(client)
+        else:
+            client.loop.call_soon_threadsafe(_ensure_client_writer, client)
+    except RuntimeError:
+        _evict_client(client)
+
+
+async def _deliver_to_clients(
+    clients: tuple[_ClientConnection, ...],
+    _payload: str,
+) -> None:
+    """Schedule owner-loop writers without awaiting WebSocket network I/O."""
+    for client in clients:
+        _schedule_client_drain(client)
+    # Replaying clients queue the payload but are absent from ``clients``.
+    # Yield unconditionally so their runnable snapshot handoff cannot starve.
+    await asyncio.sleep(0)
+
+
+async def broadcast(
+    event: dict[str, Any],
+    *,
+    store_snapshot: bool = True,
+) -> None:
+    with _echo_state_lock:
+        payload, clients = _route_event_locked(
+            event,
+            store_snapshot=store_snapshot,
+        )
+    await _deliver_to_clients(clients, payload)
+
+
+async def publish_observed_event(event: dict[str, Any]) -> bool:
+    """Publish one candump event unless it is an echo invalidated by reset."""
+    with _echo_state_lock:
+        resolved = attach_pending_metadata(event)
+        if resolved is None:
+            return False
+        payload, clients = _route_event_locked(resolved, store_snapshot=True)
+    await _deliver_to_clients(clients, payload)
+    return True
 
 
 async def send_snapshot(websocket: WebSocket) -> None:
@@ -126,28 +588,110 @@ async def send_snapshot(websocket: WebSocket) -> None:
     replay=True가 붙어 있어 브라우저가 새 트래픽과 구분할 수 있습니다.
     (Monitor 목록에는 넣지 않고, 차량 상태에만 반영합니다.)
     """
-    for event in list(_last_frames.values()):
-        await websocket.send_text(json.dumps({**event, "replay": True}))
+    with _echo_state_lock:
+        payloads = [
+            json.dumps({**event, "replay": True})
+            for event in _last_frames.values()
+        ]
+    for payload in payloads:
+        await asyncio.wait_for(
+            websocket.send_text(payload),
+            timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+        )
 
 
-async def emit(can_id: str, data: list[str]) -> bool:
+async def emit(
+    can_id: str,
+    data: list[str],
+    *,
+    context: dict[str, Any] | None = None,
+    processing: dict[str, Any] | None = None,
+    monitoring: dict[str, Any] | None = None,
+    lab: dict[str, Any] | None = None,
+) -> bool:
     """프레임 하나를 버스에 올립니다. 브라우저 전달은 구독 루프가 맡습니다."""
     if MODE == "loopback":
-        loop_ms = int(asyncio.get_running_loop().time() * 1000)
-        await broadcast(build_event(can_id, data, timestamp_ms=loop_ms, channel=CHANNEL))
+        loop_ms = int(time.time() * 1000)
+        await broadcast(
+            build_event(
+                can_id,
+                data,
+                timestamp_ms=loop_ms,
+                channel=CHANNEL,
+                context=context,
+                processing=processing,
+                monitoring=monitoring,
+                lab=lab,
+            )
+        )
         return True
 
+    metadata = {
+        name: value
+        for name, value in (("context", context), ("processing", processing), ("monitoring", monitoring), ("lab", lab))
+        if value is not None
+    }
+    metadata_key = (normalize_can_id(can_id), tuple(normalize_data(data)))
+    pending_echo: PendingEcho | None = None
+    if metadata:
+        with _echo_state_lock:
+            pending_echo = PendingEcho(
+                metadata=metadata,
+                sent_at_us=int(time.time() * 1_000_000),
+            )
+            _pending_echoes[metadata_key].append(pending_echo)
     payload = "".join(data)
-    # 셸을 거치지 않고 인자 배열로 실행합니다. 문자열을 그대로 넘기면 명령 주입이 됩니다.
-    process = await asyncio.create_subprocess_exec(
-        "cansend",
-        CHANNEL,
-        f"{int(can_id, 16):03X}#{payload}",
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.DEVNULL,
+    # Shield process creation because cancellation can arrive after the OS has
+    # started the child but before asyncio has returned its Process handle.
+    # Pass an argument vector directly; using a shell here would enable command
+    # injection through frame input.
+    creation = asyncio.create_task(
+        asyncio.create_subprocess_exec(
+            "cansend",
+            CHANNEL,
+            f"{int(can_id, 16):03X}#{payload}",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
     )
-    await process.wait()
-    return process.returncode == 0
+    try:
+        process = await asyncio.shield(creation)
+    except asyncio.CancelledError:
+        _track_background_emit(
+            asyncio.create_task(
+                _finish_cancelled_process_creation(
+                    creation,
+                    metadata_key,
+                    pending_echo,
+                )
+            )
+        )
+        raise
+    except BaseException:
+        if pending_echo is not None:
+            _remove_pending_echo(metadata_key, pending_echo)
+        raise
+
+    try:
+        await process.wait()
+    except BaseException:
+        returncode = process.returncode
+        if pending_echo is not None and returncode != 0:
+            # Only an in-flight process has uncertain transmission.  A known
+            # success keeps its metadata for candump; a known failure needs no
+            # echo tombstone.  If candump already consumed this exact echo,
+            # the atomic helper finds nothing and leaves later traffic alone.
+            _remove_pending_echo(
+                metadata_key,
+                pending_echo,
+                remember_cleared=returncode is None,
+            )
+        raise
+    if process.returncode == 0:
+        return True
+    if pending_echo is not None:
+        _remove_pending_echo(metadata_key, pending_echo)
+    return False
 
 
 async def pump() -> None:
@@ -166,7 +710,7 @@ async def pump() -> None:
         async for raw in process.stdout:
             event = parse_candump(raw.decode(errors="ignore"))
             if event is not None:
-                await broadcast(event)
+                await publish_observed_event(event)
         # candump이 죽으면(인터페이스 down 등) 잠깐 쉬었다 다시 붙습니다.
         await asyncio.sleep(2)
 
@@ -283,12 +827,98 @@ async def clear_snapshot() -> dict[str, Any]:
     이미 접속해 있는 브라우저의 화면은 바꾸지 않습니다.
     실제로 닫으려면 닫기 프레임을 쏘세요.
     """
-    cleared = len(_last_frames)
-    _last_frames.clear()
-    return {"cleared": cleared}
+    with _echo_state_lock:
+        cleared = len(_last_frames)
+        _last_frames.clear()
+        for key in list(_pending_echoes):
+            _invalidate_pending_echoes(key)
+        _purge_expired_cleared_echoes()
+        return {"cleared": cleared}
 
 
 # --------------------------------------------------------------- WebSocket
+
+
+def _register_client_and_capture_snapshot(
+    client: _ClientConnection,
+) -> tuple[str, ...]:
+    """Atomically split history from future live events for one connection."""
+    with _echo_state_lock:
+        payloads = tuple(
+            json.dumps({**event, "replay": True})
+            for event in _last_frames.values()
+        )
+        _clients.add(client)
+        return payloads
+
+
+async def _send_snapshot_and_backlog(
+    client: _ClientConnection,
+    snapshot: tuple[str, ...],
+) -> bool:
+    """Complete replay and its live handoff within one operation deadline."""
+    try:
+        async with asyncio.timeout(_CLIENT_HANDOFF_TIMEOUT_SECONDS):
+            for payload in snapshot:
+                with _echo_state_lock:
+                    if client.evicted:
+                        return False
+                await asyncio.wait_for(
+                    client.websocket.send_text(payload),
+                    timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                )
+
+            while True:
+                with _echo_state_lock:
+                    if client.evicted:
+                        return False
+                    pending = tuple(client.backlog)
+                    client.backlog.clear()
+                    if not pending:
+                        client.replaying = False
+                        return True
+                for payload in pending:
+                    with _echo_state_lock:
+                        if client.evicted:
+                            return False
+                    await asyncio.wait_for(
+                        client.websocket.send_text(payload),
+                        timeout=_CLIENT_SEND_TIMEOUT_SECONDS,
+                    )
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        _evict_client(client)
+        return False
+
+
+async def _wait_for_disconnect_or_eviction(client: _ClientConnection) -> None:
+    """Observe either peer disconnect or server eviction without orphan tasks."""
+    while not client.evicted_event.is_set():
+        receive = asyncio.create_task(client.websocket.receive_text())
+        evicted = asyncio.create_task(client.evicted_event.wait())
+        tasks = (receive, evicted)
+        try:
+            done, pending = await asyncio.wait(
+                tasks,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        except BaseException:
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            raise
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        if evicted in done:
+            await asyncio.gather(receive, return_exceptions=True)
+            return
+        try:
+            receive.result()
+        except (WebSocketDisconnect, RuntimeError):
+            return
+
 
 @router.websocket("/ws/can")
 async def can_socket(websocket: WebSocket) -> None:
@@ -298,15 +928,24 @@ async def can_socket(websocket: WebSocket) -> None:
         return
 
     await websocket.accept()
-    # 스트림에 넣기 전에 스냅샷을 보냅니다. 순서가 반대면 재생 중에 들어온
-    # 새 프레임이 오래된 값에 덮여 상태가 뒤집힐 수 있습니다.
-    await send_snapshot(websocket)
-    _clients.add(websocket)
+    client = _ClientConnection(
+        websocket=websocket,
+        loop=asyncio.get_running_loop(),
+    )
+    registered = False
     try:
-        while True:
-            # 클라이언트 입력은 쓰지 않습니다. 연결 유지 및 종료 감지용입니다.
-            await websocket.receive_text()
-    except (WebSocketDisconnect, RuntimeError):
-        pass
+        snapshot = _register_client_and_capture_snapshot(client)
+        registered = True
+        ready = await _send_snapshot_and_backlog(client, snapshot)
+        if not ready:
+            return
+        await _wait_for_disconnect_or_eviction(client)
     finally:
-        _clients.discard(websocket)
+        if registered:
+            writer = _evict_client(client)
+            if (
+                writer is not None
+                and writer is not asyncio.current_task()
+                and writer.get_loop() is asyncio.get_running_loop()
+            ):
+                await asyncio.gather(writer, return_exceptions=True)
