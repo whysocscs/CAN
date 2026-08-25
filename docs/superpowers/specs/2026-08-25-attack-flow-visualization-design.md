@@ -1,7 +1,7 @@
 # Attack Flow Visualization Design
 
 Date: 2026-08-25
-Status: Approved direction, pending user review
+Status: Implemented baseline; extended by `2026-08-26-attack-lab-guided-feedback-legibility-design.md`
 Branch: `feat/can-attack-basics-expansion`
 
 ## 1. Problem
