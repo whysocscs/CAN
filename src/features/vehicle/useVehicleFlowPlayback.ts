@@ -4,7 +4,8 @@ import type {
   VehicleFlowTrace,
 } from "./vehicleFlowTypes"
 
-const DEFAULT_STEP_MS = 220
+const DEFAULT_STEP_MS = 600
+const DEFAULT_FINAL_HOLD_MS = 900
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)"
 
 const IDLE: VehicleFlowPlaybackSnapshot = {
@@ -75,6 +76,7 @@ export interface VehicleFlowRun {
 
 export interface VehicleFlowPlaybackOptions {
   stepMs?: number
+  finalHoldMs?: number
   reducedMotion?: boolean
   onEffect?: (trace: VehicleFlowTrace) => void
   onComplete?: (runKey: string) => void
@@ -168,24 +170,24 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
 
       const finalNode = trace.route.length - 1
       if (segmentIndex >= finalNode) {
-        timerRef.current = null
         cursorRef.current = { generation, traceIndex: traceIndex + 1 }
         if (trace.effectApplied) {
           optionsRef.current.onEffect?.(trace)
           if (!ownsRun(generation, run)) return
         }
-        if (traceIndex + 1 < run.traces.length) {
-          timerRef.current = setTimeout(
-            () => advance(generation, traceIndex + 1, 0),
-            optionsRef.current.stepMs ?? DEFAULT_STEP_MS,
-          )
-          return
-        }
+        timerRef.current = setTimeout(() => {
+          if (!ownsRun(generation, run)) return
+          timerRef.current = null
+          if (traceIndex + 1 < run.traces.length) {
+            advance(generation, traceIndex + 1, 0)
+            return
+          }
 
-        runRef.current = null
-        cursorRef.current = null
-        dispatchSnapshot({ type: "finish" })
-        optionsRef.current.onComplete?.(run.runKey)
+          runRef.current = null
+          cursorRef.current = null
+          dispatchSnapshot({ type: "finish" })
+          optionsRef.current.onComplete?.(run.runKey)
+        }, optionsRef.current.finalHoldMs ?? DEFAULT_FINAL_HOLD_MS)
         return
       }
 

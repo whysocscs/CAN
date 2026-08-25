@@ -828,6 +828,7 @@ export default function DoorAttackLabPage() {
           <DoorAttackVehicle
             currentStage={session?.stage}
             playback={flow.snapshot}
+            presentation={feedback?.flow}
           />
         </section>
 

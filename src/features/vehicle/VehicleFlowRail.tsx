@@ -3,6 +3,7 @@ import { VEHICLE_TOPOLOGY_BY_ID } from "./vehicleTopology"
 import type {
   VehicleFlowNodeId,
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPresentation,
   VehicleFlowTrace,
 } from "./vehicleFlowTypes"
 
@@ -21,6 +22,7 @@ interface VehicleFlowRailProps {
   playback: VehicleFlowPlaybackSnapshot
   selectedNodeId?: VehicleFlowNodeId
   accent: string
+  presentation?: VehicleFlowPresentation
 }
 
 interface RailNode {
@@ -81,14 +83,10 @@ function nodeStatus(state: FlowNodeState): string {
   return "대기"
 }
 
-function idsVerdict(trace: VehicleFlowTrace | null): string {
-  if (trace?.idsVerdict === "ALERT") return "IDS · ALERT · 탐지됨, 차단하지 않음"
-  if (trace?.idsVerdict === "NORMAL") return "IDS · NORMAL · 탐지되지 않음"
-  return "IDS · 판정 없음"
-}
-
-function ecuVerdict(trace: VehicleFlowTrace | null): string {
-  return `ECU · ${trace?.ecuVerdict ?? "판정 없음"}`
+function idsDisplay(verdict: "NORMAL" | "ALERT"): string {
+  return verdict === "NORMAL"
+    ? "IDS NORMAL · 관찰됨 · Toy 규칙 경보 없음"
+    : "IDS ALERT · 관찰/탐지됨 · 차단 근거 없음"
 }
 
 function rejectionText(trace: VehicleFlowTrace | null): string | null {
@@ -105,12 +103,18 @@ function FlowNode({
   state: FlowNodeState
   selected: boolean
 }) {
+  const currentStep = state === "active"
+    || state === "effect"
+    || state === "rejected"
+    || state === "cancelled"
   return (
     <li
       className="vehicle-flow-rail__node"
+      data-node-id={node.id}
       data-flow-state={state}
       data-selected={selected ? "true" : undefined}
-      aria-current={selected ? "location" : undefined}
+      aria-current={currentStep ? "step" : selected ? "location" : undefined}
+      aria-label={`${node.label} · ${nodeStatus(state)}`}
     >
       <strong>{node.label}</strong>
       <span>{nodeStatus(state)}</span>
@@ -124,6 +128,7 @@ export default function VehicleFlowRail({
   playback,
   selectedNodeId,
   accent,
+  presentation,
 }: VehicleFlowRailProps) {
   const trace = playback.trace
   const rejection = rejectionText(trace)
@@ -150,11 +155,30 @@ export default function VehicleFlowRail({
         ))}
       </ol>
       <div className="vehicle-flow-rail__hud">
-        <span className="vehicle-flow-rail__mode">교육용 slow-motion trace</span>
+        <span className="vehicle-flow-rail__mode">
+          교육용 처리/관찰 순서 · slow-motion trace
+        </span>
         <span className="vehicle-flow-rail__qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
-        <code>{trace?.commandLabel ?? "명령 대기 중"}</code>
-        <span>{ecuVerdict(trace)}</span>
-        <span>{idsVerdict(trace)}</span>
+        <code>{presentation?.commandLabel ?? trace?.commandLabel ?? "명령 대기 중"}</code>
+        {presentation ? (
+          <>
+            <span>Frame {presentation.traceIndex + 1}/{presentation.traceCount}</span>
+            {presentation.canId ? <code>{presentation.canId}</code> : null}
+            <span>DLC {presentation.dlc}</span>
+            {presentation.data.length ? (
+              <code>DATA {presentation.data.join(" ")}</code>
+            ) : null}
+            {presentation.currentTransition ? (
+              <span>{presentation.currentTransition}</span>
+            ) : null}
+            {presentation.ecuVerdict ? (
+              <span>ECU · {presentation.ecuVerdict}</span>
+            ) : null}
+            {presentation.idsVerdict ? (
+              <span>{idsDisplay(presentation.idsVerdict)}</span>
+            ) : null}
+          </>
+        ) : null}
         {rejection ? <strong>{rejection}</strong> : null}
       </div>
     </section>

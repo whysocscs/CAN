@@ -35,8 +35,10 @@ import {
 } from "./SharedVehicleScene"
 import { useVehicleRig } from "./useVehicleRig"
 import type {
+  VehicleFlowNodeFeedback,
   VehicleFlowNodeId,
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPresentation,
 } from "./vehicleFlowTypes"
 import {
   VEHICLE_TOPOLOGY_BY_ID,
@@ -47,6 +49,14 @@ import {
 } from "./vehicleTopology"
 
 const CAMERA_TARGET: [number, number, number] = [0, 0, 0]
+const IDS_OBSERVER_TONE = "#f59e0b"
+const REJECTED_TONE = "#d12f2f"
+const EFFECT_TONE = "#287a52"
+const FLOW_PACKET_DURATION_MS = 600
+const FLOW_CALLOUT_INSET = 8
+const FLOW_CALLOUT_MAX_WIDTH = 220
+const FLOW_CALLOUT_MIN_WIDTH = 160
+const FLOW_CALLOUT_ESTIMATED_HEIGHT = 112
 const IDLE_PLAYBACK: VehicleFlowPlaybackSnapshot = {
   playbackId: 0,
   phase: "idle",
@@ -68,6 +78,7 @@ export interface VehicleNetworkViewportProps {
   accent: string
   initialView?: VehicleCameraView
   playback?: VehicleFlowPlaybackSnapshot
+  presentation?: VehicleFlowPresentation
 }
 
 interface CameraPreset {
@@ -94,10 +105,17 @@ type VehicleFlowEdgeState =
   | "passed"
   | "cancelled"
 type VehicleFlowNodeVisualState = "active" | "cancelled"
+  | "observer"
+  | "rejected"
+  | "effect"
 
 interface VehicleRouteNode {
   node: VehicleTopologyNode
   traceIndex: number
+}
+
+interface VehicleTopologyFeedback extends VehicleFlowNodeFeedback {
+  nodeId: VehicleTopologyNodeId
 }
 
 interface PinScreenOffset {
@@ -134,12 +152,111 @@ const LOGICAL_CALLOUT_STYLE: CSSProperties = {
   whiteSpace: "normal",
 }
 
+const DYNAMIC_CALLOUT_STYLE: CSSProperties = {
+  width: "clamp(160px, 22vw, 220px)",
+  whiteSpace: "normal",
+}
+const DYNAMIC_CALLOUT_TITLE_STYLE: CSSProperties = { fontSize: "12px" }
+const DYNAMIC_CALLOUT_STATUS_STYLE: CSSProperties = { fontSize: "11px" }
+const DYNAMIC_CALLOUT_DETAIL_STYLE: CSSProperties = { fontSize: "11px" }
+const DYNAMIC_CALLOUT_META_STYLE: CSSProperties = { fontSize: "10px" }
+
 const HTML_PIN_LAYER_STYLE: CSSProperties = { pointerEvents: "none" }
 const PIN_BUTTON_STYLE: CSSProperties = { pointerEvents: "auto" }
 
 interface OrbitControlsState {
   target: THREE.Vector3
   update: () => void
+}
+
+interface FlowCalloutGeometryInput {
+  anchorX: number
+  anchorY: number
+  canvasWidth: number
+  canvasHeight: number
+  calloutWidth: number
+  calloutHeight: number
+  inset?: number
+}
+
+export interface FlowCalloutGeometry {
+  left: number
+  top: number
+  leaderEndX: number
+  leaderEndY: number
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  if (minimum > maximum) return (minimum + maximum) / 2
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
+export function clampFlowCalloutPosition({
+  anchorX,
+  anchorY,
+  canvasWidth,
+  canvasHeight,
+  calloutWidth,
+  calloutHeight,
+  inset = FLOW_CALLOUT_INSET,
+}: FlowCalloutGeometryInput): FlowCalloutGeometry {
+  const halfWidth = calloutWidth / 2
+  const halfHeight = calloutHeight / 2
+  const preferredCenterX = anchorX + halfWidth + 24
+  const preferredCenterY = anchorY - halfHeight - 16
+  const centerX = clampNumber(
+    preferredCenterX,
+    inset + halfWidth,
+    canvasWidth - inset - halfWidth,
+  )
+  const centerY = clampNumber(
+    preferredCenterY,
+    inset + halfHeight,
+    canvasHeight - inset - halfHeight,
+  )
+  const left = centerX - halfWidth
+  const top = centerY - halfHeight
+  const deltaX = anchorX - centerX
+  const deltaY = anchorY - centerY
+  const scaleX = deltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(deltaX)
+  const scaleY = deltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(deltaY)
+  const boundaryScale = Math.min(scaleX, scaleY)
+  const leaderEndX = Number.isFinite(boundaryScale)
+    ? centerX + deltaX * boundaryScale
+    : centerX
+  const leaderEndY = Number.isFinite(boundaryScale)
+    ? centerY + deltaY * boundaryScale
+    : top
+
+  return { left, top, leaderEndX, leaderEndY }
+}
+
+const projectedPosition = new THREE.Vector3()
+
+function calculateFlowFeedbackPosition(
+  object: THREE.Object3D,
+  camera: THREE.Camera,
+  size: { width: number; height: number },
+): [number, number] {
+  projectedPosition.setFromMatrixPosition(object.matrixWorld).project(camera)
+  const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
+  const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
+  const calloutWidth = Math.min(
+    FLOW_CALLOUT_MAX_WIDTH,
+    Math.max(FLOW_CALLOUT_MIN_WIDTH, size.width * 0.22),
+  )
+  const geometry = clampFlowCalloutPosition({
+    anchorX,
+    anchorY,
+    canvasWidth: size.width,
+    canvasHeight: size.height,
+    calloutWidth,
+    calloutHeight: FLOW_CALLOUT_ESTIMATED_HEIGHT,
+  })
+  return [
+    geometry.left + calloutWidth / 2,
+    geometry.top + FLOW_CALLOUT_ESTIMATED_HEIGHT / 2,
+  ]
 }
 
 function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
@@ -152,6 +269,12 @@ function isVehicleTopologyNodeId(
   nodeId: VehicleFlowNodeId,
 ): nodeId is VehicleTopologyNodeId {
   return VEHICLE_TOPOLOGY_BY_ID.has(nodeId as VehicleTopologyNodeId)
+}
+
+function isVehicleTopologyFeedback(
+  feedback: VehicleFlowNodeFeedback,
+): feedback is VehicleTopologyFeedback {
+  return isVehicleTopologyNodeId(feedback.nodeId)
 }
 
 function playbackSnapshotForRendering(
@@ -327,6 +450,7 @@ function TopologyPin({
   cameraFocused,
   tooltipVisible,
   tooltipTranslucent,
+  feedback,
   onSelect,
 }: {
   node: VehicleTopologyNode
@@ -336,14 +460,16 @@ function TopologyPin({
   cameraFocused: boolean
   tooltipVisible: boolean
   tooltipTranslucent: boolean
+  feedback?: VehicleFlowNodeFeedback
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
   const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
   const screenOffset = PIN_SCREEN_OFFSETS[node.id]
   const compactScreenOffset = COMPACT_PIN_SCREEN_OFFSETS[node.id]
-  const calloutKindForNode =
-    calloutKind ??
-    (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
+  const calloutKindForNode = feedback
+    ? undefined
+    : calloutKind ??
+      (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
   const calloutPlacement =
     calloutKindForNode === "target"
       ? "target-far-left"
@@ -362,69 +488,108 @@ function TopologyPin({
     "--vehicle-pin-compact-leader-angle": `${Math.atan2(-compactScreenOffset.y, -compactScreenOffset.x)}rad`,
   } as CSSProperties
 
+  const truthQualifier = node.kind === "effect"
+    ? "GLB 동작 기준점 · 실제 actuator 위치 아님"
+    : "교육용 논리 ECU · 실제 OEM 위치 아님"
+
   return (
-    <Html
-      position={node.anchor}
-      center
-      distanceFactor={7.2}
-      sprite
-      className="vehicle-network-viewport__html-layer"
-      style={HTML_PIN_LAYER_STYLE}
-    >
-      <span
-        className="vehicle-network-viewport__marker"
-        data-node-id={node.id}
-        data-testid="vehicle-topology-marker"
-        style={markerStyle}
+    <>
+      <Html
+        position={node.anchor}
+        center
+        distanceFactor={7.2}
+        sprite
+        className="vehicle-network-viewport__html-layer"
+        style={HTML_PIN_LAYER_STYLE}
       >
         <span
-          className="vehicle-network-viewport__leader"
-          data-testid="vehicle-topology-leader"
-          aria-hidden="true"
-        />
-        <button
-          type="button"
-          className="vehicle-network-viewport__pin"
-          data-active={active}
-          data-testid="vehicle-topology-pin"
-          aria-label={`${node.label} 선택`}
-          onClick={handleSelect}
-          style={PIN_BUTTON_STYLE}
+          className="vehicle-network-viewport__marker"
+          data-node-id={node.id}
+          data-testid="vehicle-topology-marker"
+          style={markerStyle}
         >
-          {node.number}
-        </button>
-        {calloutKindForNode ? (
           <span
-            className={
-              calloutKindForNode === "logical"
-                ? "vehicle-network-viewport__callout vehicle-network-viewport__callout--logical"
-                : "vehicle-network-viewport__callout"
-            }
-            data-kind={calloutKindForNode}
-            data-placement={calloutPlacement}
-            style={
-              calloutKindForNode === "logical"
-                ? LOGICAL_CALLOUT_STYLE
-                : undefined
-            }
-            data-camera-focused={cameraFocused ? "true" : undefined}
-            data-visible={tooltipVisible ? "true" : undefined}
-            data-translucent={tooltipTranslucent ? "true" : undefined}
-            data-testid="vehicle-topology-callout"
+            className="vehicle-network-viewport__leader"
+            data-testid="vehicle-topology-leader"
             aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="vehicle-network-viewport__pin"
+            data-active={active}
+            data-feedback-status={feedback?.status}
+            data-testid="vehicle-topology-pin"
+            aria-label={`${node.label} 선택`}
+            onClick={handleSelect}
+            style={PIN_BUTTON_STYLE}
           >
-            <strong>{node.calloutLabel ?? node.label}</strong>
-            <small>
-              {calloutKindForNode === "target"
-                ? "Target ECU · 교육용 위치"
-                : calloutKindForNode === "effect"
-                  ? "영향 부위"
-                  : `${node.role} · 실제 OEM 배치 아님`}
-            </small>
+            {node.number}
+          </button>
+          {calloutKindForNode ? (
+            <span
+              className={
+                calloutKindForNode === "logical"
+                  ? "vehicle-network-viewport__callout vehicle-network-viewport__callout--logical"
+                  : "vehicle-network-viewport__callout"
+              }
+              data-kind={calloutKindForNode}
+              data-placement={calloutPlacement}
+              style={
+                calloutKindForNode === "logical"
+                  ? LOGICAL_CALLOUT_STYLE
+                  : undefined
+              }
+              data-camera-focused={cameraFocused ? "true" : undefined}
+              data-visible={tooltipVisible ? "true" : undefined}
+              data-translucent={tooltipTranslucent ? "true" : undefined}
+              data-testid="vehicle-topology-callout"
+              aria-hidden="true"
+            >
+              <strong>{node.calloutLabel ?? node.label}</strong>
+              <small>
+                {calloutKindForNode === "target"
+                  ? "Target ECU · 교육용 위치"
+                  : calloutKindForNode === "effect"
+                    ? "영향 부위"
+                    : `${node.role} · 실제 OEM 배치 아님`}
+              </small>
+            </span>
+          ) : null}
+        </span>
+      </Html>
+      {feedback ? (
+        <Html
+          position={node.anchor}
+          center
+          calculatePosition={calculateFlowFeedbackPosition}
+          className="vehicle-network-viewport__feedback-layer"
+          style={HTML_PIN_LAYER_STYLE}
+        >
+          <span
+            className="vehicle-network-viewport__feedback"
+            data-status={feedback.status}
+            data-testid="vehicle-flow-feedback"
+            style={DYNAMIC_CALLOUT_STYLE}
+          >
+            <span
+              className="vehicle-network-viewport__feedback-leader"
+              data-testid="vehicle-flow-feedback-leader"
+              aria-hidden="true"
+            />
+            <strong style={DYNAMIC_CALLOUT_TITLE_STYLE}>{feedback.title}</strong>
+            <b style={DYNAMIC_CALLOUT_STATUS_STYLE}>{feedback.status}</b>
+            <small style={DYNAMIC_CALLOUT_DETAIL_STYLE}>{feedback.detail}</small>
+            <em style={DYNAMIC_CALLOUT_META_STYLE}>{feedback.source}</em>
+            <span
+              className="vehicle-network-viewport__feedback-truth"
+              style={DYNAMIC_CALLOUT_META_STYLE}
+            >
+              {truthQualifier}
+            </span>
           </span>
-        ) : null}
-      </span>
-    </Html>
+        </Html>
+      ) : null}
+    </>
   )
 }
 
@@ -444,10 +609,10 @@ function flowEdgeState(
 
 function lineOpacity(state: VehicleFlowEdgeState): number {
   if (state === "active") return 1
-  if (state === "passed") return 0.92
+  if (state === "passed") return 0.56
   if (state === "cancelled") return 0.52
-  if (state === "queued") return 0.28
-  return 0.68
+  if (state === "queued") return 0.16
+  return 0.42
 }
 
 function TopologyHitTarget({
@@ -487,20 +652,48 @@ function FlowNodeHalo({
   accent: string
   state: VehicleFlowNodeVisualState
 }) {
+  const tone = state === "observer"
+    ? IDS_OBSERVER_TONE
+    : state === "rejected"
+      ? REJECTED_TONE
+      : state === "effect"
+        ? EFFECT_TONE
+        : accent
   return (
-    <mesh
+    <group
       position={node.anchor}
       name={`vehicle-flow-node-halo:${node.id}:${state}`}
       userData={{ vehicleNodeId: node.id, flowState: state }}
     >
-      <sphereGeometry args={[0.17, 16, 16]} />
-      <meshBasicMaterial
-        color={accent}
-        transparent
-        opacity={0.28}
-        depthWrite={false}
-      />
-    </mesh>
+      <mesh
+        name={`vehicle-flow-node-halo-layer:${node.id}:inner`}
+        userData={{ haloLayer: "inner" }}
+        renderOrder={20}
+      >
+        <sphereGeometry args={[0.19, 20, 20]} />
+        <meshBasicMaterial
+          color={tone}
+          transparent
+          opacity={0.64}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh
+        name={`vehicle-flow-node-halo-layer:${node.id}:outer`}
+        userData={{ haloLayer: "outer" }}
+        renderOrder={19}
+      >
+        <sphereGeometry args={[0.28, 20, 20]} />
+        <meshBasicMaterial
+          color={tone}
+          transparent
+          opacity={0.24}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   )
 }
 
@@ -563,6 +756,8 @@ function TopologyOverlay({
   visibleTooltipNodeId,
   targetId,
   effectId,
+  feedback,
+  structuredPresentation,
   reducedMotion,
   onSelect,
 }: {
@@ -576,6 +771,8 @@ function TopologyOverlay({
   visibleTooltipNodeId?: VehicleTopologyNodeId
   targetId: VehicleLogicalNodeId
   effectId: VehicleEffectTargetId
+  feedback?: VehicleFlowNodeFeedback
+  structuredPresentation: boolean
   reducedMotion: boolean
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
@@ -605,15 +802,23 @@ function TopologyOverlay({
           destination.traceIndex,
           playback,
         )
+        const observerRole = structuredPresentation && (
+          node.id === "ids" || destination.node.id === "ids"
+        )
         return (
           <Line
             key={`${node.id}-${destination.node.id}`}
             points={[node.anchor, destination.node.anchor]}
-            color={accent}
-            lineWidth={state === "active" ? 2 : 1}
+            color={observerRole ? IDS_OBSERVER_TONE : accent}
+            lineWidth={state === "active" ? 3.5 : state === "passed" ? 1.4 : 1}
+            dashed={observerRole}
+            dashSize={observerRole ? 0.12 : undefined}
+            gapSize={observerRole ? 0.08 : undefined}
             transparent
             opacity={lineOpacity(state)}
-            userData={{ flowState: state }}
+            userData={observerRole
+              ? { flowState: state, observerRole: "ids" }
+              : { flowState: state }}
           />
         )
       })}
@@ -633,7 +838,7 @@ function TopologyOverlay({
           ].join(":")}
           from={activeEdge[0].node}
           to={activeEdge[1].node}
-          durationMs={220}
+          durationMs={FLOW_PACKET_DURATION_MS}
           accent={accent}
         />
       ) : null}
@@ -650,6 +855,7 @@ function TopologyOverlay({
               node.id === visibleTooltipNodeId &&
               cameraFocusedNodeId !== undefined
             }
+            feedback={feedback?.nodeId === node.id ? feedback : undefined}
             onSelect={onSelect}
             calloutKind={
               node.id === targetId
@@ -723,6 +929,7 @@ export default function VehicleNetworkViewport({
   accent,
   initialView = "overview",
   playback,
+  presentation,
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
   const playbackState = useMemo(
@@ -820,18 +1027,40 @@ export default function VehicleNetworkViewport({
     playbackNodeId && isVehicleTopologyNodeId(playbackNodeId)
       ? playbackNodeId
       : undefined
-  const playbackActiveNodeId =
-    playbackState.phase === "playing" ? playbackCurrentNodeId : undefined
-  const playbackOwnsActiveNode =
-    playbackState.phase === "playing" || playbackState.phase === "cancelled"
-  const activeNodeId = playbackOwnsActiveNode
-    ? playbackCurrentNodeId
+  const presentationFeedback = presentation?.nodeFeedback
+  const topologyFeedback = presentationFeedback
+    && presentationFeedback.nodeId === presentation.currentNodeId
+    && isVehicleTopologyFeedback(presentationFeedback)
+    && (
+      presentation.phase === "playing"
+      || presentation.phase === "complete" && presentationFeedback.persist
+    )
+    ? presentationFeedback
+    : undefined
+  const hasAuthoritativeTrace = Boolean(playbackState.trace)
+    && playbackState.phase !== "idle"
+  const authoritativeActiveNodeId = topologyFeedback?.nodeId
+    ?? (
+      playbackState.phase === "playing" || playbackState.phase === "cancelled"
+        ? playbackCurrentNodeId
+        : undefined
+    )
+  const activeNodeId = hasAuthoritativeTrace
+    ? authoritativeActiveNodeId
     : focusedId ?? currentNodeId
   const activeNodeState: VehicleFlowNodeVisualState =
     playbackState.phase === "cancelled" && playbackCurrentNodeId
       ? "cancelled"
-      : "active"
-  const visibleTooltipNodeId = playbackActiveNodeId ?? focusedId
+      : topologyFeedback?.status === "OBSERVED"
+        ? "observer"
+        : topologyFeedback?.status === "REJECTED"
+          ? "rejected"
+          : topologyFeedback?.status === "EFFECT APPLIED"
+            ? "effect"
+            : "active"
+  const visibleTooltipNodeId = hasAuthoritativeTrace
+    ? authoritativeActiveNodeId
+    : focusedId
   const cameraPreset = useMemo(
     () =>
       cameraFocus.view === "node"
@@ -903,23 +1132,32 @@ export default function VehicleNetworkViewport({
         aria-label={`${scenarioTitle} target map`}
         tabIndex={0}
       >
-        {routeNodes.map((node) => (
-          <li
-            key={node.id}
-            data-kind={node.kind}
-            data-active={node.id === activeNodeId}
-            aria-current={node.id === currentNodeId ? "step" : undefined}
-          >
-            <span className="vehicle-network-viewport__map-number">
-              {node.number}
-            </span>
-            <div>
-              <strong>{node.label}</strong>
-              <span>{node.role}</span>
-              <small data-truth={node.truth}>{node.truthDetail}</small>
-            </div>
-          </li>
-        ))}
+        {routeNodes.map((node) => {
+          const nodeStatus = topologyFeedback?.nodeId === node.id
+            ? topologyFeedback.status
+            : node.id === activeNodeId && hasAuthoritativeTrace
+              ? "PROCESSING"
+              : null
+          return (
+            <li
+              key={node.id}
+              data-kind={node.kind}
+              data-active={node.id === activeNodeId}
+              data-feedback-status={nodeStatus ?? undefined}
+              aria-current={node.id === activeNodeId ? "step" : undefined}
+              aria-label={nodeStatus ? `${node.label} · ${nodeStatus}` : undefined}
+            >
+              <span className="vehicle-network-viewport__map-number">
+                {node.number}
+              </span>
+              <div>
+                <strong>{node.label}</strong>
+                <span>{node.role}</span>
+                <small data-truth={node.truth}>{node.truthDetail}</small>
+              </div>
+            </li>
+          )
+        })}
       </ol>
 
       <VehicleFlowRail
@@ -928,6 +1166,7 @@ export default function VehicleNetworkViewport({
         playback={playbackState}
         selectedNodeId={focusedId}
         accent={accent}
+        presentation={presentation}
       />
 
       <div className="vehicle-network-viewport__canvas">
@@ -968,6 +1207,8 @@ export default function VehicleNetworkViewport({
                   visibleTooltipNodeId={visibleTooltipNodeId}
                   targetId={targetId}
                   effectId={effectId}
+                  feedback={topologyFeedback}
+                  structuredPresentation={presentation !== undefined}
                   reducedMotion={reducedMotion}
                   onSelect={onSelectNode}
                 />

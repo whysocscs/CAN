@@ -772,6 +772,7 @@ export default function BeginnerCanAttackLabPage({
             scenarioTitle={config.title}
             accent={config.accent}
             playback={flow.snapshot}
+            presentation={feedback?.flow}
           />
         </section>
 

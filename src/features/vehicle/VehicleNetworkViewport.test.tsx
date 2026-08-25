@@ -16,6 +16,16 @@ import * as THREE from "three"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const scene = new THREE.Group()
+interface MockLineProps extends Record<string, unknown> {
+  color?: string
+  dashed?: boolean
+  lineWidth?: number
+  userData?: {
+    flowState?: string
+    observerRole?: string
+  }
+}
+
 const canvasState = vi.hoisted(() => ({
   mounts: 0,
   canvasProps: undefined as
@@ -39,7 +49,7 @@ const canvasState = vi.hoisted(() => ({
     update: ReturnType<typeof vi.fn>
   } | undefined,
   frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
-  lineProps: [] as Array<{ current: Record<string, unknown> }>,
+  lineProps: [] as Array<{ current: MockLineProps }>,
   orbitProps: undefined as Record<string, unknown> | undefined,
   boundsRefit: undefined as (() => void) | undefined,
   overviewResets: [] as Array<{
@@ -192,7 +202,7 @@ vi.mock("@react-three/drei", async () => {
       return React.createElement("div", null, children)
     },
     Html: Wrapper,
-    Line: (props: Record<string, unknown>) => {
+    Line: (props: MockLineProps) => {
       const propsRef = React.useRef(props)
       propsRef.current = props
       React.useEffect(() => {
@@ -217,6 +227,7 @@ vi.mock("@react-three/drei", async () => {
 vi.mock("./useVehicleRig", () => vehicleRig)
 
 import VehicleNetworkViewport, {
+  clampFlowCalloutPosition,
   effectTargetFromObject,
   type VehicleNetworkViewportProps,
 } from "./VehicleNetworkViewport"
@@ -225,7 +236,12 @@ import {
   playingDoorSnapshotAtGateway,
   rejectedBodyTrace,
 } from "./vehicleFlowTestFixtures"
-import type { VehicleFlowTrace } from "./vehicleFlowTypes"
+import type {
+  VehicleFlowNodeFeedback,
+  VehicleFlowPresentation,
+  VehicleFlowTrace,
+} from "./vehicleFlowTypes"
+import "../attack-lab/doorAttackLab.css"
 
 const defaultDoorViewportProps = {
   route: ["obd", "ids", "gateway", "body", "leftDoor"],
@@ -244,9 +260,47 @@ function renderDoorViewport(props: Partial<VehicleNetworkViewportProps> = {}) {
 function getCanvasMesh(name: string): Element {
   const mesh = screen
     .getByTestId("canvas-boundary")
-    .querySelector(`mesh[name="${name}"]`)
+    .querySelector(`mesh[name="${name}"], group[name="${name}"]`)
   if (!mesh) throw new Error(`Missing Canvas mesh: ${name}`)
   return mesh
+}
+
+function flowFeedback(
+  overrides: Partial<VehicleFlowNodeFeedback> = {},
+): VehicleFlowNodeFeedback {
+  return {
+    nodeId: "body",
+    title: "Toy Body ECU",
+    status: "REJECTED",
+    detail: "rolling counter(순서 카운터)가 예상 진행 순서와 맞지 않습니다.",
+    source: "Toy ECU",
+    persist: false,
+    ...overrides,
+  }
+}
+
+function flowPresentation(
+  overrides: Partial<VehicleFlowPresentation> = {},
+): VehicleFlowPresentation {
+  return {
+    commandLabel: rejectedBodyTrace.commandLabel,
+    phase: "playing",
+    traceIndex: 0,
+    traceCount: 1,
+    canId: rejectedBodyTrace.canId,
+    dlc: rejectedBodyTrace.data.length,
+    data: rejectedBodyTrace.data,
+    currentTransition: null,
+    currentNodeId: "body",
+    outcome: "REJECTED",
+    stoppedAt: "body",
+    effectTarget: null,
+    effectApplied: false,
+    ecuVerdict: "COUNTER_REJECTED",
+    idsVerdict: "ALERT",
+    nodeFeedback: flowFeedback(),
+    ...overrides,
+  }
 }
 
 describe("VehicleNetworkViewport", () => {
@@ -937,6 +991,352 @@ describe("VehicleNetworkViewport", () => {
     ])
   })
 
+  it("renders exactly one safe dynamic Body ECU rejection callout", () => {
+    renderDoorViewport({
+      playback: {
+        playbackId: 12,
+        phase: "playing",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation(),
+    })
+
+    const canvas = screen.getByTestId("canvas-boundary")
+    const callouts = within(canvas).getAllByTestId("vehicle-flow-feedback")
+    expect(callouts).toHaveLength(1)
+    expect(callouts[0]).toHaveAttribute("data-status", "REJECTED")
+    expect(callouts[0]).toHaveTextContent("Toy Body ECU")
+    expect(callouts[0]).toHaveTextContent("rolling counter")
+    expect(callouts[0]).toHaveTextContent("Toy ECU")
+    expect(callouts[0]).toHaveTextContent(
+      "교육용 논리 ECU · 실제 OEM 위치 아님",
+    )
+    expect(callouts[0].style.width).toBe("clamp(160px, 22vw, 220px)")
+    expect(within(callouts[0]).getByTestId("vehicle-flow-feedback-leader"))
+      .toBeInTheDocument()
+    expect(callouts[0]).not.toHaveTextContent("000113B7")
+    expect(getComputedStyle(within(callouts[0]).getByText("Toy Body ECU")).fontSize)
+      .toBe("12px")
+    expect(getComputedStyle(within(callouts[0]).getByText("REJECTED")).fontSize)
+      .toBe("11px")
+    expect(getComputedStyle(within(callouts[0]).getByText(/rolling counter/)).fontSize)
+      .toBe("11px")
+    expect(getComputedStyle(within(callouts[0]).getByText("Toy ECU")).fontSize)
+      .toBe("10px")
+  })
+
+  it("moves one dynamic callout from target acceptance to endpoint effect", () => {
+    const accepted = flowPresentation({
+      commandLabel: "learner accepted frame",
+      outcome: "EXECUTED",
+      stoppedAt: null,
+      ecuVerdict: "EXECUTED",
+      idsVerdict: "NORMAL",
+      nodeFeedback: flowFeedback({
+        status: "ACCEPTED",
+        detail: "Toy ECU가 제출된 상태 프레임을 수락했습니다.",
+      }),
+    })
+    const view = renderDoorViewport({
+      playback: {
+        ...playingDoorSnapshotAtGateway,
+        segmentIndex: 4,
+      },
+      presentation: accepted,
+    })
+
+    let feedback = screen.getByTestId("vehicle-flow-feedback")
+    expect(feedback).toHaveAttribute("data-status", "ACCEPTED")
+    expect(feedback).toHaveTextContent("Toy Body ECU")
+    expect(screen.getAllByTestId("vehicle-flow-feedback")).toHaveLength(1)
+
+    view.rerender(
+      <VehicleNetworkViewport
+        {...defaultDoorViewportProps}
+        playback={{
+          ...playingDoorSnapshotAtGateway,
+          segmentIndex: 5,
+        }}
+        presentation={flowPresentation({
+          commandLabel: "learner accepted frame",
+          currentNodeId: "leftDoor",
+          outcome: "EXECUTED",
+          stoppedAt: null,
+          effectTarget: "leftDoor",
+          effectApplied: true,
+          ecuVerdict: "EXECUTED",
+          idsVerdict: "NORMAL",
+          nodeFeedback: flowFeedback({
+            nodeId: "leftDoor",
+            title: "GLB Left Door",
+            status: "EFFECT APPLIED",
+            detail: "Toy ECU 수락 이후 교육용 GLB 효과가 적용되었습니다.",
+            source: "교육용 분석",
+          }),
+        })}
+      />,
+    )
+
+    feedback = screen.getByTestId("vehicle-flow-feedback")
+    expect(feedback).toHaveAttribute("data-status", "EFFECT APPLIED")
+    expect(feedback).toHaveTextContent("GLB Left Door")
+    expect(feedback).toHaveTextContent(
+      "GLB 동작 기준점 · 실제 actuator 위치 아님",
+    )
+    expect(screen.getAllByTestId("vehicle-flow-feedback")).toHaveLength(1)
+  })
+
+  it("persists only authoritative final topology feedback and removes it with presentation", () => {
+    const view = renderDoorViewport({
+      playback: {
+        playbackId: 13,
+        phase: "complete",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation({
+        phase: "complete",
+        nodeFeedback: flowFeedback({ persist: true }),
+      }),
+    })
+
+    expect(screen.getByTestId("vehicle-flow-feedback"))
+      .toHaveAttribute("data-status", "REJECTED")
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('group[name="vehicle-flow-node-halo:body:rejected"]'),
+    ).toBeInTheDocument()
+
+    view.rerender(<VehicleNetworkViewport {...defaultDoorViewportProps} />)
+
+    expect(screen.queryByTestId("vehicle-flow-feedback")).not.toBeInTheDocument()
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('group[name^="vehicle-flow-node-halo:"]'),
+    ).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ["terminal", ["terminal"]],
+    ["evidence", ["terminal", "evidence"]],
+    ["monitor", ["terminal", "obd", "monitor"]],
+  ] as const)(
+    "keeps terminal/evidence/%s feedback out of the 3D callout and halo layer",
+    (nodeId, route) => {
+      const trace: VehicleFlowTrace = {
+        ...captureTrace,
+        traceId: `non-topology-${nodeId}`,
+        route: [...route],
+        stoppedAt: nodeId,
+      }
+      renderDoorViewport({
+        focusedNodeId: "gateway",
+        playback: {
+          playbackId: 14,
+          phase: "complete",
+          trace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: route.length - 1,
+        },
+        presentation: flowPresentation({
+          phase: "complete",
+          currentNodeId: nodeId,
+          nodeFeedback: flowFeedback({
+            nodeId,
+            title: nodeId,
+            status: nodeId === "terminal" ? "NO VEHICLE PATH" : "OBSERVED",
+            persist: true,
+          }),
+        }),
+      })
+      const canvas = screen.getByTestId("canvas-boundary")
+
+      expect(screen.queryByTestId("vehicle-flow-feedback"))
+        .not.toBeInTheDocument()
+      expect(canvas.querySelector('group[name^="vehicle-flow-node-halo:"]'))
+        .not.toBeInTheDocument()
+      expect(
+        within(canvas)
+          .getAllByTestId("vehicle-topology-pin")
+          .some((pin) => pin.getAttribute("data-active") === "true"),
+      ).toBe(false)
+    },
+  )
+
+  it("uses two named halo meshes and makes the active edge stronger", () => {
+    renderDoorViewport({
+      playback: playingDoorSnapshotAtGateway,
+      presentation: flowPresentation({
+        currentNodeId: "gateway",
+        outcome: null,
+        stoppedAt: null,
+        ecuVerdict: null,
+        idsVerdict: "ALERT",
+        nodeFeedback: flowFeedback({
+          nodeId: "gateway",
+          title: "Toy Gateway",
+          status: "PROCESSING",
+          detail: "가상 CAN 경로가 다음 교육용 노드로 진행 중입니다.",
+          source: "교육용 분석",
+        }),
+      }),
+    })
+
+    const canvas = screen.getByTestId("canvas-boundary")
+    const halo = canvas.querySelector(
+      'group[name="vehicle-flow-node-halo:gateway:active"]',
+    )
+    expect(halo).toBeInTheDocument()
+    expect(halo?.querySelectorAll("mesh")).toHaveLength(2)
+    expect(halo?.querySelector('mesh[name$=":inner"]')).toBeInTheDocument()
+    expect(halo?.querySelector('mesh[name$=":outer"]')).toBeInTheDocument()
+
+    const lines = canvasState.lineProps.map(({ current }) => current)
+    const activeWidth = Number(
+      lines.find((line) => line.userData?.flowState === "active")?.lineWidth,
+    )
+    const passedWidth = Number(
+      lines.find((line) => line.userData?.flowState === "passed")?.lineWidth,
+    )
+    const queuedWidth = Number(
+      lines.find((line) => line.userData?.flowState === "queued")?.lineWidth,
+    )
+    expect(activeWidth).toBeGreaterThan(passedWidth)
+    expect(activeWidth).toBeGreaterThan(queuedWidth)
+  })
+
+  it("renders IDS as an amber dashed observer and never as a red rejector", () => {
+    renderDoorViewport({
+      playback: {
+        ...playingDoorSnapshotAtGateway,
+        segmentIndex: 2,
+      },
+      presentation: flowPresentation({
+        currentNodeId: "ids",
+        outcome: null,
+        stoppedAt: null,
+        ecuVerdict: null,
+        idsVerdict: "ALERT",
+        nodeFeedback: flowFeedback({
+          nodeId: "ids",
+          title: "Toy IDS",
+          status: "OBSERVED",
+          detail: "관찰/탐지됨 · 차단 근거 없음",
+          source: "Toy IDS",
+        }),
+      }),
+    })
+
+    const feedback = screen.getByTestId("vehicle-flow-feedback")
+    expect(feedback).toHaveAttribute("data-status", "OBSERVED")
+    expect(feedback).toHaveTextContent("차단 근거 없음")
+    const observerLines = canvasState.lineProps
+      .map(({ current }) => current)
+      .filter((line) => line.userData?.observerRole === "ids")
+    expect(observerLines.length).toBeGreaterThan(0)
+    expect(observerLines.every((line) => line.dashed === true)).toBe(true)
+    expect(observerLines.every((line) => line.color === "#f59e0b")).toBe(true)
+    expect(observerLines.every((line) => line.color !== "#d12f2f")).toBe(true)
+    expect(
+      screen
+        .getByTestId("canvas-boundary")
+        .querySelector('group[name="vehicle-flow-node-halo:ids:observer"]'),
+    ).toBeInTheDocument()
+  })
+
+  it("keeps final node, edges, and callout semantics under reduced motion", () => {
+    vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+      matches: true,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    }))
+    renderDoorViewport({
+      playback: {
+        playbackId: 15,
+        phase: "complete",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation({
+        phase: "complete",
+        nodeFeedback: flowFeedback({ persist: true }),
+      }),
+    })
+    const canvas = screen.getByTestId("canvas-boundary")
+
+    expect(canvas.querySelector('mesh[name="vehicle-flow-packet"]'))
+      .not.toBeInTheDocument()
+    expect(canvas.querySelector(
+      'group[name="vehicle-flow-node-halo:body:rejected"]',
+    )).toBeInTheDocument()
+    expect(screen.getByTestId("vehicle-flow-feedback"))
+      .toHaveAttribute("data-status", "REJECTED")
+    expect(
+      canvasState.lineProps.every(
+        ({ current }) => current.userData?.flowState === "passed",
+      ),
+    ).toBe(true)
+  })
+
+  it("labels the active target map node as the current rejected processing step", () => {
+    renderDoorViewport({
+      playback: {
+        playbackId: 16,
+        phase: "playing",
+        trace: rejectedBodyTrace,
+        traceIndex: 0,
+        traceCount: 1,
+        segmentIndex: 4,
+      },
+      presentation: flowPresentation(),
+    })
+
+    const body = within(screen.getByRole("list", {
+      name: "Door spoofing route target map",
+    })).getByText("Toy Body ECU").closest("li")
+    expect(body).toHaveAttribute("aria-current", "step")
+    expect(body).toHaveAccessibleName(/Toy Body ECU.*REJECTED/)
+  })
+
+  it.each([
+    [4, 8],
+    [316, 172],
+  ])("clamps callouts at least 8 px inside Canvas and ends leaders on the boundary", (
+    anchorX,
+    anchorY,
+  ) => {
+    const geometry = clampFlowCalloutPosition({
+      anchorX,
+      anchorY,
+      canvasWidth: 320,
+      canvasHeight: 180,
+      calloutWidth: 220,
+      calloutHeight: 96,
+      inset: 8,
+    })
+
+    expect(geometry.left).toBeGreaterThanOrEqual(8)
+    expect(geometry.top).toBeGreaterThanOrEqual(8)
+    expect(geometry.left + 220).toBeLessThanOrEqual(312)
+    expect(geometry.top + 96).toBeLessThanOrEqual(172)
+    const leaderEndsOnBoundary =
+      Math.abs(geometry.leaderEndX - geometry.left) < 0.001
+      || Math.abs(geometry.leaderEndX - (geometry.left + 220)) < 0.001
+      || Math.abs(geometry.leaderEndY - geometry.top) < 0.001
+      || Math.abs(geometry.leaderEndY - (geometry.top + 96)) < 0.001
+    expect(leaderEndsOnBoundary).toBe(true)
+  })
+
   it("marks the current node and outgoing edge cancelled without a packet", () => {
     renderDoorViewport({
       playback: { ...playingDoorSnapshotAtGateway, phase: "cancelled" },
@@ -1006,7 +1406,7 @@ describe("VehicleNetworkViewport", () => {
       const canvas = screen.getByTestId("canvas-boundary")
 
       expect(
-        canvas.querySelector('mesh[name^="vehicle-flow-node-halo:"]'),
+        canvas.querySelector('group[name^="vehicle-flow-node-halo:"]'),
       ).not.toBeInTheDocument()
       expect(
         within(canvas)
@@ -1045,7 +1445,7 @@ describe("VehicleNetworkViewport", () => {
     expect(
       screen
         .getByTestId("canvas-boundary")
-        .querySelector('mesh[name^="vehicle-flow-node-halo:rear:"]'),
+        .querySelector('group[name^="vehicle-flow-node-halo:rear:"]'),
     ).not.toBeInTheDocument()
     expect(
       screen

@@ -3,6 +3,7 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { executedDoorTrace, rejectedBodyTrace } from "./vehicleFlowTestFixtures"
+import type { VehicleFlowTrace } from "./vehicleFlowTypes"
 import { useVehicleFlowPlayback } from "./useVehicleFlowPlayback"
 
 describe("useVehicleFlowPlayback", () => {
@@ -34,7 +35,135 @@ describe("useVehicleFlowPlayback", () => {
 
     act(() => vi.advanceTimersByTime(1))
     expect(onEffect).toHaveBeenCalledOnce()
+    expect(result.current.snapshot.phase).toBe("playing")
+    expect(onComplete).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(899))
+    expect(result.current.snapshot.phase).toBe("playing")
+    expect(onComplete).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.snapshot.phase).toBe("complete")
     expect(onComplete).toHaveBeenCalledWith("session:0:run-1")
+  })
+
+  it("waits the default 600 ms before ordinary segment advancement", () => {
+    const trace: VehicleFlowTrace = {
+      ...rejectedBodyTrace,
+      traceId: "two-node-step",
+      route: ["terminal", "obd"],
+      stoppedAt: "obd",
+    }
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: false }),
+    )
+
+    act(() => result.current.play({ runKey: "step-600", traces: [trace] }))
+    expect(result.current.snapshot.segmentIndex).toBe(0)
+
+    act(() => vi.advanceTimersByTime(599))
+    expect(result.current.snapshot.segmentIndex).toBe(0)
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.snapshot.segmentIndex).toBe(1)
+    expect(result.current.snapshot.phase).toBe("playing")
+  })
+
+  it("holds the final node for 900 ms before starting the next trace", () => {
+    const first: VehicleFlowTrace = {
+      ...rejectedBodyTrace,
+      traceId: "hold-first",
+      sequence: 1,
+      route: ["terminal", "obd"],
+      stoppedAt: "obd",
+    }
+    const second: VehicleFlowTrace = {
+      ...first,
+      traceId: "hold-second",
+      sequence: 2,
+    }
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: false }),
+    )
+
+    act(() => result.current.play({ runKey: "hold-900", traces: [first, second] }))
+    act(() => vi.advanceTimersByTime(600))
+    expect(result.current.snapshot).toMatchObject({
+      traceIndex: 0,
+      segmentIndex: 1,
+      phase: "playing",
+    })
+
+    act(() => vi.advanceTimersByTime(899))
+    expect(result.current.snapshot.trace?.traceId).toBe("hold-first")
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.snapshot).toMatchObject({
+      traceIndex: 1,
+      segmentIndex: 0,
+      phase: "playing",
+    })
+  })
+
+  it("keeps the last authoritative trace visible after its 900 ms final hold", () => {
+    const onComplete = vi.fn()
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: false, onComplete }),
+    )
+
+    act(() => result.current.play({
+      runKey: "last-hold",
+      traces: [rejectedBodyTrace],
+    }))
+    act(() => vi.advanceTimersByTime(2_400))
+    expect(result.current.snapshot.phase).toBe("playing")
+    expect(result.current.snapshot.segmentIndex).toBe(4)
+    expect(onComplete).not.toHaveBeenCalled()
+
+    act(() => vi.advanceTimersByTime(899))
+    expect(result.current.snapshot.phase).toBe("playing")
+
+    act(() => vi.advanceTimersByTime(1))
+    expect(result.current.snapshot).toMatchObject({
+      phase: "complete",
+      trace: rejectedBodyTrace,
+      segmentIndex: 4,
+    })
+    expect(onComplete).toHaveBeenCalledWith("last-hold")
+
+    act(() => vi.runAllTimers())
+    expect(result.current.snapshot).toMatchObject({
+      phase: "complete",
+      trace: rejectedBodyTrace,
+      segmentIndex: 4,
+    })
+  })
+
+  it("cancels a pending final hold without advancing or completing", () => {
+    const onComplete = vi.fn()
+    const second = {
+      ...rejectedBodyTrace,
+      traceId: "cancelled-second",
+      sequence: 2,
+    }
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: false, onComplete }),
+    )
+
+    act(() => result.current.play({
+      runKey: "cancel-final-hold",
+      traces: [rejectedBodyTrace, second],
+    }))
+    act(() => vi.advanceTimersByTime(2_400))
+    expect(result.current.snapshot.segmentIndex).toBe(4)
+
+    act(() => result.current.cancel())
+    act(() => vi.runAllTimers())
+
+    expect(result.current.snapshot.phase).toBe("cancelled")
+    expect(result.current.snapshot.traceIndex).toBe(0)
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("stops a rejected trace without applying an effect", () => {
@@ -189,6 +318,34 @@ describe("useVehicleFlowPlayback", () => {
     act(() => vi.runAllTimers())
     expect(onEffect).toHaveBeenCalledOnce()
     expect(onComplete).toHaveBeenCalledOnce()
+  })
+
+  it("completes reduced motion synchronously with the same final semantics", () => {
+    const onEffect = vi.fn()
+    const onComplete = vi.fn()
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({
+        reducedMotion: true,
+        onEffect,
+        onComplete,
+      }),
+    )
+
+    act(() => result.current.play({
+      runKey: "reduced-final-semantics",
+      traces: [executedDoorTrace],
+    }))
+
+    expect(result.current.snapshot).toMatchObject({
+      phase: "complete",
+      trace: executedDoorTrace,
+      traceIndex: 0,
+      traceCount: 1,
+      segmentIndex: executedDoorTrace.route.length - 1,
+    })
+    expect(onEffect).toHaveBeenCalledWith(executedDoorTrace)
+    expect(onComplete).toHaveBeenCalledWith("reduced-final-semantics")
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("does not complete an old run when its effect callback cancels it", () => {

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
 import type {
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPresentation,
   VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { vehicle } from "../vehicle/vehicleStore"
@@ -44,6 +45,7 @@ vi.mock("../vehicle/VehicleNetworkViewport", async () => {
   return {
     default: (props: Record<string, unknown>) => {
       const playback = props.playback as VehicleFlowPlaybackSnapshot | undefined
+      const presentation = props.presentation as VehicleFlowPresentation | undefined
       return (
         <div
           aria-label={`${props.scenarioTitle} vehicle network`}
@@ -53,6 +55,10 @@ vi.mock("../vehicle/VehicleNetworkViewport", async () => {
           data-playback-phase={playback?.phase ?? "missing"}
           data-trace-id={playback?.trace?.traceId ?? "none"}
           data-segment-index={playback?.segmentIndex ?? -1}
+          data-presentation-command={presentation?.commandLabel ?? "missing"}
+          data-presentation-status={
+            presentation?.nodeFeedback?.status ?? "missing"
+          }
         >
           {viewportHarness.renderRail ? (
             <VehicleFlowRail
@@ -66,6 +72,7 @@ vi.mock("../vehicle/VehicleNetworkViewport", async () => {
                 traceCount: 0,
                 segmentIndex: 0,
               }}
+              presentation={presentation}
               accent={String(props.accent)}
             />
           ) : null}
@@ -536,6 +543,10 @@ describe("BeginnerCanAttackLabPage", () => {
         .toBeInTheDocument()
       expect(screen.getByText("공격 조건 충족").parentElement)
         .toHaveTextContent("달성")
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-presentation-command", trace.commandLabel)
+      expect(screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`))
+        .toHaveAttribute("data-presentation-status", "EFFECT APPLIED")
 
       const liveRegions = document.querySelectorAll('[aria-live="polite"]')
       expect(liveRegions).toHaveLength(1)

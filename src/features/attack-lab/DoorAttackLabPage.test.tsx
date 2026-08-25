@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
 import type {
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPresentation,
   VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { vehicle } from "../vehicle/vehicleStore"
@@ -76,9 +77,11 @@ vi.mock("./DoorAttackVehicle", async () => {
     default: ({
       currentStage,
       playback,
+      presentation,
     }: {
       currentStage?: string
       playback?: VehicleFlowPlaybackSnapshot
+      presentation?: VehicleFlowPresentation
     }) => {
       const signature = playback
         ? [
@@ -98,6 +101,10 @@ vi.mock("./DoorAttackVehicle", async () => {
           aria-label="Toy Vehicle 3D view"
           data-current-stage={currentStage}
           data-playback-phase={playback?.phase ?? "missing"}
+          data-presentation-command={presentation?.commandLabel ?? "missing"}
+          data-presentation-status={
+            presentation?.nodeFeedback?.status ?? "missing"
+          }
         >
           {playbackHarness.renderRail ? (
             <VehicleFlowRail
@@ -111,6 +118,7 @@ vi.mock("./DoorAttackVehicle", async () => {
                 traceCount: 0,
                 segmentIndex: 0,
               }}
+              presentation={presentation}
               accent="#d94b4b"
             />
           ) : null}
@@ -591,9 +599,8 @@ describe("DoorAttackLabPage", () => {
       await screen.findByRole("button", { name: "스크립트 실행" }),
     )
     await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
-    act(() => vi.advanceTimersByTime(1_100))
-    act(() => vi.advanceTimersByTime(220))
-    act(() => vi.runAllTimers())
+    // 5 route transitions × 600ms + 900ms final hold.
+    act(() => vi.advanceTimersByTime(3_900))
 
     expect(
       playbackHarness.snapshots
@@ -625,11 +632,9 @@ describe("DoorAttackLabPage", () => {
 
     await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
     await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
-    act(() => vi.advanceTimersByTime(220))
-    act(() => vi.advanceTimersByTime(220))
-    act(() => vi.advanceTimersByTime(220))
-    act(() => vi.advanceTimersByTime(220))
-    act(() => vi.runAllTimers())
+    // Preserve each trace's initial render across React timer batching.
+    act(() => vi.advanceTimersByTime(900))
+    act(() => vi.advanceTimersByTime(2_100))
 
     expect(
       playbackHarness.snapshots
@@ -1508,13 +1513,17 @@ describe("DoorAttackLabPage", () => {
     expect(screen.getByRole("button", { name: /COUNTER_REJECTED/ }))
       .toBeInTheDocument()
 
-    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.advanceTimersByTime(600))
     expect(within(why!).getByText("가상 CAN 경로 입력")).toBeInTheDocument()
     expect(within(why!).queryByText("Toy ECU")).not.toBeInTheDocument()
 
-    act(() => vi.advanceTimersByTime(660))
+    act(() => vi.advanceTimersByTime(1_800))
     expect(within(why!).getByText("Toy ECU")).toBeInTheDocument()
     expect(within(why!).getByText("COUNTER_REJECTED")).toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-presentation-status",
+      "REJECTED",
+    )
   })
 
   it("captures a multi-frame script prediction and requires one of its attempt frames before confirmation", async () => {
@@ -1543,6 +1552,10 @@ describe("DoorAttackLabPage", () => {
       .toHaveTextContent("미완료")
     expect(screen.getByText(multiFrameFirstTrace.commandLabel))
       .toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-presentation-command",
+      multiFrameFirstTrace.commandLabel,
+    )
 
     const liveRegions = document.querySelectorAll('[aria-live="polite"]')
     expect(liveRegions).toHaveLength(1)
@@ -1551,9 +1564,13 @@ describe("DoorAttackLabPage", () => {
     )
     const actionSummary = liveRegions[0].textContent
 
-    act(() => vi.advanceTimersByTime(1_320))
+    act(() => vi.advanceTimersByTime(3_900))
     expect(screen.getByText(multiFrameSecondTrace.commandLabel))
       .toBeInTheDocument()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-presentation-command",
+      multiFrameSecondTrace.commandLabel,
+    )
     expect(liveRegions[0]).toHaveTextContent(actionSummary ?? "")
     expect(liveRegions[0]).not.toHaveTextContent(
       multiFrameSecondTrace.commandLabel,

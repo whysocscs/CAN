@@ -7,9 +7,36 @@ import {
   executedAlertTrace,
   rejectedBodyTrace,
 } from "./vehicleFlowTestFixtures"
+import type { VehicleFlowPresentation } from "./vehicleFlowTypes"
 import VehicleFlowRail from "./VehicleFlowRail"
 
 afterEach(cleanup)
+
+const structuredPresentation: VehicleFlowPresentation = {
+  commandLabel: "cansend vcan0 learner-frame-two",
+  phase: "playing",
+  traceIndex: 1,
+  traceCount: 3,
+  canId: "0x456",
+  dlc: 4,
+  data: ["01", "01", "10", "B5"],
+  currentTransition: "Toy Gateway -> Toy Body ECU",
+  currentNodeId: "body",
+  outcome: "REJECTED",
+  stoppedAt: "body",
+  effectTarget: null,
+  effectApplied: false,
+  ecuVerdict: "COUNTER_REJECTED",
+  idsVerdict: "ALERT",
+  nodeFeedback: {
+    nodeId: "body",
+    title: "Toy Body ECU",
+    status: "REJECTED",
+    detail: "rolling counter(순서 카운터)가 예상 진행 순서와 맞지 않습니다.",
+    source: "Toy ECU",
+    persist: false,
+  },
+}
 
 describe("VehicleFlowRail", () => {
   it.each(["idle", "complete"] as const)(
@@ -71,6 +98,12 @@ describe("VehicleFlowRail", () => {
       "data-flow-state",
       "active",
     )
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    )
+    expect(screen.getByText("Toy IDS").closest("li"))
+      .toHaveAccessibleName(/Toy IDS.*현재 처리 중/)
     expect(screen.getByText("Toy Body ECU").closest("li")).not.toHaveAttribute(
       "data-selected",
     )
@@ -81,7 +114,7 @@ describe("VehicleFlowRail", () => {
     ).toHaveLength(0)
   })
 
-  it("shows the active device transition and separate verdicts", () => {
+  it("shows complete structured HUD evidence without solution hints", () => {
     render(
       <VehicleFlowRail
         scenarioTitle="Door attack route"
@@ -94,6 +127,7 @@ describe("VehicleFlowRail", () => {
           traceCount: 1,
           segmentIndex: 2,
         }}
+        presentation={structuredPresentation}
         accent="#d94b4b"
       />,
     )
@@ -103,8 +137,17 @@ describe("VehicleFlowRail", () => {
       "data-flow-state",
       "active",
     )
-    expect(screen.getByText("ECU · EXECUTED")).toBeInTheDocument()
-    expect(screen.getByText("IDS · ALERT · 탐지됨, 차단하지 않음")).toBeInTheDocument()
+    expect(screen.getByText("Frame 2/3")).toBeInTheDocument()
+    expect(screen.getByText(/cansend vcan0/)).toBeInTheDocument()
+    expect(screen.getByText(/0x456/)).toBeInTheDocument()
+    expect(screen.getByText(/DLC 4/)).toBeInTheDocument()
+    expect(screen.getByText("DATA 01 01 10 B5")).toBeInTheDocument()
+    expect(screen.getByText(/Gateway.*Body ECU/)).toBeInTheDocument()
+    expect(screen.getByText(/COUNTER_REJECTED/)).toBeInTheDocument()
+    expect(screen.getByText(/관찰\/탐지됨.*차단 근거 없음/)).toBeInTheDocument()
+    expect(screen.queryByText(/expected counter/i)).not.toBeInTheDocument()
+    expect(screen.queryByText("cansend vcan0 456#000113B7"))
+      .not.toBeInTheDocument()
   })
 
   it("marks rejection with text and a stop state", () => {
@@ -128,6 +171,12 @@ describe("VehicleFlowRail", () => {
       "data-flow-state",
       "rejected",
     )
+    expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    )
+    expect(screen.getByText("Toy Body ECU").closest("li"))
+      .toHaveAccessibleName(/Toy Body ECU.*거부됨/)
   })
 
   it("marks the current node cancelled while preserving only completed nodes", () => {

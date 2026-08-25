@@ -317,6 +317,12 @@
 .vehicle-flow-rail__node[data-flow-state="rejected"] span { color: #a51f1f; font-weight: 800; }
 .vehicle-flow-rail__node[data-flow-state="cancelled"] { border-color: #718096; background: #f1f4f8; }
 .vehicle-flow-rail__node[data-flow-state="cancelled"] span { color: #526174; font-weight: 800; }
+.vehicle-flow-rail__node[data-node-id="ids"][data-flow-state="active"],
+.vehicle-flow-rail__node[data-node-id="ids"][data-flow-state="passed"] {
+  border-bottom-style: dashed;
+  border-color: #f59e0b;
+  background: #fffbeb;
+}
 
 .vehicle-flow-rail__hud {
   display: flex;
@@ -437,6 +443,30 @@
   background: var(--vehicle-route-accent);
   color: #fff;
 }
+.vehicle-network-viewport__target-map li[data-feedback-status="OBSERVED"] .vehicle-network-viewport__map-number,
+.vehicle-network-viewport__pin[data-feedback-status="OBSERVED"] {
+  border-style: dashed;
+  border-color: #f59e0b;
+  background: #f59e0b;
+  color: #1f2937;
+}
+.vehicle-network-viewport__target-map li[data-feedback-status="REJECTED"] .vehicle-network-viewport__map-number,
+.vehicle-network-viewport__pin[data-feedback-status="REJECTED"] {
+  border-color: #d12f2f;
+  background: #d12f2f;
+  color: #fff;
+}
+.vehicle-network-viewport__target-map li[data-feedback-status="EFFECT APPLIED"] .vehicle-network-viewport__map-number,
+.vehicle-network-viewport__pin[data-feedback-status="EFFECT APPLIED"] {
+  border-color: #287a52;
+  background: #287a52;
+  color: #fff;
+}
+.vehicle-network-viewport__pin[data-active="true"] {
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--vehicle-route-accent) 26%, transparent),
+    0 0 18px 5px color-mix(in srgb, var(--vehicle-route-accent) 52%, transparent);
+}
 
 .vehicle-network-viewport__target-map li > div { display: grid; min-width: 0; }
 .vehicle-network-viewport__target-map strong { font-size: 12px; line-height: 1.4; }
@@ -527,6 +557,46 @@
 .vehicle-network-viewport__callout[data-placement="logical-right"]::after { left: -10px; transform: rotate(-38deg); transform-origin: right; }
 .vehicle-network-viewport__callout strong { font-size: 10px; font-weight: 800; }
 .vehicle-network-viewport__callout small { color: #d8e2ef; font-size: 8px; font-weight: 650; letter-spacing: .01em; }
+.vehicle-network-viewport__feedback-layer { pointer-events: none; }
+.vehicle-network-viewport__feedback {
+  position: relative;
+  z-index: 4;
+  box-sizing: border-box;
+  display: grid;
+  max-width: calc(100vw - 16px);
+  gap: 3px;
+  border: 1px solid color-mix(in srgb, var(--vehicle-route-accent) 74%, #fff);
+  border-left-width: 4px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(11, 16, 24, .96);
+  box-shadow: 0 7px 24px rgba(0, 0, 0, .36);
+  color: #f8fafc;
+  font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  word-break: keep-all;
+}
+.vehicle-network-viewport__feedback[data-status="OBSERVED"] { border-color: #f59e0b; }
+.vehicle-network-viewport__feedback[data-status="REJECTED"] { border-color: #d12f2f; }
+.vehicle-network-viewport__feedback[data-status="EFFECT APPLIED"] { border-color: #287a52; }
+.vehicle-network-viewport__feedback-leader {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 32px;
+  height: 1px;
+  background: currentColor;
+  opacity: .72;
+  transform: rotate(34deg);
+  transform-origin: 0 50%;
+}
+.vehicle-network-viewport__feedback strong { font-size: 12px; font-weight: 850; }
+.vehicle-network-viewport__feedback b { color: #f6cb72; font-size: 11px; letter-spacing: .04em; }
+.vehicle-network-viewport__feedback small { color: #d8e2ef; font-size: 11px; font-style: normal; }
+.vehicle-network-viewport__feedback em { color: #a9c6ff; font-size: 10px; font-style: normal; font-weight: 750; }
+.vehicle-network-viewport__feedback-truth { color: #aebdce; font-size: 10px; }
 .vehicle-network-viewport__status { display: flex; align-items: center; gap: 7px; padding: 8px 10px; border: 1px solid #cbd3dd; background: rgba(255,255,255,.94); color: #445066; font-family: "Noto Sans KR Variable", sans-serif; font-size: 10px; white-space: nowrap; }
 .vehicle-network-viewport__hint { position: absolute; right: 12px; bottom: 9px; z-index: 1; margin: 0; color: #cbd5e1; font-size: 9px; pointer-events: none; text-shadow: 0 1px 2px #0b1018; }
 
@@ -788,8 +858,8 @@
   .vehicle-network-viewport__callout { min-width: 94px; }
   .vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% - 7px); }
   .vehicle-network-viewport__callout[data-placement="effect-high-right"] { left: calc(50% - 27px); }
-  .vehicle-network-viewport__callout strong { font-size: 10px; }
-  .vehicle-network-viewport__callout small { font-size: 8px; }
+  .vehicle-network-viewport__callout strong { font-size: 12px; }
+  .vehicle-network-viewport__callout small { font-size: 10px; }
   .door-attack-lab__learning { grid-template-columns: 1fr; }
   .door-attack-lab__monitor-scroll { overflow-x: auto; }
   .door-attack-lab__panel-heading > span:not(.door-attack-lab__truth-qualifier) { display: none; }
