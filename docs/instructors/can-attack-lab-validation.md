@@ -57,6 +57,16 @@ function Invoke-LabPost([string]$Uri, [hashtable]$Body) {
 
 응답에서 공통으로 확인할 필드는 `state.stage`, `code`, `attempts[].verdict`, `idsStatus`, `state.vehicleState`, `state.attemptCount`, `state.completed`다. Beginner public initial state에는 정답 ID·payload·capture bytes·solution command가 없어야 한다.
 
+### 공통 UI evidence contract
+
+완료 command를 검증할 때 한 화면의 결과를 하나의 출력처럼 취급하지 말고 다음 channel을 분리한다.
+
+- **Virtual Terminal**: terminal-origin action은 command echo와 `stdout`/`stderr`/`silent` stream을 남긴다. script-origin action은 terminal transcript row를 만들지 않는다. 현재의 정확한 script line은 Vehicle Flow에서, script action의 structured result는 Activity에서 확인한다.
+- **Vehicle Flow/3D**: `flowTraces`를 authoritative result 이후 재생하는 교육용 slow-motion이다. 실제 물리 CAN hop telemetry, ACK, ECU 수락의 wire evidence가 아니다.
+- **왜 이런 결과가 발생했나요?**: `Terminal`, `Toy ECU`, `Toy IDS`, `교육용 분석` source label을 유지한다. `NORMAL`은 관찰됐으나 Toy rule alert가 없다는 뜻이고, `ALERT`는 탐지됐으나 차단 증거가 없다는 뜻이다.
+- **진행 시간**: 일반 node는 `600 ms`마다 전진하고 multi-trace script는 한 trace의 final node를 `900 ms` 유지한 뒤 다음 trace를 시작한다. ECU/IDS/effect row와 3D callout은 해당 authoritative node에 도달하기 전에 보이면 안 된다.
+- **Learning Check**: backend `completed`가 만든 `공격 조건 충족=달성`과 로컬 `학습 확인 완료=완료`를 별도로 확인한다. 후자는 실행 전 prediction, 해당 action의 monitor frame/Activity evidence 선택, 20자 이상의 비교·reflection을 요구한다.
+
 ## 3. Door full-chain 정답 흐름
 
 ### UI와 초기 상태
@@ -100,12 +110,15 @@ $DoorReplay | ConvertTo-Json -Depth 8
 
 기대 결과:
 
-- `pwd`, `ls`, 두 `cat`의 terminal code는 `OK`
+- `pwd`, `ls`, 두 `cat`은 Virtual Terminal command echo와 `stdout`을 남기며 structured result는 `OK`
 - 두 log 관찰 후 Stage `분석`, monitor에 `OBSERVED` 12행
 - replay attempt: top-level `code=COUNTER_REJECTED`, `ok=false`, frame verdict `COUNTER_REJECTED`
+- replay `cansend`는 command echo 뒤 output이 `silent`다. silence는 ECU 수락 증거가 아니며 Why panel의 `Toy ECU=COUNTER_REJECTED`, `Toy IDS=ALERT`와 대조한다.
+- Vehicle Flow/3D는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU`에서 멈추고 final callout은 `Toy Body ECU · REJECTED · Toy ECU`다. `Left Door` route/effect callout은 없어야 한다.
 - 화면 Stage `Replay 실패`, Toy IDS `ALERT`, Attempts `1`, Proof `NOT YET`
 - monitor는 replay rejected 행을 포함해 총 13행
 - rejected 행을 선택하면 Binary inspector가 `01 01 10 B5`를 표시
+- Activity에는 `COUNTER_REJECTED`, `CAN frame 기록됨`, `body`가 같은 action으로 남는다.
 - GLB left/right door는 모두 closed로 유지
 
 ### Editor 성공
@@ -134,12 +147,16 @@ $DoorSuccess | ConvertTo-Json -Depth 8
 
 기대 결과:
 
+- 세 completion `cansend`는 Lab script origin이므로 Virtual Terminal에 command echo/stdout/stderr row를 추가하지 않는다. 재생 중 각 정확한 script line은 Vehicle Flow의 current command label로 순서대로 표시된다.
 - `attempts[].verdict`가 차례로 `EXECUTED`, `EXECUTED`, `EXECUTED`
 - `idsStatus=NORMAL`, `state.stage=증거`, `state.completed=true`, total Attempts `4`
 - live CAN stream의 accepted 세 행이 도착한 뒤 monitor 총 16행; 각 행 source `CAN stream`, verdict `EXECUTED`
-- 마지막 행을 선택하면 Binary inspector가 `00 01 15 B1`을 표시
-- target focus는 Toy Body ECU, effect focus는 Left Door 의미를 보여 줌
-- GLB left door open, right door closed
+- accepted 세 행을 차례로 선택하면 Binary Inspector DATA가 `00 01 13 B7`, `00 01 14 B0`, `00 01 15 B1`로 각 command와 일치한다.
+- 각 trace의 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`이며 final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
+- progressive reveal에서 OBD-II 전에는 `가상 CAN 경로 입력` row가 없고, IDS 전에는 `Toy IDS`, Body ECU 전에는 `Toy ECU`, endpoint 전에는 `차량 영향` row가 없다. 첫 두 trace의 IDS는 관찰 중이며 전체 sequence `NORMAL`은 마지막 trace의 IDS node에서만 공개된다.
+- Activity에는 script action의 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용` evidence가 남는다.
+- structured trace를 수락하면 `공격 조건 충족=달성`과 Proof `COMPLETE`가 먼저 보일 수 있지만, GLB effect와 Why의 `차량 영향` row는 각 trace가 Left Door endpoint에 도달할 때만 적용·공개된다. `600 ms` node progression과 trace 사이 `900 ms` final hold를 확인한다.
+- GLB left door open, right door closed이며 `학습 확인 완료`는 prediction/evidence/reflection을 마칠 때까지 `미완료`다.
 
 Reset:
 
@@ -194,11 +211,16 @@ $SpoofSuccess | ConvertTo-Json -Depth 8
 
 완료 증거:
 
+- 이 runbook처럼 Virtual Terminal에서 completion `cansend`를 실행하면 command echo 뒤 stream은 `silent`다. Lab script에서 실행하면 transcript row가 없고 Vehicle Flow/Activity에 command label이 남는다.
 - response `ok=true`, `attempts[0].verdict=EXECUTED`, `idsStatus=NORMAL`, `completed=true`, Attempts `1`
 - live event `lab.scenario=spoofing`, `context.target=rear`, `context.action=TAILGATE_OPEN`
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택 시 Binary inspector `01`
+- 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`, final callout은 `GLB Tailgate · EFFECT APPLIED · 교육용 분석`이다.
+- Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Rear ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
+- Activity에는 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개된다.
 - target은 Toy Rear ECU; GLB는 tailgate만 open, left/right door closed
 - Evidence에는 `kind=attempt`, `status=EXECUTED`
+- `공격 조건 충족=달성`과 `학습 확인 완료`는 자동으로 같아지지 않는다. prediction, accepted monitor frame 선택, 20자 이상 reflection 후에만 후자를 확인한다.
 
 ### Spoofing negative와 reset
 
@@ -258,12 +280,18 @@ $ReplaySuccess | ConvertTo-Json -Depth 8
 
 완료 증거:
 
+- capture redirection은 command echo 뒤 `silent`이며 capture frame은 `Training OBD-II → Network Monitor` evidence route로 처리된다. 3D에는 Training OBD-II까지만 대응하고 ECU/effect callout은 없다. `cat`은 command echo와 captured frame `stdout`을 남긴다.
+- 이 runbook처럼 Virtual Terminal에서 completion `canplayer`를 실행하면 command echo 뒤 `silent`다. Lab script에서 실행하면 terminal row가 없고 Vehicle Flow/Activity에 command label이 남는다.
 - capture와 playback frame이 모두 ID `0x5A2`, DLC `2`, DATA `00 01`로 byte-identical
 - response `ok=true`, `attempts[0].verdict=EXECUTED`, `idsStatus=NORMAL`, `completed=true`, Attempts `1`
 - live event `lab.scenario=replay`, `context.target=body`, `context.action=LEFT_DOOR_OPEN`
 - live WebSocket event 최상위에 `replay` key가 없음. 즉 snapshot marker인 top-level `replay:true`를 사용하지 않는 ordinary live event임
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택한 Binary inspector는 `00`, `01`
+- 정확한 playback 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`, final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
+- Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Body ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
+- completion Activity에는 `EXECUTED`, `CAN frame 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Left Door endpoint에서만 적용·공개된다.
 - Toy Body ECU가 target이고 GLB는 left door open, right door/tailgate closed
+- `공격 조건 충족=달성` 뒤에도 prediction, accepted live frame 선택, byte-identical 비교 reflection 없이는 `학습 확인 완료=미완료`다.
 
 ### Replay negative, old generation, reset
 
@@ -276,6 +304,21 @@ $ReplaySuccess | ConvertTo-Json -Depth 8
 | 내부 capture record의 generation이 현재와 다름 | `CAPTURE_GENERATION_MISMATCH` | stale capture 방어 계약 |
 
 공개 REST reset은 stale capture를 유지하지 않고 파일 자체를 지운다. 따라서 정상 public flow에서 reset 뒤 playback을 시도하면 `CAPTURE_GENERATION_MISMATCH`가 아니라 `CAPTURE_REQUIRED`가 맞다. 내부 old-generation 방어 code는 다음 실제 domain test가 검증한다.
+
+### `CAPTURE_REQUIRED` UI negative route
+
+reset 직후 또는 새 Replay session에서 capture 없이 위 표의 playback command를 실행한다.
+
+| 증거 위치 | 정확한 기대 결과 |
+| --- | --- |
+| Virtual Terminal | command echo와 `stderr`의 `CAPTURE_REQUIRED`; `silent`가 아님 |
+| Vehicle Flow | `Lab Terminal`에서 `NO VEHICLE PATH`로 종료 |
+| 3D | route/final callout 없음; Training OBD-II, Toy Body ECU, GLB Left Door를 active highlight하지 않음 |
+| Network Monitor / Binary Inspector | 새 frame 없음; inspector는 비어 있거나 이전 선택을 변경하지 않음 |
+| Why panel | `Terminal` source의 local preflight 설명만 표시; `가상 CAN 경로 입력`, `Toy ECU`, `Toy IDS` row 없음 |
+| Activity | `CAPTURE_REQUIRED · 차량 경로 없음 · terminal`; 이 row를 Learning Check evidence로 선택 가능 |
+| ECU / IDS / effect | verdict 생성 없음, part 이동 없음, `공격 조건 충족=미달성` |
+| timing | Terminal 단일 node이므로 `600 ms` node transition은 없고, final Terminal state를 `900 ms` 유지한 뒤 complete. reduced motion에서는 즉시 complete |
 
 ```powershell
 .\.venv\Scripts\python.exe -X dev -m pytest server\tests\test_can_attack_basics.py::test_replay_requires_current_same_session_unmodified_capture_and_exact_repeat_count -q
@@ -290,7 +333,31 @@ $AfterResetPlayback = Invoke-LabPost "$Api/labs/can-attacks/replay/sessions/$Rep
 
 기대 상태는 generation `+1`, Stage `RECON`, Attempts `0`, Last verdict `NONE`, Completed `NO`, left/right/tailgate closed, monitor `0`, terminal/history 없음, editor placeholder 복원이다. 그 뒤 playback 응답은 `CAPTURE_REQUIRED`; 이 rejected 행을 제외한 reset 직후 GLB는 변하지 않는다.
 
-## 6. 브라우저 판정 체크리스트
+## 6. Task 6 CLI 검증 기록 — 2026-08-26
+
+이 기록은 아래 command를 실제로 실행해 관찰한 결과만 포함한다.
+
+```powershell
+& '.\.venv\Scripts\python.exe' -m pytest server/tests -q
+& '.\node_modules\.bin\vitest.cmd' run
+& '.\node_modules\.bin\tsc.cmd' --noEmit
+& '.\node_modules\.bin\vite.cmd' build --mode ver4
+git diff --check
+```
+
+- backend: `126 passed`, 기존 Starlette/httpx deprecation warning `1`, exit `0`
+- frontend: `25` test files, `242 passed`, exit `0`
+- TypeScript: diagnostic 없음, exit `0`
+- Vite production build: `7307` modules transformed, exit `0`; plugin timing과 `500 kB` 초과 chunk advisory가 있었으며 build failure는 아님
+- whitespace: `git diff --check` 출력 없음, exit `0`
+- bundle secrecy: 두 instructor guide의 성공 섹션에서 추출한 완료 command 집합이 각각 동일한 `5`개임을 확인했다. 중복 제거한 full literal `5`개 각각을 `dist`에 `rg -F`로 검사했으며 모두 exit `1`, match `0`, error `0`이었다. command literal 자체는 이 결과 기록에 반복하지 않는다.
+- generated `dist/`는 Git ignore 상태이고 tracked diff는 계획된 네 문서뿐이다.
+
+이 CLI 기록은 terminal/Vehicle Flow/Why/monitor/inspector/3D를 live browser에서 관찰한 증거가 아니다. Browser QA는 메인 에이전트 검증 대기 상태다.
+
+## 7. 브라우저 판정 체크리스트
+
+> Task 6 CLI 담당 단계에서는 이 Browser QA를 실행하거나 관찰했다고 주장하지 않는다. 아래 항목은 메인 에이전트의 live Browser-plugin 검증 대기 상태다.
 
 각 viewport를 새 page load로 확인한다.
 
@@ -303,7 +370,7 @@ $AfterResetPlayback = Invoke-LabPost "$Api/labs/can-attacks/replay/sessions/$Rep
 - reset은 affected part를 닫고 monitor/editor/terminal 상태를 초기화
 - framework overlay, uncaught console error, failed resource가 없음
 
-## 7. 문제 해결과 한계
+## 8. 문제 해결과 한계
 
 - `Cannot connect to the Docker daemon`: Docker Desktop/Engine의 Server 상태를 먼저 확인하고, daemon을 사용할 수 없으면 direct runtime 결과만 보고한다.
 - backend offline: `Invoke-WebRequest http://127.0.0.1:8010/health`, Uvicorn log, 포트 충돌을 확인한다.

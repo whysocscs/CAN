@@ -9,6 +9,13 @@
 3. `스크립트 실행`을 누른 뒤 `Network monitor`, `Binary inspector`, `Toy IDS`, `Evidence/Proof`, GLB 차량 상태를 함께 확인한다.
 4. 다시 검증할 때는 `실습 초기화`를 누른다. 브라우저 새로고침만으로는 현재 세션 상태가 초기화되지 않을 수 있다.
 
+### 모든 완료 action에서 함께 볼 증거
+
+- Virtual Terminal action은 command echo와 `stdout`/`stderr`/`silent` stream을 구분한다. 정상 `cansend`/`canplayer`의 `silent`는 ECU 수락 증거가 아니다. Lab script action은 transcript row를 만들지 않는다. 정확한 current script line은 Vehicle Flow에서, script action의 structured result는 Activity에서 확인한다.
+- 3D route는 authoritative result를 `600 ms` node 간격으로 보여 주는 교육용 slow-motion이고 live CAN hop telemetry가 아니다. multi-trace는 final node를 `900 ms` 유지한 뒤 다음 trace로 간다.
+- Why panel의 `Terminal`, `Toy ECU`, `Toy IDS`, `교육용 분석` source와 Network Monitor/Binary Inspector를 같은 action 기준으로 대조한다. IDS/ECU/effect 정보는 각 node 도달 전에 나타나면 안 된다.
+- `공격 조건 충족=달성`은 Toy 기술 결과다. `학습 확인 완료=완료`는 실행 전 prediction, monitor frame/Activity evidence 선택, 20자 이상 comparison/reflection 후 별도로 확인한다.
+
 ## A. 전체 공격 체인 — Door
 
 ### 1단계: 관찰과 실패하는 Replay 확인
@@ -44,13 +51,18 @@ cansend vcan0 456#000115B1
 
 통과 기준:
 
+- 세 completion 줄은 script-origin이므로 Virtual Terminal transcript가 추가되지 않고, 각 command label이 Vehicle Flow에 순서대로 표시됨
 - Stage: `증거`
 - 세 프레임 verdict: 모두 `EXECUTED`
 - Toy IDS: `NORMAL`
 - Proof: `COMPLETE`
 - Attempts: `4` (실패 Replay 1회 + 성공 프레임 3회)
-- Monitor 마지막 DATA: `00 01 15 B1`
+- 3D: 각 frame이 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`; final callout `GLB Left Door · EFFECT APPLIED · 교육용 분석`
+- Monitor/Binary Inspector: accepted 세 행의 DATA가 차례로 `00 01 13 B7`, `00 01 14 B0`, `00 01 15 B1`
+- Why: 마지막 trace에서 IDS node 이후 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, Body ECU 이후 `ECU 판정=EXECUTED`/source `Toy ECU`, endpoint 이후 `차량 영향=적용됨`/source `교육용 분석`
+- Activity: `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`/Proof는 structured trace에서 먼저 달성될 수 있지만 GLB/Why effect는 endpoint에서 적용·공개, 각 trace node `600 ms`, trace 사이 `900 ms`
 - GLB: Left Door만 열리고 Right Door는 닫힘
+- Self-check: `공격 조건 충족=달성`, `학습 확인 완료`는 prediction/evidence/reflection 전까지 `미완료`
 
 ## B. CAN Spoofing 기초
 
@@ -76,13 +88,18 @@ cansend vcan0 5A1#01
 
 통과 기준:
 
+- Lab script origin이므로 Virtual Terminal transcript row 없음. terminal에서 같은 completion action을 실행할 때는 command echo 뒤 `silent`임
 - Stage: `EVIDENCE`
 - Last verdict: `EXECUTED`
 - Toy IDS: `NORMAL`
 - Attempts: `1`, Completed: `YES`
 - Monitor: 관찰 프레임과 live 프레임을 합쳐 `2`행
 - Binary inspector의 live DATA: `01`
+- 3D: `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`; final callout `GLB Tailgate · EFFECT APPLIED · 교육용 분석`
+- Why: IDS/Rear ECU/Tailgate 도달 순서대로 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, `ECU 판정=EXECUTED`/source `Toy ECU`, `차량 영향=적용됨`/source `교육용 분석`
+- Activity: `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개
 - GLB: Tailgate만 열림
+- Self-check: `공격 조건 충족=달성`과 `학습 확인 완료=완료`를 별도로 확인
 
 ## C. CAN Replay 기초
 
@@ -108,15 +125,27 @@ canplayer -I capture.log -l 1
 
 통과 기준:
 
+- capture command는 echo 뒤 `silent`, `cat`은 echo와 frame `stdout`; completion action은 Lab script origin이므로 transcript row 없음. terminal에서 실행할 때는 echo 뒤 `silent`임
 - Stage: `EVIDENCE`
 - Last verdict: `EXECUTED`
 - Toy IDS: `NORMAL`
 - Attempts: `1`, Completed: `YES`
 - Monitor: capture와 live 프레임을 합쳐 `2`행
 - 두 프레임 DATA: 모두 `00 01`
+- 3D playback: `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`; final callout `GLB Left Door · EFFECT APPLIED · 교육용 분석`
+- Why: IDS/Body ECU/Left Door 도달 순서대로 value `관찰됨 · Toy 규칙 경보 없음`/source `Toy IDS`, `ECU 판정=EXECUTED`/source `Toy ECU`, `차량 영향=적용됨`/source `교육용 분석`
+- Activity: completion `EXECUTED · CAN frame 기록됨 · 차량 영향 적용`; `공격 조건 충족`은 먼저 달성될 수 있지만 GLB/Why effect는 `600 ms` progression의 Left Door endpoint에서만 적용·공개
 - GLB: Left Door만 열림
+- Self-check: `공격 조건 충족=달성`과 `학습 확인 완료=완료`를 별도로 확인
 
-초기화 직후 캡처 없이 재생하면 `CAPTURE_REQUIRED`가 나오는 것이 정상이다.
+초기화 직후 캡처 없이 재생하면 `CAPTURE_REQUIRED`가 나오는 것이 정상이다. 이 negative route는 다음을 모두 만족해야 한다.
+
+- Virtual Terminal: command echo + `stderr`; Vehicle Flow는 `Lab Terminal · NO VEHICLE PATH`에서 종료
+- 3D: route/final callout 없음, Training OBD-II·Toy Body ECU·GLB Left Door active highlight 없음
+- Network Monitor: 새 frame 없음; Binary Inspector는 비어 있거나 기존 선택을 변경하지 않음
+- Why: `Terminal` source만 표시하고 `가상 CAN 경로 입력`, `Toy ECU`, `Toy IDS` row 없음
+- Activity: `CAPTURE_REQUIRED · 차량 경로 없음 · terminal`
+- ECU/IDS verdict와 effect 없음, `공격 조건 충족=미달성`; `600 ms` node 전진 없이 Terminal final state를 `900 ms` 유지한 뒤 complete(reduced motion에서는 즉시 complete)
 
 ## 실패할 때 먼저 확인할 것
 
