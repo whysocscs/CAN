@@ -325,6 +325,7 @@
 .vehicle-flow-rail__hud > * { flex: none; }
 .vehicle-flow-rail__hud code { overflow: hidden; max-width: 34ch; color: #a9c6ff; text-overflow: ellipsis; white-space: nowrap; }
 .vehicle-flow-rail__mode { color: #f6cb72; font-weight: 800; }
+.vehicle-flow-rail__qualifier { color: #c4d2e5; }
 .vehicle-flow-rail__hud strong { color: #ffd3d3; }
 .vehicle-flow-rail__announcement {
   position: absolute;

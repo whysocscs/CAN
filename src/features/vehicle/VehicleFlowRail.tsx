@@ -1,8 +1,5 @@
 import type { CSSProperties } from "react"
-import {
-  VEHICLE_TOPOLOGY_BY_ID,
-  type VehicleTopologyNodeId,
-} from "./vehicleTopology"
+import { VEHICLE_TOPOLOGY_BY_ID } from "./vehicleTopology"
 import type {
   VehicleFlowNodeId,
   VehicleFlowPlaybackSnapshot,
@@ -13,7 +10,7 @@ type FlowNodeState = "idle" | "queued" | "active" | "passed" | "effect" | "rejec
 
 interface VehicleFlowRailProps {
   scenarioTitle: string
-  route: readonly VehicleTopologyNodeId[]
+  route: readonly VehicleFlowNodeId[]
   playback: VehicleFlowPlaybackSnapshot
   accent: string
 }
@@ -53,7 +50,7 @@ function nodeState(
   return "queued"
 }
 
-function railNodes(route: readonly VehicleTopologyNodeId[]): RailNode[] {
+function railNodes(route: readonly VehicleFlowNodeId[]): RailNode[] {
   return [
     TERMINAL_NODE,
     ...route.map((id) => ({
@@ -125,6 +122,9 @@ export default function VehicleFlowRail({
 }: VehicleFlowRailProps) {
   const trace = playback.trace
   const rejection = rejectionText(trace)
+  const displayRoute = trace
+    ? trace.route.filter((nodeId) => nodeId !== "terminal")
+    : route
 
   return (
     <section
@@ -133,12 +133,13 @@ export default function VehicleFlowRail({
       aria-label={`${scenarioTitle} command timeline`}
     >
       <ol className="vehicle-flow-rail__nodes" aria-label={`${scenarioTitle} command flow`}>
-        {railNodes(route).map((node) => (
+        {railNodes(displayRoute).map((node) => (
           <FlowNode key={node.id} node={node} state={nodeState(node.id, playback)} />
         ))}
       </ol>
       <div className="vehicle-flow-rail__hud">
         <span className="vehicle-flow-rail__mode">교육용 slow-motion trace</span>
+        <span className="vehicle-flow-rail__qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
         <code>{trace?.commandLabel ?? "명령 대기 중"}</code>
         <span>{ecuVerdict(trace)}</span>
         <span>{idsVerdict(trace)}</span>
