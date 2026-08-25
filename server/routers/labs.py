@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 import threading
 from typing import Any, Final
@@ -16,7 +17,8 @@ from server.labs.door_blackbox import _TARGET_CAN_ID, DoorBlackboxSession, Frame
 
 
 router = APIRouter(prefix="/labs/door-blackbox", tags=["labs"])
-_sessions: dict[str, DoorBlackboxSession] = {}
+_MAX_SESSIONS: Final = 128
+_sessions: OrderedDict[str, DoorBlackboxSession] = OrderedDict()
 _active_correlation: tuple[str, int] | None = None
 
 FrameEmitter = Callable[..., Awaitable[bool]]
@@ -266,6 +268,8 @@ async def create_session() -> dict[str, object]:
         session_id = str(uuid4())
         session = DoorBlackboxSession(session_id=session_id)
         _sessions[session_id] = session
+        while len(_sessions) > _MAX_SESSIONS:
+            _sessions.popitem(last=False)
         state = session.public_state()
         _active_correlation = (session_id, int(state["generation"]))
         return state

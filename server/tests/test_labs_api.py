@@ -292,6 +292,47 @@ def test_unknown_session_returns_not_found() -> None:
     assert response.status_code == 404
 
 
+def test_door_session_storage_evicts_oldest_and_latest_session_stays_active() -> None:
+    original_sessions = labs._sessions.copy()
+    original_active = labs._active_correlation
+    original_frames = dict(can._last_frames)
+    emitted: list[dict[str, object]] = []
+
+    async def record_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record_emit
+    client = TestClient(app)
+    labs._sessions.clear()
+    labs._active_correlation = None
+    try:
+        created = [
+            client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+            for _ in range(129)
+        ]
+
+        assert len(labs._sessions) == 128
+        assert client.get(f"/labs/door-blackbox/sessions/{created[0]}").status_code == 404
+        assert client.get(f"/labs/door-blackbox/sessions/{created[-1]}").status_code == 200
+
+        latest = client.post(
+            f"/labs/door-blackbox/sessions/{created[-1]}/terminal",
+            json={"command": "cansend vcan0 456#000113B7"},
+        )
+        assert latest.json()["code"] == "EXECUTED"
+        assert len(emitted) == 1
+        assert emitted[0]["lab"]["sessionId"] == created[-1]
+    finally:
+        labs._sessions.clear()
+        labs._sessions.update(original_sessions)
+        labs._active_correlation = original_active
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
+
+
 def test_rejected_attempts_are_returned_but_never_emitted_as_vehicle_events() -> None:
     emitted: list[dict[str, object]] = []
 
@@ -313,6 +354,49 @@ def test_rejected_attempts_are_returned_but_never_emitted_as_vehicle_events() ->
     assert response.status_code == 200
     assert response.json()["attempts"][0]["verdict"] == "CHECKSUM_INVALID"
     assert emitted == []
+
+
+def test_right_door_frame_is_scope_rejected_without_trace_effect_or_event() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record_emit
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    rejected = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#010013B7"},
+    ).json()
+
+    assert rejected["code"] == "TARGET_SCOPE_REJECTED"
+    assert rejected["state"]["vehicleState"] == {
+        "leftDoor": "closed",
+        "rightDoor": "closed",
+    }
+    assert rejected["state"]["attemptCount"] == 0
+    assert rejected["idsStatus"] == "ALERT"
+    assert rejected["flowTraces"][0]["outcome"] == "REJECTED"
+    assert rejected["flowTraces"][0]["stoppedAt"] == "body"
+    assert rejected["flowTraces"][0]["effectTarget"] is None
+    assert rejected["flowTraces"][0]["effectApplied"] is False
+    assert emitted == []
+
+    accepted = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#000113B7"},
+    ).json()
+    assert accepted["code"] == "EXECUTED"
+    assert accepted["state"]["vehicleState"] == {
+        "leftDoor": "open",
+        "rightDoor": "closed",
+    }
+    assert len(emitted) == 1
 
 
 def test_reset_clears_accepted_door_snapshot_before_a_browser_reconnects() -> None:

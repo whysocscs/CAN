@@ -6,6 +6,7 @@ opens a host file, starts a process, or forwards learner input to a shell.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 import re
@@ -20,6 +21,7 @@ ScenarioName = Literal["spoofing", "replay"]
 _MAX_COMMAND_CHARS: Final = 512
 _MAX_SCRIPT_CHARS: Final = 4096
 _MAX_SCRIPT_LINES: Final = 20
+_MAX_EVIDENCE_ENTRIES: Final = 300
 _CANSEND_RE: Final = re.compile(
     r"^cansend vcan0 ([0-9A-Fa-f]{1,3})#([0-9A-Fa-f]{2,16})$"
 )
@@ -166,7 +168,7 @@ class BeginnerCanAttackSession:
         self._left_door = "closed"
         self._right_door = "closed"
         self._tailgate = "closed"
-        self._evidence: list[dict[str, str]] = []
+        self._evidence: deque[dict[str, str]] = deque(maxlen=_MAX_EVIDENCE_ENTRIES)
         self._attempt_count = 0
         self._last_verdict: str | None = None
         self._completed = False
