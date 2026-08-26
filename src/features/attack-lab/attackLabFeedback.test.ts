@@ -196,6 +196,47 @@ describe("attack lab feedback policy", () => {
     },
   )
 
+  it.each([
+    [
+      "the trace records no applied effect",
+      { ...executedDoorTrace, effectApplied: false },
+    ],
+    [
+      "the applied effect targets a different endpoint",
+      { ...executedDoorTrace, effectTarget: "tailgate" },
+    ],
+  ] as const)(
+    "does not report EFFECT APPLIED when %s",
+    (_case, trace) => {
+      const feedback = classifyAttackLabFeedback({
+        result: actionResult({ traces: [trace] }),
+        playback: complete(trace),
+      })
+
+      expect(feedback.flow.nodeFeedback).toMatchObject({
+        nodeId: "leftDoor",
+        status: "PROCESSING",
+      })
+    },
+  )
+
+  it("shows ECU acceptance before the later vehicle effect stage", () => {
+    const result = actionResult({ traces: [executedDoorTrace] })
+    const atBodyEcu = classifyAttackLabFeedback({
+      result,
+      playback: playback(executedDoorTrace, 4),
+    })
+
+    expect(atBodyEcu.flow.currentNodeId).toBe("body")
+    expect(atBodyEcu.flow.effectApplied).toBe(false)
+    expect(atBodyEcu.flow.nodeFeedback).toMatchObject({
+      nodeId: "body",
+      status: "ACCEPTED",
+      source: "Toy ECU",
+    })
+    expect(atBodyEcu.flow.nodeFeedback?.detail).toContain("수락")
+  })
+
   it("places the authoritative observed result beside the learner prediction without exposing a hidden expected value", () => {
     const feedback = classifyAttackLabFeedback({
       result: actionResult(),

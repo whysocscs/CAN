@@ -1819,7 +1819,7 @@ describe("VehicleNetworkViewport", () => {
       "REJECTED",
     )
     expect(
-      screen.getByText("정적 최종 상태 · reduced motion"),
+      screen.getByText("실습자용 · 정적 단계 전환 · reduced motion"),
     ).toBeInTheDocument()
     expect(
       canvasState.lineProps.every(

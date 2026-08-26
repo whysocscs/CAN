@@ -33,6 +33,7 @@ import { useVehicleRig } from "./useVehicleRig"
 import type {
   VehicleFlowNodeFeedback,
   VehicleFlowNodeId,
+  VehicleFlowPlaybackMode,
   VehicleFlowPlaybackSnapshot,
   VehicleFlowPresentation,
 } from "./vehicleFlowTypes"
@@ -85,6 +86,7 @@ export interface VehicleNetworkViewportProps {
   onPlaybackPause?: () => void
   onPlaybackResume?: () => void
   onPlaybackNextStep?: () => void
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 interface CameraPreset {
@@ -1057,6 +1059,7 @@ export default function VehicleNetworkViewport({
   onPlaybackPause,
   onPlaybackResume,
   onPlaybackNextStep,
+  playbackMode = "auto",
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
   const playbackState = useMemo(
@@ -1354,6 +1357,7 @@ export default function VehicleNetworkViewport({
         onPause={onPlaybackPause}
         onResume={onPlaybackResume}
         onNextStep={onPlaybackNextStep}
+        playbackMode={playbackMode}
       />
 
       <div className="vehicle-network-viewport__canvas">

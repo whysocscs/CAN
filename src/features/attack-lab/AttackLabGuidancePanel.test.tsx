@@ -3,7 +3,7 @@
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import AttackLabGuidancePanel from "./AttackLabGuidancePanel"
 import {
   ATTACK_LAB_LEARNING,
@@ -116,6 +116,37 @@ describe("attack lab learning guidance", () => {
     expect(within(guidance).queryByText("지금 할 일")).not.toBeInTheDocument()
     expect(within(guidance).queryByText("확인할 증거")).not.toBeInTheDocument()
     expect(within(guidance).queryByText("완료 기준")).not.toBeInTheDocument()
+  })
+
+  it("reports a controlled beginner/practitioner mode change to the lab page", async () => {
+    const user = userEvent.setup()
+    const onModeChange = vi.fn()
+    const view = render(
+      <AttackLabGuidancePanel
+        scenario="door"
+        stageIndex={0}
+        mode="guided"
+        onModeChange={onModeChange}
+      />,
+    )
+
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
+
+    expect(onModeChange).toHaveBeenCalledWith("challenge")
+    expect(screen.getByRole("radio", { name: /초보자용/ })).toBeChecked()
+
+    view.rerender(
+      <AttackLabGuidancePanel
+        scenario="door"
+        stageIndex={0}
+        mode="challenge"
+        onModeChange={onModeChange}
+      />,
+    )
+    expect(screen.getByRole("radio", { name: /실습자용/ })).toBeChecked()
+    expect(
+      screen.getByRole("region", { name: "현재 단계 안내" }),
+    ).toHaveTextContent("스스로 정할 항목")
   })
 
   it("keeps the current stage available without announcing every progress change", () => {

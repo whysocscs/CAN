@@ -470,6 +470,81 @@
   background: #fffbeb;
 }
 
+.vehicle-flow-rail__guided-cause {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(112px, .5fr) minmax(260px, 1.6fr) minmax(190px, .9fr);
+  align-items: stretch;
+  border-top: 1px solid #3c4b63;
+  background: #142033;
+  color: #f4f7fb;
+}
+
+.vehicle-flow-rail__guided-cause > div {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 3px;
+  padding: 9px 12px;
+}
+
+.vehicle-flow-rail__guided-cause > div + div {
+  border-left: 1px solid #35435a;
+}
+
+.vehicle-flow-rail__guided-progress strong {
+  color: #ffd27a;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 15px;
+}
+
+.vehicle-flow-rail__guided-progress span,
+.vehicle-flow-rail__guided-meta span {
+  color: #cbd7e8;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.vehicle-flow-rail__guided-detail > span {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.vehicle-flow-rail__guided-detail strong {
+  overflow: hidden;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vehicle-flow-rail__guided-detail b {
+  border: 1px solid #60718d;
+  padding: 2px 6px;
+  color: #b9d3ff;
+  font-family: "JetBrains Mono Variable", monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.vehicle-flow-rail__guided-detail p {
+  margin: 0;
+  color: #edf2f9;
+  font-size: 13px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+}
+
+.vehicle-flow-rail__guided-meta code {
+  overflow: hidden;
+  color: #9cc2ff;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .vehicle-flow-rail__hud {
   display: flex;
   min-width: 0;
@@ -534,6 +609,10 @@
   color: #7f8da2;
   cursor: not-allowed;
   opacity: .62;
+}
+
+.vehicle-flow-rail__controls--step {
+  grid-template-columns: auto auto;
 }
 
 .vehicle-network-viewport__toolbar {
@@ -1166,6 +1245,12 @@
     width: 100%;
     flex: 1 0 100%;
   }
+  .vehicle-flow-rail__guided-cause { grid-template-columns: minmax(0, 1fr); }
+  .vehicle-flow-rail__guided-cause > div + div {
+    border-top: 1px solid #35435a;
+    border-left: 0;
+  }
+  .vehicle-flow-rail__guided-meta { grid-template-columns: minmax(0, 1fr); }
   .vehicle-flow-rail__nodes {
     grid-auto-columns: 108px;
     grid-auto-flow: column;

@@ -69,6 +69,76 @@ describe("useVehicleFlowPlayback", () => {
     expect(result.current.snapshot.phase).toBe("playing")
   })
 
+  it("starts a step-mode run paused at the first segment without scheduling a timer", () => {
+    const trace: VehicleFlowTrace = {
+      ...rejectedBodyTrace,
+      traceId: "guided-first-step",
+      route: ["terminal", "obd", "body"],
+      stoppedAt: "body",
+    }
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({ reducedMotion: false }),
+    )
+
+    act(() =>
+      result.current.play({
+        runKey: "guided-step-mode",
+        traces: [trace],
+        playbackMode: "step",
+      }),
+    )
+
+    expect(result.current.snapshot).toMatchObject({
+      phase: "playing",
+      traceIndex: 0,
+      segmentIndex: 0,
+    })
+    expect(result.current.isPaused).toBe(true)
+    expect(result.current.isPlaying).toBe(false)
+    expect(result.current.isActive).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+
+    act(() => vi.runAllTimers())
+    expect(result.current.snapshot.segmentIndex).toBe(0)
+
+    act(() => result.current.nextStep())
+    expect(result.current.snapshot.segmentIndex).toBe(1)
+  })
+
+  it("completes a final step-mode trace when the learner reaches its endpoint", () => {
+    const onEffect = vi.fn()
+    const onComplete = vi.fn()
+    const { result } = renderHook(() =>
+      useVehicleFlowPlayback({
+        reducedMotion: false,
+        onEffect,
+        onComplete,
+      }),
+    )
+
+    act(() =>
+      result.current.play({
+        runKey: "guided-final-endpoint",
+        traces: [executedDoorTrace],
+        playbackMode: "step",
+      }),
+    )
+
+    for (let index = 1; index < executedDoorTrace.route.length; index += 1) {
+      act(() => result.current.nextStep())
+    }
+
+    expect(result.current.snapshot).toMatchObject({
+      phase: "complete",
+      segmentIndex: executedDoorTrace.route.length - 1,
+    })
+    expect(result.current.isPaused).toBe(false)
+    expect(result.current.isActive).toBe(false)
+    expect(onEffect).toHaveBeenCalledWith(executedDoorTrace)
+    expect(onComplete).toHaveBeenCalledWith("guided-final-endpoint")
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it("pauses the pending timer without giving up run ownership", () => {
     const onCancel = vi.fn()
     const trace: VehicleFlowTrace = {
@@ -263,7 +333,7 @@ describe("useVehicleFlowPlayback", () => {
     })
   })
 
-  it("finishes a paused run when reduced motion becomes enabled", () => {
+  it("keeps a paused run step-driven when reduced motion becomes enabled", () => {
     const onEffect = vi.fn()
     const onComplete = vi.fn()
     const { result, rerender } = renderHook(
@@ -281,12 +351,24 @@ describe("useVehicleFlowPlayback", () => {
     act(() => result.current.pause())
     rerender({ reducedMotion: true })
 
+    expect(result.current.snapshot).toMatchObject({
+      phase: "playing",
+      segmentIndex: 0,
+    })
+    expect(result.current.isPaused).toBe(true)
+    expect(result.current.isActive).toBe(true)
+    expect(onEffect).not.toHaveBeenCalled()
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+
+    act(() => result.current.nextStep())
+    expect(result.current.snapshot.segmentIndex).toBe(1)
+    act(() => result.current.resume())
+    act(() => vi.runAllTimers())
+
     expect(result.current.snapshot.phase).toBe("complete")
-    expect(result.current.isPaused).toBe(false)
-    expect(result.current.isActive).toBe(false)
     expect(onEffect).toHaveBeenCalledOnce()
     expect(onComplete).toHaveBeenCalledWith("paused-reduced-motion")
-    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("holds the final node for 900 ms before starting the next trace", () => {
@@ -470,7 +552,7 @@ describe("useVehicleFlowPlayback", () => {
     expect(onComplete).toHaveBeenCalledOnce()
   })
 
-  it("replaces an old run and completes reduced motion synchronously", () => {
+  it("replaces an old run without skipping reduced-motion stages", () => {
     const onEffect = vi.fn()
     const onCancel = vi.fn()
     const { result, rerender } = renderHook(
@@ -503,11 +585,19 @@ describe("useVehicleFlowPlayback", () => {
         traces: [executedDoorTrace],
       }),
     )
+    expect(result.current.snapshot).toMatchObject({
+      phase: "playing",
+      segmentIndex: 0,
+    })
+    expect(onEffect).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(1)
+
+    act(() => vi.runAllTimers())
     expect(onEffect).toHaveBeenCalledWith(executedDoorTrace)
     expect(vi.getTimerCount()).toBe(0)
   })
 
-  it("finishes an active run when reduced motion becomes enabled", () => {
+  it("preserves active stage evidence when reduced motion becomes enabled", () => {
     const onEffect = vi.fn()
     const onComplete = vi.fn()
     const { result, rerender } = renderHook(
@@ -532,21 +622,21 @@ describe("useVehicleFlowPlayback", () => {
 
     rerender({ reducedMotion: true })
 
-    expect(result.current.snapshot.phase).toBe("complete")
-    expect(result.current.snapshot.segmentIndex).toBe(
-      executedDoorTrace.route.length - 1,
-    )
-    expect(onEffect).toHaveBeenCalledOnce()
-    expect(onComplete).toHaveBeenCalledOnce()
-    expect(onComplete).toHaveBeenCalledWith("session:0:motion-change")
-    expect(vi.getTimerCount()).toBe(0)
+    expect(result.current.snapshot).toMatchObject({
+      phase: "playing",
+      segmentIndex: 1,
+    })
+    expect(onEffect).not.toHaveBeenCalled()
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(1)
 
     act(() => vi.runAllTimers())
     expect(onEffect).toHaveBeenCalledOnce()
     expect(onComplete).toHaveBeenCalledOnce()
+    expect(onComplete).toHaveBeenCalledWith("session:0:motion-change")
   })
 
-  it("completes reduced motion synchronously with the same final semantics", () => {
+  it("keeps reduced motion pausable with discrete stage progression", () => {
     const onEffect = vi.fn()
     const onComplete = vi.fn()
     const { result } = renderHook(() =>
@@ -565,15 +655,28 @@ describe("useVehicleFlowPlayback", () => {
     )
 
     expect(result.current.snapshot).toMatchObject({
-      phase: "complete",
+      phase: "playing",
       trace: executedDoorTrace,
       traceIndex: 0,
       traceCount: 1,
-      segmentIndex: executedDoorTrace.route.length - 1,
+      segmentIndex: 0,
     })
+    expect(onEffect).not.toHaveBeenCalled()
+    expect(onComplete).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(1)
+
+    act(() => result.current.pause())
+    expect(vi.getTimerCount()).toBe(0)
+    act(() => result.current.nextStep())
+    expect(result.current.snapshot.segmentIndex).toBe(1)
+    act(() => vi.runAllTimers())
+    expect(result.current.snapshot.segmentIndex).toBe(1)
+
+    act(() => result.current.resume())
+    act(() => vi.runAllTimers())
+    expect(result.current.snapshot.phase).toBe("complete")
     expect(onEffect).toHaveBeenCalledWith(executedDoorTrace)
     expect(onComplete).toHaveBeenCalledWith("reduced-final-semantics")
-    expect(vi.getTimerCount()).toBe(0)
   })
 
   it("does not complete an old run when its effect callback cancels it", () => {
@@ -651,6 +754,7 @@ describe("useVehicleFlowPlayback", () => {
         traces: [rejectedBodyTrace],
       }),
     )
+    act(() => vi.runAllTimers())
     expect(result.current.snapshot.phase).toBe("complete")
 
     act(() => result.current.cancel())

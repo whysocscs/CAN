@@ -1,6 +1,7 @@
 import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
 import type {
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPlaybackMode,
   VehicleFlowPresentation,
 } from "../vehicle/vehicleFlowTypes"
 import {
@@ -27,6 +28,7 @@ export interface DoorAttackVehicleProps {
   onPlaybackPause?: () => void
   onPlaybackResume?: () => void
   onPlaybackNextStep?: () => void
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 export default function DoorAttackVehicle({
@@ -38,6 +40,7 @@ export default function DoorAttackVehicle({
   onPlaybackPause,
   onPlaybackResume,
   onPlaybackNextStep,
+  playbackMode,
 }: DoorAttackVehicleProps) {
   return (
     <VehicleNetworkViewport
@@ -54,6 +57,7 @@ export default function DoorAttackVehicle({
       onPlaybackPause={onPlaybackPause}
       onPlaybackResume={onPlaybackResume}
       onPlaybackNextStep={onPlaybackNextStep}
+      playbackMode={playbackMode}
     />
   )
 }

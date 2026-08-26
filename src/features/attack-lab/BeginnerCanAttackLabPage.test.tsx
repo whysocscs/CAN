@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
 import type {
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPlaybackMode,
   VehicleFlowPresentation,
   VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
@@ -95,6 +96,7 @@ vi.mock("../vehicle/VehicleNetworkViewport", async () => {
               onPause={props.onPlaybackPause as (() => void) | undefined}
               onResume={props.onPlaybackResume as (() => void) | undefined}
               onNextStep={props.onPlaybackNextStep as (() => void) | undefined}
+              playbackMode={props.playbackMode as VehicleFlowPlaybackMode}
             />
           ) : null}
         </div>
@@ -629,7 +631,7 @@ describe("BeginnerCanAttackLabPage", () => {
     ["spoofing", "tailgate"],
     ["replay", "doorL"],
   ] as const)(
-    "defers the %s effect until playback reaches the endpoint",
+    "keeps Guided %s playback manual until the learner reaches the endpoint",
     async (scenarioName, part) => {
       vi.useFakeTimers({ shouldAdvanceTime: true })
       viewportHarness.renderRail = true
@@ -644,10 +646,11 @@ describe("BeginnerCanAttackLabPage", () => {
           [part === "doorL" ? "leftDoor" : "tailgate"]: "open",
         },
       } satisfies BeginnerCanAttackState
+      const trace = executedBeginnerTrace(scenarioName)
       api.runBeginnerCanAttackScript.mockResolvedValueOnce(
         result(completed, {
           code: "EXECUTED",
-          flowTraces: [executedBeginnerTrace(scenarioName)],
+          flowTraces: [trace],
         }),
       )
 
@@ -667,20 +670,22 @@ describe("BeginnerCanAttackLabPage", () => {
       ).toHaveAttribute("data-playback-phase", "playing")
 
       const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
-      await user.click(
-        within(controls).getByRole("button", { name: "일시정지" }),
-      )
+      expect(screen.getByRole("radio", { name: /초보자용/ })).toBeChecked()
+      expect(within(controls).getByText("단계 진행 대기")).toBeInTheDocument()
+      expect(
+        within(controls).queryByRole("button", { name: "계속 재생" }),
+      ).not.toBeInTheDocument()
       act(() => vi.runAllTimers())
       expect(vehicle.isOpen(part)).toBe(false)
-      await user.click(
-        within(controls).getByRole("button", { name: "한 단계 진행" }),
-      )
-      expect(vehicle.isOpen(part)).toBe(false)
-      await user.click(
-        within(controls).getByRole("button", { name: "계속 재생" }),
-      )
 
-      act(() => vi.runAllTimers())
+      for (let index = 1; index < trace.route.length; index += 1) {
+        await user.click(
+          within(controls).getByRole("button", { name: "한 단계 진행" }),
+        )
+        if (index < trace.route.length - 1) {
+          expect(vehicle.isOpen(part)).toBe(false)
+        }
+      }
 
       expect(vehicle.isOpen(part)).toBe(true)
       expect(
@@ -690,8 +695,64 @@ describe("BeginnerCanAttackLabPage", () => {
   )
 
   it.each(["spoofing", "replay"] as const)(
+    "keeps a completed Guided %s trace in guided presentation when Challenge is selected for the next run",
+    async (scenarioName) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      viewportHarness.renderRail = true
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      const current = session(scenarioName)
+      const part = scenarioName === "spoofing" ? "tailgate" : "doorL"
+      const completed = {
+        ...current,
+        stage: "EVIDENCE" as const,
+        completed: true,
+        vehicleState: {
+          ...current.vehicleState,
+          [part === "doorL" ? "leftDoor" : "tailgate"]: "open",
+        },
+      } satisfies BeginnerCanAttackState
+      const trace = executedBeginnerTrace(scenarioName)
+      api.runBeginnerCanAttackScript.mockResolvedValueOnce(
+        result(completed, {
+          code: "EXECUTED",
+          flowTraces: [trace],
+        }),
+      )
+
+      render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
+      await user.click(
+        await screen.findByRole("button", { name: "스크립트 실행" }),
+      )
+      await waitFor(() =>
+        expect(api.runBeginnerCanAttackScript).toHaveBeenCalledOnce(),
+      )
+
+      const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+      for (let index = 1; index < trace.route.length; index += 1) {
+        await user.click(
+          within(controls).getByRole("button", { name: "한 단계 진행" }),
+        )
+      }
+
+      expect(screen.getByText("초보자용 · 장치별 수동 진행")).toBeInTheDocument()
+      expect(
+        screen.getByRole("region", { name: "초보자 단계 설명" }),
+      ).toBeInTheDocument()
+
+      await user.click(screen.getByRole("radio", { name: /Challenge/ }))
+
+      expect(screen.getByRole("radio", { name: /Challenge/ })).toBeChecked()
+      expect(screen.getByText("초보자용 · 장치별 수동 진행")).toBeInTheDocument()
+      expect(
+        screen.getByRole("region", { name: "초보자 단계 설명" }),
+      ).toBeInTheDocument()
+    },
+  )
+
+  it.each(["spoofing", "replay"] as const)(
     "invalidates the previous %s action as soon as a second accepted submit starts",
     async (scenarioName) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
       stubReducedMotion(true)
       const current = session(scenarioName)
       const trace = executedBeginnerTrace(scenarioName)
@@ -725,11 +786,12 @@ describe("BeginnerCanAttackLabPage", () => {
           }),
         )
         .mockReturnValueOnce(secondRequest.promise)
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
       await screen.findByText(
         scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU",
       )
+      await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
       const prediction = screen.getByLabelText("실행 전 예상")
       await user.type(
@@ -739,6 +801,7 @@ describe("BeginnerCanAttackLabPage", () => {
       const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
       await user.type(terminal, trace.commandLabel)
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      act(() => vi.runAllTimers())
       await user.type(
         screen.getByLabelText("선택한 근거와 결과 비교"),
         "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
@@ -804,6 +867,7 @@ describe("BeginnerCanAttackLabPage", () => {
   ] as const)(
     "renders a successful %s terminal action through all four shared learning components",
     async (scenarioName, part, principleCopy) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
       stubReducedMotion(true)
       viewportHarness.renderRail = true
       const current = session(scenarioName)
@@ -836,15 +900,17 @@ describe("BeginnerCanAttackLabPage", () => {
           flowTraces: [trace],
         }),
       )
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
       await screen.findByText(
         scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU",
       )
+      await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
       const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
       await user.type(terminal, trace.commandLabel)
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      act(() => vi.runAllTimers())
 
       const transcript = screen.getByRole("region", {
         name: "Virtual terminal transcript",
@@ -903,6 +969,7 @@ describe("BeginnerCanAttackLabPage", () => {
   )
 
   it("invalidates the latest Beginner technical and learner result when the next trace payload is malformed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     stubReducedMotion(true)
     const current = session("spoofing")
     const trace = executedBeginnerTrace("spoofing")
@@ -938,9 +1005,10 @@ describe("BeginnerCanAttackLabPage", () => {
           flowTraces: [{ invalid: true }],
         }),
       )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<BeginnerCanAttackLabPage scenario="spoofing" />)
     await screen.findByText("REAR ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByLabelText("실행 전 예상"),
@@ -949,6 +1017,7 @@ describe("BeginnerCanAttackLabPage", () => {
     const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
     await user.type(terminal, trace.commandLabel)
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    act(() => vi.runAllTimers())
     await user.type(
       screen.getByLabelText("선택한 근거와 결과 비교"),
       "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 확인했습니다.",
@@ -973,7 +1042,7 @@ describe("BeginnerCanAttackLabPage", () => {
         }),
       ),
     )
-    await flushStream()
+    act(() => vi.runAllTimers())
     await user.click(
       within(screen.getByRole("region", { name: "Network monitor" })).getByRole(
         "button",
@@ -1033,6 +1102,7 @@ describe("BeginnerCanAttackLabPage", () => {
 
     render(<BeginnerCanAttackLabPage scenario="replay" />)
     const input = await screen.findByLabelText("제한 터미널 명령")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     await user.type(input, "candump -L vcan0 > capture.log")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     await waitFor(() =>
@@ -1259,6 +1329,8 @@ describe("BeginnerCanAttackLabPage", () => {
       ),
     )
     render(<BeginnerCanAttackLabPage scenario="spoofing" />)
+    await screen.findByText("REAR ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
@@ -1417,6 +1489,7 @@ describe("BeginnerCanAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<BeginnerCanAttackLabPage scenario="spoofing" />)
     await screen.findByText("REAR ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByLabelText("실행 전 예상"),
@@ -1466,6 +1539,7 @@ describe("BeginnerCanAttackLabPage", () => {
   })
 
   it("keeps capture redirection silent while Activity and Why identify Evidence capture", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
     stubReducedMotion(true)
     const current = session("replay")
     const trace = captureTrace()
@@ -1488,15 +1562,17 @@ describe("BeginnerCanAttackLabPage", () => {
         flowTraces: [trace],
       }),
     )
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<BeginnerCanAttackLabPage scenario="replay" />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
       trace.commandLabel,
     )
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    act(() => vi.runAllTimers())
 
     const transcript = screen.getByRole("region", {
       name: "Virtual terminal transcript",
@@ -1520,6 +1596,7 @@ describe("BeginnerCanAttackLabPage", () => {
   ] as const)(
     "does not let a previous successful %s session make the latest failed action pass",
     async (scenarioName, part) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
       stubReducedMotion(true)
       const current = session(scenarioName)
       const executed = executedBeginnerTrace(scenarioName)
@@ -1561,11 +1638,12 @@ describe("BeginnerCanAttackLabPage", () => {
             ],
           }),
         )
-      const user = userEvent.setup()
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
       render(<BeginnerCanAttackLabPage scenario={scenarioName} />)
       await screen.findByText(
         scenarioName === "spoofing" ? "REAR ECU" : "BODY ECU",
       )
+      await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
       await user.type(
         screen.getByLabelText("실행 전 예상"),
@@ -1574,12 +1652,14 @@ describe("BeginnerCanAttackLabPage", () => {
       const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
       await user.type(terminal, executed.commandLabel)
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      act(() => vi.runAllTimers())
       expect(
         screen.getByText("공격 조건 충족").parentElement,
       ).toHaveTextContent("달성")
 
       await user.type(terminal, "bad learner command")
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      act(() => vi.runAllTimers())
 
       expect(
         screen.getByText("공격 조건 충족").parentElement,

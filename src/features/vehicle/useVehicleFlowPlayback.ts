@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react"
 import type {
+  VehicleFlowPlaybackMode,
   VehicleFlowPlaybackSnapshot,
   VehicleFlowTrace,
 } from "./vehicleFlowTypes"
@@ -72,6 +73,7 @@ function dedupeTraces(traces: VehicleFlowTrace[]): VehicleFlowTrace[] {
 export interface VehicleFlowRun {
   runKey: string
   traces: VehicleFlowTrace[]
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 export interface VehicleFlowPlaybackOptions {
@@ -142,54 +144,6 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
     }, pending.remainingMs)
   }, [ownsRun])
 
-  const finishSynchronously = useCallback(
-    (generation: number) => {
-      const run = runRef.current
-      if (!run || !ownsRun(generation, run)) return
-
-      if (timerRef.current !== null) clearTimeout(timerRef.current)
-      timerRef.current = null
-      pendingBoundaryRef.current = null
-      pausedRef.current = false
-      setIsPaused(false)
-      const cursor = cursorRef.current
-      const startTraceIndex =
-        cursor?.generation === generation ? cursor.traceIndex : 0
-
-      for (
-        let traceIndex = startTraceIndex;
-        traceIndex < run.traces.length;
-        traceIndex += 1
-      ) {
-        if (!ownsRun(generation, run)) return
-        const trace = run.traces[traceIndex]
-        dispatchSnapshot({
-          type: "replace",
-          snapshot: {
-            playbackId: generation,
-            phase: "playing",
-            trace,
-            traceIndex,
-            traceCount: run.traces.length,
-            segmentIndex: trace.route.length - 1,
-          },
-        })
-        cursorRef.current = { generation, traceIndex: traceIndex + 1 }
-        if (trace.effectApplied) {
-          optionsRef.current.onEffect?.(trace)
-          if (!ownsRun(generation, run)) return
-        }
-      }
-
-      if (!ownsRun(generation, run)) return
-      runRef.current = null
-      cursorRef.current = null
-      dispatchSnapshot({ type: "finish" })
-      optionsRef.current.onComplete?.(run.runKey)
-    },
-    [ownsRun],
-  )
-
   const advance = useCallback(
     (generation: number, traceIndex: number, segmentIndex: number) => {
       const run = runRef.current
@@ -214,6 +168,19 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
         if (trace.effectApplied) {
           optionsRef.current.onEffect?.(trace)
           if (!ownsRun(generation, run)) return
+        }
+        if (
+          run.playbackMode === "step" &&
+          traceIndex + 1 >= run.traces.length
+        ) {
+          runRef.current = null
+          cursorRef.current = null
+          pendingBoundaryRef.current = null
+          pausedRef.current = false
+          setIsPaused(false)
+          dispatchSnapshot({ type: "finish" })
+          optionsRef.current.onComplete?.(run.runKey)
+          return
         }
         pendingBoundaryRef.current = {
           generation,
@@ -325,22 +292,14 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
       runRef.current = { ...run, traces }
       const generation = ++generationRef.current
       cursorRef.current = { generation, traceIndex: 0 }
-      if (optionsRef.current.reducedMotion) {
-        finishSynchronously(generation)
-        return true
-      }
-
+      const startsPaused = run.playbackMode === "step"
+      pausedRef.current = startsPaused
+      setIsPaused(startsPaused)
       advance(generation, 0, 0)
       return true
     },
-    [advance, cancel, finishSynchronously],
+    [advance, cancel],
   )
-
-  useEffect(() => {
-    if (reducedMotion && runRef.current) {
-      finishSynchronously(generationRef.current)
-    }
-  }, [finishSynchronously, reducedMotion])
 
   useEffect(
     () => () => {

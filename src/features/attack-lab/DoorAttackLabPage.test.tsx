@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
 import type {
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPlaybackMode,
   VehicleFlowPresentation,
   VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
@@ -85,6 +86,7 @@ vi.mock("./DoorAttackVehicle", async () => {
       onPlaybackPause,
       onPlaybackResume,
       onPlaybackNextStep,
+      playbackMode,
     }: {
       currentStage?: string
       playback?: VehicleFlowPlaybackSnapshot
@@ -93,6 +95,7 @@ vi.mock("./DoorAttackVehicle", async () => {
       onPlaybackPause?: () => void
       onPlaybackResume?: () => void
       onPlaybackNextStep?: () => void
+      playbackMode?: VehicleFlowPlaybackMode
     }) => {
       const signature = playback
         ? [
@@ -137,6 +140,7 @@ vi.mock("./DoorAttackVehicle", async () => {
               onPause={onPlaybackPause}
               onResume={onPlaybackResume}
               onNextStep={onPlaybackNextStep}
+              playbackMode={playbackMode}
             />
           ) : null}
         </div>
@@ -615,6 +619,7 @@ describe("DoorAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     const runButton = await screen.findByRole("button", {
       name: "스크립트 실행",
     })
@@ -649,6 +654,7 @@ describe("DoorAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /Challenge/ }))
 
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
@@ -670,7 +676,7 @@ describe("DoorAttackLabPage", () => {
     expect(screen.getByRole("button", { name: "스크립트 실행" })).toBeDisabled()
   })
 
-  it("advances one paused Door boundary and resumes through completion", async () => {
+  it("starts Guided Door playback paused and advances one device per learner click", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     stubReducedMotion(false)
     playbackHarness.renderRail = true
@@ -686,7 +692,8 @@ describe("DoorAttackLabPage", () => {
     const commandFlow = screen.getByRole("list", {
       name: "Door attack route command flow",
     })
-    await user.click(within(controls).getByRole("button", { name: "일시정지" }))
+    expect(screen.getByRole("radio", { name: /초보자용/ })).toBeChecked()
+    expect(within(controls).getByText("단계 진행 대기")).toBeInTheDocument()
     expect(
       within(commandFlow).getByRole("listitem", {
         name: "Lab Terminal · 현재 처리 중",
@@ -708,17 +715,40 @@ describe("DoorAttackLabPage", () => {
       }),
     ).toBeInTheDocument()
     expect(vehicle.isOpen("doorL")).toBe(false)
+  })
+
+  it("keeps a completed Guided Door trace in guided presentation when Challenge is selected for the next run", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    playbackHarness.renderRail = true
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
 
     await user.click(
-      within(controls).getByRole("button", { name: "계속 재생" }),
+      await screen.findByRole("button", { name: "스크립트 실행" }),
     )
-    act(() => vi.runAllTimers())
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
 
-    expect(vehicle.isOpen("doorL")).toBe(true)
-    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
-      "data-playback-phase",
-      "complete",
-    )
+    const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+    for (let index = 1; index < executedDoorTrace.route.length; index += 1) {
+      await user.click(
+        within(controls).getByRole("button", { name: "한 단계 진행" }),
+      )
+    }
+
+    expect(screen.getByText("초보자용 · 장치별 수동 진행")).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "초보자 단계 설명" }),
+    ).toBeInTheDocument()
+
+    await user.click(screen.getByRole("radio", { name: /Challenge/ }))
+
+    expect(screen.getByRole("radio", { name: /Challenge/ })).toBeChecked()
+    expect(screen.getByText("초보자용 · 장치별 수동 진행")).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "초보자 단계 설명" }),
+    ).toBeInTheDocument()
   })
 
   it("opens Door reflection only after playback completes and shows its authoritative comparison", async () => {
@@ -727,6 +757,7 @@ describe("DoorAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     const learningCheck = screen
       .getByRole("heading", { name: "Learning Check" })
@@ -779,6 +810,7 @@ describe("DoorAttackLabPage", () => {
       flowTraces: [observedSecond, executedDoorTrace],
     })
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
@@ -812,6 +844,7 @@ describe("DoorAttackLabPage", () => {
       ],
     })
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     await screen.findByRole("button", { name: "스크립트 실행" })
     setPart.mockClear()
 
@@ -907,16 +940,20 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("immediately closes a completed attack and stays safe when reset fails", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
     const resetRequest = deferred<DoorLabSessionState>()
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     api.resetDoorLabSession.mockReturnValueOnce(resetRequest.promise)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
     )
-    await waitFor(() => expect(vehicle.isOpen("doorL")).toBe(true))
+    act(() => vi.runAllTimers())
+    expect(vehicle.isOpen("doorL")).toBe(true)
     expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
       "data-playback-phase",
       "complete",
@@ -1024,6 +1061,7 @@ describe("DoorAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
     )
@@ -1067,17 +1105,19 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("clears a completed attack snapshot when reset succeeds", async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
     )
-    await waitFor(() =>
-      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
-        "data-playback-phase",
-        "complete",
-      ),
+    act(() => vi.runAllTimers())
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "complete",
     )
 
     await user.click(screen.getByRole("button", { name: "실습 초기화" }))
@@ -1153,6 +1193,7 @@ describe("DoorAttackLabPage", () => {
     api.runDoorLabCommand.mockResolvedValueOnce(acceptedTerminalResult)
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
@@ -1229,7 +1270,9 @@ describe("DoorAttackLabPage", () => {
   )
 
   it("shows PENDING when the latest Door action has no IDS result", async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabCommand.mockResolvedValueOnce({
       ...captureResult,
       state: {
@@ -1244,10 +1287,12 @@ describe("DoorAttackLabPage", () => {
     })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
     const evidence = screen.getByRole("region", { name: "Evidence" })
     await waitFor(() => expect(evidence).toHaveTextContent(/Toy IDS\s*ALERT/))
+    act(() => vi.runAllTimers())
 
     await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
@@ -1473,7 +1518,9 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("renders the server epoch timestamp and preserves distinct attempt identities", async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined)
@@ -1495,6 +1542,7 @@ describe("DoorAttackLabPage", () => {
       })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     for (const command of ["cat baseline.log", "cat door-open.log"]) {
       await user.type(
@@ -1502,6 +1550,7 @@ describe("DoorAttackLabPage", () => {
         command,
       )
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
+      act(() => vi.runAllTimers())
     }
 
     const monitor = screen.getByRole("region", { name: "Network monitor" })
@@ -1522,7 +1571,9 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("keeps selection consistent when the selected row is evicted at the 300-frame cap", async () => {
-    const user = userEvent.setup()
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     const frames = Array.from({ length: 301 }, (_, index) => ({
       attemptId: `capture-${index}`,
       timestamp: 1_700_000_000_000 + index,
@@ -1546,6 +1597,7 @@ describe("DoorAttackLabPage", () => {
       })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
@@ -1553,6 +1605,7 @@ describe("DoorAttackLabPage", () => {
     )
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     expect(await screen.findByText("300 / 300")).toBeInTheDocument()
+    act(() => vi.runAllTimers())
 
     const monitor = screen.getByRole("region", { name: "Network monitor" })
     await user.click(
@@ -1667,6 +1720,7 @@ describe("DoorAttackLabPage", () => {
     api.runDoorLabCommand.mockResolvedValueOnce(rejectedTerminalResult)
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
     const terminalInput = screen.getByRole("textbox", {
       name: "제한 터미널 명령",
     })
@@ -1749,6 +1803,7 @@ describe("DoorAttackLabPage", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     const prediction = screen.getByLabelText("실행 전 예상")
     await user.type(prediction, "왼쪽 문 효과가 적용될 것으로 예상합니다.")
@@ -1854,13 +1909,16 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("invalidates the previous Door action as soon as a second accepted submit starts", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
     const secondRequest = deferred<DoorLabTerminalResult>()
     api.runDoorLabCommand
       .mockResolvedValueOnce(acceptedTerminalResult)
       .mockReturnValueOnce(secondRequest.promise)
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     const prediction = screen.getByLabelText("실행 전 예상")
     fireEvent.change(prediction, {
@@ -1883,6 +1941,12 @@ describe("DoorAttackLabPage", () => {
       ),
     )
     await flushCanEvents()
+    act(() => vi.runAllTimers())
+    await user.click(
+      within(
+        screen.getByRole("region", { name: "Network monitor" }),
+      ).getByRole("button", { name: "0x555 00 01 frame 선택" }),
+    )
     fireEvent.change(screen.getByLabelText("선택한 근거와 결과 비교"), {
       target: {
         value:
@@ -1953,6 +2017,8 @@ describe("DoorAttackLabPage", () => {
   })
 
   it("invalidates the latest technical and learner result when the next Door trace payload is malformed", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
     api.runDoorLabCommand
       .mockResolvedValueOnce(acceptedTerminalResult)
       .mockResolvedValueOnce({
@@ -1961,9 +2027,10 @@ describe("DoorAttackLabPage", () => {
         frames: [],
         flowTraces: [{ invalid: true }],
       })
-    const user = userEvent.setup()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
+    await user.click(screen.getByRole("radio", { name: /실습자용/ }))
 
     await user.type(
       screen.getByLabelText("실행 전 예상"),
@@ -1972,6 +2039,7 @@ describe("DoorAttackLabPage", () => {
     const terminal = screen.getByRole("textbox", { name: "제한 터미널 명령" })
     await user.type(terminal, "cansend vcan0 555#0001")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
+    act(() => vi.runAllTimers())
     await user.type(
       screen.getByLabelText("선택한 근거와 결과 비교"),
       "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 확인했습니다.",

@@ -2,6 +2,7 @@ import type { CSSProperties } from "react"
 import { VEHICLE_TOPOLOGY_BY_ID } from "./vehicleTopology"
 import type {
   VehicleFlowNodeId,
+  VehicleFlowPlaybackMode,
   VehicleFlowPlaybackSnapshot,
   VehicleFlowPresentation,
 } from "./vehicleFlowTypes"
@@ -20,6 +21,7 @@ interface VehicleFlowRailProps {
   onPause?: () => void
   onResume?: () => void
   onNextStep?: () => void
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 interface RailNode {
@@ -85,8 +87,12 @@ function nodeStatus(state: FlowNodeState): string {
 function playbackStatus(
   phase: VehicleFlowPlaybackSnapshot["phase"],
   isPaused: boolean,
+  playbackMode: VehicleFlowPlaybackMode,
 ): string {
-  if (phase === "playing") return isPaused ? "일시정지됨" : "자동 재생 중"
+  if (phase === "playing") {
+    if (playbackMode === "step") return "단계 진행 대기"
+    return isPaused ? "일시정지됨" : "자동 재생 중"
+  }
   if (phase === "complete") return "재생 완료"
   if (phase === "cancelled") return "재생 취소됨"
   return "재생 대기"
@@ -139,6 +145,7 @@ export default function VehicleFlowRail({
   onPause,
   onResume,
   onNextStep,
+  playbackMode = "auto",
 }: VehicleFlowRailProps) {
   const trace = playback.trace
   const displayRoute = trace
@@ -146,12 +153,23 @@ export default function VehicleFlowRail({
     : route
   const showSelection =
     playback.phase === "idle" || playback.phase === "complete"
-  const playbackStatusLabel = playbackStatus(playback.phase, isPaused)
+  const playbackStatusLabel = playbackStatus(
+    playback.phase,
+    isPaused,
+    playbackMode,
+  )
   const currentNodeId = trace?.route[playback.segmentIndex] ?? null
+  const nextNodeId = trace?.route[playback.segmentIndex + 1] ?? null
+  const guidedFeedback =
+    playbackMode === "step" ? presentation?.nodeFeedback : null
   const accessibleDetail =
     trace && currentNodeId
       ? `Frame ${playback.traceIndex + 1}/${playback.traceCount} · 현재 장치 ${flowNodeLabel(currentNodeId)} · 상태 ${playbackStatusLabel}`
       : `Frame 없음 · 현재 장치 없음 · 상태 ${playbackStatusLabel}`
+  const liveStatus =
+    playbackMode === "step" && trace && currentNodeId
+      ? `Frame ${playback.traceIndex + 1}/${playback.traceCount} · 단계 ${playback.segmentIndex + 1}/${trace.route.length} · 현재 장치 ${flowNodeLabel(currentNodeId)} · 상태 ${playbackStatusLabel}`
+      : `재생 상태: ${playbackStatusLabel}`
 
   return (
     <section
@@ -161,7 +179,7 @@ export default function VehicleFlowRail({
     >
       <span className="sr-only">{accessibleDetail}</span>
       <span className="sr-only" role="status">
-        재생 상태: {playbackStatusLabel}
+        {liveStatus}
       </span>
       <ol
         className="vehicle-flow-rail__nodes"
@@ -176,8 +194,54 @@ export default function VehicleFlowRail({
           />
         ))}
       </ol>
+      {trace && guidedFeedback ? (
+        <section
+          className="vehicle-flow-rail__guided-cause"
+          aria-label="초보자 단계 설명"
+        >
+          <div className="vehicle-flow-rail__guided-progress">
+            <strong>
+              Frame {playback.traceIndex + 1}/{playback.traceCount}
+            </strong>
+            <span>
+              단계 {playback.segmentIndex + 1}/{trace.route.length}
+            </span>
+          </div>
+          <div className="vehicle-flow-rail__guided-detail">
+            <span>
+              <strong>{guidedFeedback.title}</strong>
+              <b>{guidedFeedback.status}</b>
+            </span>
+            <p>{guidedFeedback.detail}</p>
+          </div>
+          <div className="vehicle-flow-rail__guided-meta">
+            <span>근거 · {guidedFeedback.source}</span>
+            <span>
+              {nextNodeId
+                ? `다음 · ${flowNodeLabel(nextNodeId)}`
+                : "마지막 단계 · 결과 확인"}
+            </span>
+            <code>{trace.commandLabel}</code>
+          </div>
+        </section>
+      ) : null}
       <div className="vehicle-flow-rail__hud">
-        {onPause && onResume && onNextStep ? (
+        {onNextStep && playbackMode === "step" ? (
+          <div
+            className="vehicle-flow-rail__controls vehicle-flow-rail__controls--step"
+            role="group"
+            aria-label="3D 흐름 재생 제어"
+          >
+            <span>{playbackStatusLabel}</span>
+            <button
+              type="button"
+              disabled={playback.phase !== "playing" || !isPaused}
+              onClick={onNextStep}
+            >
+              한 단계 진행
+            </button>
+          </div>
+        ) : onPause && onResume && onNextStep ? (
           <div
             className="vehicle-flow-rail__controls"
             role="group"
@@ -201,9 +265,11 @@ export default function VehicleFlowRail({
           </div>
         ) : null}
         <span className="vehicle-flow-rail__mode">
-          {reducedMotion
-            ? "정적 최종 상태 · reduced motion"
-            : "교육용 처리/관찰 순서 · slow-motion trace"}
+          {playbackMode === "step"
+            ? "초보자용 · 장치별 수동 진행"
+            : reducedMotion
+              ? "실습자용 · 정적 단계 전환 · reduced motion"
+              : "실습자용 · 자동 slow-motion trace"}
         </span>
         <span className="vehicle-flow-rail__qualifier">
           교육용 논리 위치 · 실제 OEM 배치 아님

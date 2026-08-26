@@ -10,7 +10,10 @@ export type AttackLabGuidanceMode = "guided" | "challenge"
 export interface AttackLabGuidancePanelProps {
   scenario: AttackLabLearningScenario
   stageIndex: number
+  mode?: AttackLabGuidanceMode
   defaultMode?: AttackLabGuidanceMode
+  disabled?: boolean
+  onModeChange?: (mode: AttackLabGuidanceMode) => void
 }
 
 const CHALLENGE_DECISIONS =
@@ -68,12 +71,20 @@ function ChallengeContent({ stage }: { stage: AttackLabStageGuidance }) {
 export default function AttackLabGuidancePanel({
   scenario,
   stageIndex,
+  mode: controlledMode,
   defaultMode = "guided",
+  disabled = false,
+  onModeChange,
 }: AttackLabGuidancePanelProps) {
-  const [mode, setMode] = useState<AttackLabGuidanceMode>(defaultMode)
+  const [localMode, setLocalMode] = useState<AttackLabGuidanceMode>(defaultMode)
+  const mode = controlledMode ?? localMode
   const titleId = useId()
   const radioName = useId()
   const stage = currentStage(scenario, stageIndex)
+  const changeMode = (nextMode: AttackLabGuidanceMode) => {
+    if (controlledMode === undefined) setLocalMode(nextMode)
+    onModeChange?.(nextMode)
+  }
 
   return (
     <section
@@ -87,7 +98,7 @@ export default function AttackLabGuidancePanel({
       </header>
       <span className="sr-only">현재 학습 단계: {stage.label}</span>
 
-      <fieldset>
+      <fieldset disabled={disabled}>
         <legend>학습 안내 모드</legend>
         <label>
           <input
@@ -95,9 +106,9 @@ export default function AttackLabGuidancePanel({
             name={radioName}
             value="guided"
             checked={mode === "guided"}
-            onChange={() => setMode("guided")}
+            onChange={() => changeMode("guided")}
           />
-          Guided — 행동과 증거를 단계별로 확인
+          초보자용 (Guided) — 멈춰서 한 단계씩 확인
         </label>
         <label>
           <input
@@ -105,9 +116,9 @@ export default function AttackLabGuidancePanel({
             name={radioName}
             value="challenge"
             checked={mode === "challenge"}
-            onChange={() => setMode("challenge")}
+            onChange={() => changeMode("challenge")}
           />
-          Challenge — 목적만 보고 스스로 계획
+          실습자용 (Challenge) — 스스로 계획하고 자동 재생
         </label>
       </fieldset>
 

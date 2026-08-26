@@ -26,6 +26,7 @@ import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
 import {
   applyVehicleFlowEffect,
   parseVehicleFlowTraces,
+  type VehicleFlowPlaybackMode,
   type VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { VEHICLE_ROUTES } from "../vehicle/vehicleTopology"
@@ -71,7 +72,9 @@ import {
 } from "./attackLabFeedback"
 import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
-import AttackLabGuidancePanel from "./AttackLabGuidancePanel"
+import AttackLabGuidancePanel, {
+  type AttackLabGuidanceMode,
+} from "./AttackLabGuidancePanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import AttackStageRail from "./AttackStageRail"
@@ -152,6 +155,7 @@ interface ActionRequest {
   origin: AttackLabActionOrigin
   actionId: string
   predictionBeforeAction: string
+  guidanceMode: AttackLabGuidanceMode
 }
 
 interface CreateFlight {
@@ -257,6 +261,10 @@ export default function BeginnerCanAttackLabPage({
   const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
   const [explanation, setExplanation] = useState("")
   const [confirmed, setConfirmed] = useState(false)
+  const [guidanceMode, setGuidanceMode] =
+    useState<AttackLabGuidanceMode>("guided")
+  const [flowPlaybackMode, setFlowPlaybackMode] =
+    useState<VehicleFlowPlaybackMode | null>(null)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
@@ -339,6 +347,7 @@ export default function BeginnerCanAttackLabPage({
     }
 
     flow.clear()
+    setFlowPlaybackMode(null)
     pendingFlowRef.current = null
     clearLearningState()
 
@@ -389,6 +398,7 @@ export default function BeginnerCanAttackLabPage({
       actionGenerationRef.current += 1
       actionControllerRef.current?.abort()
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       sessionRef.current = null
       setSession(null)
@@ -481,6 +491,7 @@ export default function BeginnerCanAttackLabPage({
       origin,
       actionId: `${current.scenario}:${current.sessionId}:${current.generation}:${origin}:${actionGeneration}`,
       predictionBeforeAction,
+      guidanceMode,
     }
     actionControllerRef.current = controller
     busyRef.current = kind
@@ -488,6 +499,7 @@ export default function BeginnerCanAttackLabPage({
     setActionError(null)
     if (kind !== "reset") {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       setLastAction(null)
       setSelectedActivityId(null)
@@ -533,6 +545,8 @@ export default function BeginnerCanAttackLabPage({
     request: ActionRequest,
     finalState: BeginnerCanAttackState["vehicleState"],
   ) => {
+    const playbackMode =
+      request.guidanceMode === "guided" ? "step" : "auto"
     pendingFlowRef.current = {
       runKey: action.actionId,
       scenario: request.scenario,
@@ -541,11 +555,14 @@ export default function BeginnerCanAttackLabPage({
       actionGeneration: request.actionGeneration,
       state: finalState,
     }
-    if (!flow.play({ runKey: action.actionId, traces })) {
+    if (!flow.play({ runKey: action.actionId, traces, playbackMode })) {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       applyVehicleState(finalState)
+      return
     }
+    setFlowPlaybackMode(playbackMode)
   }
 
   const acceptResult = (
@@ -576,6 +593,7 @@ export default function BeginnerCanAttackLabPage({
     })
     if (!traces) {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       applyVehicleState(result.state.vehicleState)
       setLastAction(null)
@@ -635,7 +653,10 @@ export default function BeginnerCanAttackLabPage({
     if (!request) return
     const wasPlaying = flow.isActive
     flow.cancel()
-    if (!wasPlaying) flow.clear()
+    if (!wasPlaying) {
+      flow.clear()
+      setFlowPlaybackMode(null)
+    }
     pendingFlowRef.current = null
     clearLearningState()
     applyVehicleState({
@@ -658,6 +679,7 @@ export default function BeginnerCanAttackLabPage({
         return
       sessionRef.current = next
       flow.clear()
+      setFlowPlaybackMode(null)
       applyVehicleState(next.vehicleState)
       setSession(next)
       clearLocalWorkbench(config)
@@ -844,6 +866,9 @@ export default function BeginnerCanAttackLabPage({
       <AttackLabGuidancePanel
         scenario={scenario}
         stageIndex={currentStageIndex}
+        mode={guidanceMode}
+        disabled={busy !== null || flow.isActive}
+        onModeChange={setGuidanceMode}
       />
 
       {loading && !offlineError ? (
@@ -910,6 +935,10 @@ export default function BeginnerCanAttackLabPage({
             onPlaybackPause={flow.pause}
             onPlaybackResume={flow.resume}
             onPlaybackNextStep={flow.nextStep}
+            playbackMode={
+              flowPlaybackMode ??
+              (guidanceMode === "guided" ? "step" : "auto")
+            }
           />
         </section>
 

@@ -26,6 +26,7 @@ import { useCanVehicleStream } from "../vehicle/useCanVehicleStream"
 import {
   applyVehicleFlowEffect,
   parseVehicleFlowTraces,
+  type VehicleFlowPlaybackMode,
   type VehicleFlowTrace,
 } from "../vehicle/vehicleFlowTypes"
 import { useVehicleFlowPlayback } from "../vehicle/useVehicleFlowPlayback"
@@ -55,7 +56,9 @@ import {
 } from "./attackLabFeedback"
 import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
-import AttackLabGuidancePanel from "./AttackLabGuidancePanel"
+import AttackLabGuidancePanel, {
+  type AttackLabGuidanceMode,
+} from "./AttackLabGuidancePanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import AttackStageRail from "./AttackStageRail"
@@ -112,6 +115,7 @@ interface ActionRequest {
   origin: AttackLabActionOrigin
   actionId: string
   predictionBeforeAction: string
+  guidanceMode: AttackLabGuidanceMode
 }
 
 interface CreateFlight {
@@ -249,6 +253,10 @@ export default function DoorAttackLabPage() {
   const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
   const [explanation, setExplanation] = useState("")
   const [confirmed, setConfirmed] = useState(false)
+  const [guidanceMode, setGuidanceMode] =
+    useState<AttackLabGuidanceMode>("guided")
+  const [flowPlaybackMode, setFlowPlaybackMode] =
+    useState<VehicleFlowPlaybackMode | null>(null)
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
@@ -297,6 +305,7 @@ export default function DoorAttackLabPage() {
   const loadSession = useCallback(() => {
     if (createFlightRef.current) return createFlightRef.current.promise
     flow.clear()
+    setFlowPlaybackMode(null)
     pendingFlowRef.current = null
     clearLearningState()
 
@@ -422,6 +431,7 @@ export default function DoorAttackLabPage() {
     setActionError(null)
     if (kind !== "reset") {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       setLastAction(null)
       setSelectedActivityId(null)
@@ -440,6 +450,7 @@ export default function DoorAttackLabPage() {
       origin,
       actionId,
       predictionBeforeAction,
+      guidanceMode,
     }
   }
 
@@ -471,6 +482,8 @@ export default function DoorAttackLabPage() {
     request: ActionRequest,
     finalState: DoorLabVehicleState,
   ) => {
+    const playbackMode =
+      request.guidanceMode === "guided" ? "step" : "auto"
     pendingFlowRef.current = {
       runKey: action.actionId,
       sessionId: request.sessionId,
@@ -478,11 +491,14 @@ export default function DoorAttackLabPage() {
       actionGeneration: request.generation,
       state: finalState,
     }
-    if (!flow.play({ runKey: action.actionId, traces })) {
+    if (!flow.play({ runKey: action.actionId, traces, playbackMode })) {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       applyVehicleState(finalState)
+      return
     }
+    setFlowPlaybackMode(playbackMode)
   }
 
   const recordAction = ({
@@ -505,6 +521,7 @@ export default function DoorAttackLabPage() {
     const traces = parseVehicleFlowTraces(rawTraces)
     if (!traces) {
       flow.clear()
+      setFlowPlaybackMode(null)
       pendingFlowRef.current = null
       applyVehicleState(finalState)
       setLastAction(null)
@@ -587,7 +604,10 @@ export default function DoorAttackLabPage() {
     if (!request) return
     const wasPlaying = flow.isActive
     flow.cancel()
-    if (!wasPlaying) flow.clear()
+    if (!wasPlaying) {
+      flow.clear()
+      setFlowPlaybackMode(null)
+    }
     pendingFlowRef.current = null
     clearLearningState()
     applyVehicleState({ leftDoor: "closed", rightDoor: "closed" })
@@ -604,6 +624,7 @@ export default function DoorAttackLabPage() {
         return
       sessionGenerationRef.current = next.generation
       flow.clear()
+      setFlowPlaybackMode(null)
       applyVehicleState(next.vehicleState)
       setSession(next)
       dispatchMonitor({ type: "clear" })
@@ -805,7 +826,13 @@ export default function DoorAttackLabPage() {
 
       <AttackStageRail stages={STAGES} currentIndex={currentStageIndex} />
 
-      <AttackLabGuidancePanel scenario="door" stageIndex={currentStageIndex} />
+      <AttackLabGuidancePanel
+        scenario="door"
+        stageIndex={currentStageIndex}
+        mode={guidanceMode}
+        disabled={busy !== null || flow.isActive}
+        onModeChange={setGuidanceMode}
+      />
 
       {offlineError ? (
         <div className="door-attack-lab__offline" role="alert">
@@ -855,6 +882,10 @@ export default function DoorAttackLabPage() {
             onPlaybackPause={flow.pause}
             onPlaybackResume={flow.resume}
             onPlaybackNextStep={flow.nextStep}
+            playbackMode={
+              flowPlaybackMode ??
+              (guidanceMode === "guided" ? "step" : "auto")
+            }
           />
         </section>
 

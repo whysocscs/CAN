@@ -43,10 +43,16 @@ CAN identifier는 authenticated sender address(인증된 송신자 주소)가 �
 
 ECU·Gateway pin은 `Toy logical position · OEM placement 아님`이고, 문·테일게이트 표시는 `GLB effect anchor · actuator 물리 위치 아님`이다. **Target**, **Effect**, **Overview**, **Reset camera** 제어로 route와 효과 부위를 번갈아 확인한다.
 
+### 학습 안내 모드 선택
+
+- **초보자용(Guided)**: 실행 직후 첫 node에서 멈춘다. **한 단계 진행**을 한 번 누를 때마다 다음 장치 하나만 활성화되며, 현재 Frame/단계, 장치 판정, 근거, 다음 장치, command를 설명 카드에서 확인한다.
+- **실습자용(Challenge)**: 상세 단계 설명 카드를 숨기고 같은 backend-authoritative route를 자동 재생한다. 실행 전에 예상 ECU 판정, IDS 관찰 결과, 최종 효과를 스스로 기록한다.
+- Spoofing의 Tailgate와 Replay의 Left Door 효과는 target ECU 다음의 마지막 effect node에서만 적용된다. `prefers-reduced-motion` 환경도 장치 순서를 생략하지 않고 정적인 단계 전환으로 보여 준다.
+
 ## 화면의 세 증거 채널
 
 - **Virtual Terminal**: command echo와 virtual stdout/stderr를 보여 준다.
-- **Vehicle Flow**: backend-authoritative `flowTraces`를 교육용 slow-motion route와 현재 Toy device로 보여 준다. 실제 CAN hop telemetry가 아니다.
+- **Vehicle Flow**: backend-authoritative `flowTraces`를 Guided의 수동 단계 또는 Challenge의 자동 단계로 보여 준다. 실제 CAN hop telemetry가 아니다.
 - **왜 이런 결과가 발생했나요?**: `Terminal`, `Toy ECU`, `Toy IDS`, `교육용 분석` source label을 붙여 서로 다른 판정을 구분한다.
 
 정상 형식의 `cansend`가 가상 CAN 경로로 들어가면 transcript가 **silent(출력 없음)** 일 수 있다. 이 silence는 CAN ACK나 ECU acceptance(ECU 수락)를 뜻하지 않는다. Vehicle Flow, Network Monitor frame, Binary Inspector DATA, source-labelled explanation을 같은 action 기준으로 함께 확인한다.

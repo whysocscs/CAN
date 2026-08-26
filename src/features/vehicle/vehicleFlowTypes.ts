@@ -13,6 +13,8 @@ export type VehicleFlowOutcome =
   | "EXECUTED"
   | "REJECTED"
 
+export type VehicleFlowPlaybackMode = "auto" | "step"
+
 export interface VehicleFlowTrace {
   traceId: string
   attemptId: string | null

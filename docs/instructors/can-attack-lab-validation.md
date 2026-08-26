@@ -4,6 +4,8 @@
 
 이 runbook은 격리된 로컬 Toy 환경의 구현 계약을 검증한다. 실제 차량·OEM ECU·상용 IDS의 공격 가능성 또는 우회를 입증하지 않는다.
 
+공격 실습은 두 학습 안내 모드를 제공한다. `초보자용 (Guided)`은 첫 node에서 멈추고 `한 단계 진행` 1회당 장치 하나만 전진하며 상세 원인 카드를 표시한다. `실습자용 (Challenge)`은 같은 authoritative trace를 상세 원인 카드 없이 자동 재생한다. 두 모드 모두 실제 차량 효과는 endpoint에 도달한 뒤에만 적용되어야 한다.
+
 ## 1. 공통 배포와 health
 
 저장소 루트의 PowerShell에서 실행한다.
@@ -62,9 +64,9 @@ function Invoke-LabPost([string]$Uri, [hashtable]$Body) {
 완료 command를 검증할 때 한 화면의 결과를 하나의 출력처럼 취급하지 말고 다음 channel을 분리한다.
 
 - **Virtual Terminal**: terminal-origin action은 command echo와 `stdout`/`stderr`/`silent` stream을 남긴다. script-origin action은 terminal transcript row를 만들지 않는다. 현재의 정확한 script line은 Vehicle Flow에서, script action의 structured result는 Activity에서 확인한다.
-- **Vehicle Flow/3D**: `flowTraces`를 authoritative result 이후 재생하는 교육용 slow-motion이다. 실제 물리 CAN hop telemetry, ACK, ECU 수락의 wire evidence가 아니다.
+- **Vehicle Flow/3D**: `flowTraces`를 authoritative result 이후 Guided의 수동 단계 또는 Challenge의 자동 단계로 재생하는 교육용 흐름이다. 실제 물리 CAN hop telemetry, ACK, ECU 수락의 wire evidence가 아니다.
 - **왜 이런 결과가 발생했나요?**: `Terminal`, `Toy ECU`, `Toy IDS`, `교육용 분석` source label을 유지한다. `NORMAL`은 관찰됐으나 Toy rule alert가 없다는 뜻이고, `ALERT`는 탐지됐으나 차단 증거가 없다는 뜻이다.
-- **진행 시간**: 일반 node는 `600 ms`마다 전진하고 multi-trace script는 한 trace의 final node를 `900 ms` 유지한 뒤 다음 trace를 시작한다. ECU/IDS/effect row와 3D callout은 해당 authoritative node에 도달하기 전에 보이면 안 된다.
+- **진행 시간**: Guided는 `한 단계 진행` 1회당 일반 node 하나를 전진한다. Challenge는 일반 node를 `600 ms`마다 전진하고 multi-trace script는 한 trace의 final node를 `900 ms` 유지한 뒤 다음 trace를 시작한다. ECU/IDS/effect row와 3D callout은 해당 authoritative node에 도달하기 전에 보이면 안 된다.
 - **Learning Check**: backend `completed`가 만든 `공격 조건 충족=달성`과 로컬 `학습 확인 완료=완료`를 별도로 확인한다. 후자는 실행 전 prediction, 해당 action의 monitor frame/Activity evidence 선택, 20자 이상의 비교·reflection을 요구한다.
 
 ## 3. Door full-chain 정답 흐름
@@ -155,7 +157,7 @@ $DoorSuccess | ConvertTo-Json -Depth 8
 - 각 trace의 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`이며 final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
 - progressive reveal에서 OBD-II 전에는 `가상 CAN 경로 입력` row가 없고, IDS 전에는 `Toy IDS`, Body ECU 전에는 `Toy ECU`, endpoint 전에는 `차량 영향` row가 없다. 첫 두 trace의 IDS는 관찰 중이며 전체 sequence `NORMAL`은 마지막 trace의 IDS node에서만 공개된다.
 - Activity에는 script action의 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용` evidence가 남는다.
-- structured trace를 수락하면 `공격 조건 충족=달성`과 Proof `COMPLETE`가 먼저 보일 수 있지만, GLB effect와 Why의 `차량 영향` row는 각 trace가 Left Door endpoint에 도달할 때만 적용·공개된다. `600 ms` node progression과 trace 사이 `900 ms` final hold를 확인한다.
+- structured trace를 수락하면 `공격 조건 충족=달성`과 Proof `COMPLETE`가 먼저 보일 수 있지만, GLB effect와 Why의 `차량 영향` row는 각 trace가 Left Door endpoint에 도달할 때만 적용·공개된다. Guided의 1-click-1-node 계약과 Challenge의 `600 ms` node progression/trace 사이 `900 ms` final hold를 각각 확인한다.
 - GLB left door open, right door closed이며 `학습 확인 완료`는 prediction/evidence/reflection을 마칠 때까지 `미완료`다.
 
 Reset:
@@ -217,7 +219,7 @@ $SpoofSuccess | ConvertTo-Json -Depth 8
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택 시 Binary inspector `01`
 - 정확한 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Rear ECU → GLB Tailgate`, final callout은 `GLB Tailgate · EFFECT APPLIED · 교육용 분석`이다.
 - Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Rear ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
-- Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Tailgate endpoint에서만 적용·공개된다.
+- Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 Guided의 수동 진행 또는 Challenge의 `600 ms` 진행이 Tailgate endpoint에 도달했을 때만 적용·공개된다.
 - target은 Toy Rear ECU; GLB는 tailgate만 open, left/right door closed
 - Evidence에는 `kind=attempt`, `status=EXECUTED`
 - `공격 조건 충족=달성`과 `학습 확인 완료`는 자동으로 같아지지 않는다. prediction, accepted monitor frame 선택, 20자 이상 reflection 후에만 후자를 확인한다.
@@ -289,7 +291,7 @@ $ReplaySuccess | ConvertTo-Json -Depth 8
 - accepted monitor 행 source `CAN stream`, verdict `EXECUTED`; 선택한 Binary inspector는 `00`, `01`
 - 정확한 playback 3D route는 `Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door`, final callout은 `GLB Left Door · EFFECT APPLIED · 교육용 분석`이다.
 - Why panel은 IDS node 이후 `Toy IDS · 관찰됨 · Toy 규칙 경보 없음`, Body ECU 이후 `Toy ECU · EXECUTED`, endpoint 이후 `교육용 분석 · 차량 영향 적용`을 순차 공개한다.
-- completion Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 `600 ms` progression의 Left Door endpoint에서만 적용·공개된다.
+- completion Activity에는 `EXECUTED`, `가상 CAN 경로 입력 기록됨`, `차량 영향 적용`이 남는다. structured trace의 `공격 조건 충족=달성`은 먼저 보일 수 있지만 GLB effect와 Why effect row는 Guided의 수동 진행 또는 Challenge의 `600 ms` 진행이 Left Door endpoint에 도달했을 때만 적용·공개된다.
 - Toy Body ECU가 target이고 GLB는 left door open, right door/tailgate closed
 - `공격 조건 충족=달성` 뒤에도 prediction, accepted live frame 선택, byte-identical 비교 reflection 없이는 `학습 확인 완료=미완료`다.
 
@@ -318,7 +320,7 @@ reset 직후 또는 새 Replay session에서 capture 없이 위 표의 playback 
 | Why panel | `Terminal` source의 local preflight 설명만 표시; `가상 CAN 경로 입력`, `Toy ECU`, `Toy IDS` row 없음 |
 | Activity | `CAPTURE_REQUIRED · 차량 경로 없음 · terminal`; 이 row를 Learning Check evidence로 선택 가능 |
 | ECU / IDS / effect | verdict 생성 없음, part 이동 없음, `공격 조건 충족=미달성` |
-| timing | Terminal 단일 node이므로 `600 ms` node transition은 없고, final Terminal state를 `900 ms` 유지한 뒤 complete. reduced motion에서는 즉시 complete |
+| timing | Terminal 단일 node이므로 `600 ms` node transition은 없다. Guided는 단일 final node 도달 시 완료되고, Challenge는 final Terminal state를 `900 ms` 유지한 뒤 완료한다. reduced motion에서도 Challenge의 의미 단계는 생략하지 않는다. |
 
 ```powershell
 .\.venv\Scripts\python.exe -X dev -m pytest server\tests\test_can_attack_basics.py::test_replay_requires_current_same_session_unmodified_capture_and_exact_repeat_count -q
@@ -372,13 +374,13 @@ git diff --check
 - `820×900`: document/body horizontal overflow `0`; lab viewport `475 px`; stage connector와 stage label rectangle 교차 `0`; final feedback callout의 Canvas inset은 네 방향 모두 양수였다.
 - `390×844`: document/body horizontal overflow `0`; lab viewport `350 px`; stage connector와 label 교차 `0`; Terminal outer height 약 `238.8 px`; callout text `14 px`이고 Canvas 밖으로 나가지 않았다. stage/target route는 의도한 내부 horizontal scroll을 유지했다.
 - dynamic feedback surface는 pointer interaction을 받으며, feedback/pin Drei HTML layer는 서로 겹치지 않는 range를 사용했다. final feedback 중 non-active pins는 disabled/dim 상태이고 active effect pin만 강조됐다.
-- host가 `prefers-reduced-motion: reduce`인 live run에서는 packet travel 없이 최종 의미 상태로 이동했고 HUD는 `정적 최종 상태 · reduced motion`이라고 정확히 표시했다.
+- 2026-08-27 재검증에서 host가 `prefers-reduced-motion: reduce`인 live run이어도 의미 단계를 건너뛰지 않았다. Guided HUD는 `초보자용 · 장치별 수동 진행`, Challenge HUD는 `실습자용 · 정적 단계 전환 · reduced motion`으로 표시됐다.
 - browser console error는 없었다. Three.js의 기존 `THREE.Clock` 및 `PCFSoftShadowMap` deprecation warning은 남아 있으며 이 실습 결과의 오류는 아니지만 후속 dependency maintenance 대상이다.
 
 ### 직접 확인하지 못한 항목
 
 - in-app Browser-plugin에서 실제 browser zoom을 125%/150%로 바꾸는 제어가 동작하지 않아 `1440×900 @ 125%/150%`는 직접 관찰하지 못했다. 더 좁은 `820 px`와 `390 px` responsive geometry는 확인했지만 browser zoom 검증을 대체했다고 주장하지 않는다.
-- host가 reduced-motion으로 고정돼 normal-motion live timing은 직접 관찰하지 못했다. 일반 node `600 ms`, final hold `900 ms`, synchronous reduced-motion 의미 동등성은 fake timer/frontend regression test가 검증했다.
+- host가 reduced-motion으로 고정돼 normal-motion의 packet travel 자체는 직접 관찰하지 못했다. 일반 node `600 ms`, final hold `900 ms`, reduced-motion에서도 단계 순서를 보존하는 동작은 fake timer/frontend regression test가 검증했다.
 
 ### 후속 수동 판정 체크리스트
 

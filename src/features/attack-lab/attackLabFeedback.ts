@@ -197,7 +197,10 @@ function nodeFeedbackFor(
     }
   }
 
-  if (isTargetNode(currentNodeId) && atFinalNode) {
+  if (
+    isTargetNode(currentNodeId) &&
+    (atFinalNode || trace.outcome === "EXECUTED")
+  ) {
     const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict)
       ? trace.ecuVerdict
       : null
@@ -215,7 +218,9 @@ function nodeFeedbackFor(
 
   if (
     (currentNodeId === "leftDoor" || currentNodeId === "tailgate") &&
-    atFinalNode
+    atFinalNode &&
+    trace.effectApplied &&
+    trace.effectTarget === currentNodeId
   ) {
     return {
       nodeId: currentNodeId,

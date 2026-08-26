@@ -34,10 +34,16 @@ docker compose down
 
 Compose는 두 포트를 모두 `127.0.0.1`에만 공개하고, Toy CAN bus는 `loopback` 모드로 실행한다. 물리 CAN 장치나 `vcan0` 커널 인터페이스를 만들지 않는다.
 
+### 학습 안내 모드 선택
+
+- 처음 구조를 익힐 때는 **초보자용(Guided)** 을 선택한다. 실행 직후 첫 node에서 멈추며, **한 단계 진행**을 한 번 누를 때마다 `Lab Terminal → Training OBD-II → Toy IDS → Toy Gateway → Toy Body ECU → GLB Left Door` 중 다음 장치 하나로만 이동한다. 단계 설명 카드에서 현재 판정, 근거, 다음 장치, 실행 command를 함께 확인한다.
+- 흐름을 스스로 예측할 수 있을 때는 **실습자용(Challenge)** 을 선택한다. 상세 단계 설명 없이 같은 route가 자동 재생되므로 실행 전에 예상 판정과 확인할 증거를 먼저 적는다.
+- 두 모드 모두 문 효과는 마지막 `GLB Left Door` node에 도달한 뒤에만 나타난다. 서버 결과가 먼저 도착했다는 이유만으로 3D 문이 즉시 열리면 정상 동작이 아니다.
+
 ### 화면의 세 증거 채널
 
 - **Virtual Terminal**: 입력한 command echo와 가상 stdout/stderr만 보여 준다.
-- **Vehicle Flow**: backend가 반환한 `flowTraces`를 교육용 slow-motion으로 재생하며 현재 Toy device를 보여 준다. 실제 CAN hop telemetry가 아니다.
+- **Vehicle Flow**: backend가 반환한 `flowTraces`를 Guided의 수동 단계 또는 Challenge의 자동 단계로 재생하며 현재 Toy device를 보여 준다. 실제 CAN hop telemetry가 아니다.
 - **왜 이런 결과가 발생했나요?**: `Terminal`, `Toy ECU`, `Toy IDS`, `교육용 분석` source label로 판정의 출처를 구분한다.
 
 정상 형식의 `cansend`가 가상 CAN 경로에 들어가면 transcript가 **silent(출력 없음)** 일 수 있다. 이는 CAN ACK, Toy ECU 수락, 차량 효과를 증명하지 않는다. Vehicle Flow의 도달 지점, Network Monitor의 frame, Binary Inspector의 DATA, source-labelled explanation을 함께 대조해야 한다.
