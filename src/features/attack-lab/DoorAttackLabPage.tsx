@@ -1051,6 +1051,27 @@ export default function DoorAttackLabPage() {
         </section>
 
         <aside className="door-attack-lab__learning">
+          <AttackLabLearningCheck
+            predictionDraft={predictionDraft}
+            predictionBeforeAction={predictionBeforeAction}
+            explanation={explanation}
+            technicalComplete={technicalComplete}
+            reviewReady={reviewReady}
+            evidenceSelected={evidenceSelected}
+            confirmed={confirmed}
+            expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS.door}
+            principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS.door}
+            actualRows={feedback?.actualRows ?? []}
+            onPredictionChange={(value) => {
+              setPredictionDraft(value)
+              setConfirmed(false)
+            }}
+            onExplanationChange={(value) => {
+              setExplanation(value)
+              setConfirmed(false)
+            }}
+            onConfirm={() => setConfirmed(true)}
+          />
           <section aria-labelledby="hints-title">
             <header>
               <Lightbulb size={17} aria-hidden="true" />
@@ -1122,27 +1143,6 @@ export default function DoorAttackLabPage() {
             entries={activity}
             selectedId={selectedActivityId}
             onSelect={selectActivity}
-          />
-          <AttackLabLearningCheck
-            predictionDraft={predictionDraft}
-            predictionBeforeAction={predictionBeforeAction}
-            explanation={explanation}
-            technicalComplete={technicalComplete}
-            reviewReady={reviewReady}
-            evidenceSelected={evidenceSelected}
-            confirmed={confirmed}
-            expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS.door}
-            principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS.door}
-            actualRows={feedback?.actualRows ?? []}
-            onPredictionChange={(value) => {
-              setPredictionDraft(value)
-              setConfirmed(false)
-            }}
-            onExplanationChange={(value) => {
-              setExplanation(value)
-              setConfirmed(false)
-            }}
-            onConfirm={() => setConfirmed(true)}
           />
         </aside>
       </div>

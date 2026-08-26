@@ -169,6 +169,7 @@ const FEEDBACK_Z_INDEX_RANGE: [number, number] = [200, 101]
 interface OrbitControlsState {
   target: THREE.Vector3
   update: () => void
+  dispatchEvent: (event: { type: "start" }) => void
 }
 
 interface FlowCalloutGeometryInput {
@@ -394,6 +395,11 @@ function CameraPresetController({
       progress.current = 1
       return
     }
+
+    // Bounds keeps its own camera animation alive after an overview fit.
+    // Notify OrbitControls of a new interaction so Bounds cancels that
+    // animation before this focused preset takes ownership of the camera.
+    controls?.dispatchEvent({ type: "start" })
 
     const applyPreset = () => {
       camera.position.copy(preset.position)

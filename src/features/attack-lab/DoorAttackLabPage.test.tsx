@@ -728,6 +728,12 @@ describe("DoorAttackLabPage", () => {
     api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
     render(<DoorAttackLabPage />)
 
+    const learningCheck = screen
+      .getByRole("heading", { name: "Learning Check" })
+      .closest("section")
+    expect(learningCheck).not.toBeNull()
+    expect(learningCheck?.parentElement?.firstElementChild).toBe(learningCheck)
+
     await user.click(
       await screen.findByRole("button", { name: "스크립트 실행" }),
     )
@@ -737,13 +743,16 @@ describe("DoorAttackLabPage", () => {
       screen.getByText(/후보 Frame n\/N마다 예상 ECU 판정/),
     ).toBeInTheDocument()
     expect(
-      screen.getByText(/관찰한 rolling counter와 checksum 관계/),
-    ).toBeInTheDocument()
+      screen.queryByText(/관찰한 rolling counter와 checksum 관계/),
+    ).not.toBeInTheDocument()
     expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
 
     act(() => vi.runAllTimers())
 
     expect(screen.queryByText(/차량 흐름이 완료되면/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/관찰한 rolling counter와 checksum 관계/),
+    ).toBeInTheDocument()
     const actual = screen
       .getByRole("heading", {
         name: "Actual · 관찰 결과",
@@ -1750,14 +1759,11 @@ describe("DoorAttackLabPage", () => {
     await act(async () => request.resolve(multiFrameRunResult))
 
     expect(
-      screen.getByText("실행 시 기록된 예상").parentElement,
-    ).toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
-      "달성",
-    )
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
-      "미완료",
-    )
+      screen.queryByText("실행 시 기록된 예상"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
     expect(
       screen.getByText(multiFrameFirstTrace.commandLabel),
     ).toBeInTheDocument()
@@ -1786,13 +1792,6 @@ describe("DoorAttackLabPage", () => {
       multiFrameSecondTrace.commandLabel,
     )
 
-    const explanation = screen.getByLabelText("선택한 근거와 결과 비교")
-    await user.type(
-      explanation,
-      "선택한 프레임과 Toy ECU 결과가 같은 실행에 속한다고 확인했습니다.",
-    )
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
-
     act(() =>
       latestConnection().options.onEvent(
         acceptedDoorEvent("session-1", 0, {
@@ -1807,7 +1806,9 @@ describe("DoorAttackLabPage", () => {
       ),
     )
     await flushCanEvents()
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
 
     act(() =>
       latestConnection().options.onEvent(
@@ -1829,9 +1830,22 @@ describe("DoorAttackLabPage", () => {
     ).findByRole("button", { name: "0x555 00 02 frame 선택" })
     await user.click(matchingFrame)
 
-    const confirm = screen.getByRole("button", { name: "학습 확인" })
-    expect(confirm).toBeDisabled()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
     act(() => vi.advanceTimersByTime(3_900))
+    expect(
+      screen.getByText("실행 시 기록된 예상").parentElement,
+    ).toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "달성",
+    )
+    const explanation = screen.getByLabelText("선택한 근거와 결과 비교")
+    await user.type(
+      explanation,
+      "선택한 프레임과 Toy ECU 결과가 같은 실행에 속한다고 확인했습니다.",
+    )
+    const confirm = screen.getByRole("button", { name: "학습 확인" })
     expect(confirm).toBeEnabled()
     await user.click(confirm)
     expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
@@ -1904,17 +1918,19 @@ describe("DoorAttackLabPage", () => {
       "data-presentation-status",
       "missing",
     )
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
-      "미달성",
-    )
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
-      "미완료",
-    )
     expect(
-      screen.getByText("실행 시 기록된 예상").parentElement,
-    ).toHaveTextContent("아직 기록되지 않음")
-    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+      screen.queryByText("공격 조건 충족"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("실행 시 기록된 예상"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
     expect(
       screen.getByRole("region", { name: "Binary inspector" }),
     ).toHaveTextContent("Network monitor에서 frame을 선택하세요.")
@@ -1988,17 +2004,19 @@ describe("DoorAttackLabPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
     )
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
-      "미달성",
-    )
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
-      "미완료",
-    )
     expect(
-      screen.getByText("실행 시 기록된 예상").parentElement,
-    ).toHaveTextContent("아직 기록되지 않음")
-    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+      screen.queryByText("공격 조건 충족"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("실행 시 기록된 예상"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
   })
 
   it("does not create terminal transcript rows for a Door script action", async () => {

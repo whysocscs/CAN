@@ -36,7 +36,7 @@ export const NORMAL_CAN_SCENE_PRESET = Object.freeze({
     far: 100,
   }),
   canvas: Object.freeze({
-    shadows: true,
+    shadows: Object.freeze({ type: THREE.PCFShadowMap }),
     dpr: Object.freeze([1, 1.5] as const),
   }),
   renderer: Object.freeze({

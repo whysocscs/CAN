@@ -118,7 +118,7 @@ describe("SharedVehicleScene", () => {
         near: 0.05,
         far: 100,
       },
-      canvas: { shadows: true, dpr: [1, 1.5] },
+      canvas: { shadows: { type: THREE.PCFShadowMap }, dpr: [1, 1.5] },
       scene: { background: "#0b1018", fog: ["#0b1018", 7, 14] },
       lights: {
         ambient: 0.72,
@@ -136,7 +136,7 @@ describe("SharedVehicleScene", () => {
       },
     })
     expect(sharedState.canvasProps).toMatchObject({
-      shadows: true,
+      shadows: { type: THREE.PCFShadowMap },
       dpr: [1, 1.5],
       camera: {
         position: [5.8, 3.8, 7.6],

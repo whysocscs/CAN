@@ -763,16 +763,18 @@ describe("BeginnerCanAttackLabPage", () => {
         screen.getByLabelText(`${CONFIG_TITLE[scenarioName]} vehicle network`),
       ).toHaveAttribute("data-presentation-status", "missing")
       expect(
-        screen.getByText("공격 조건 충족").parentElement,
-      ).toHaveTextContent("미달성")
+        screen.queryByText("공격 조건 충족"),
+      ).not.toBeInTheDocument()
       expect(
-        screen.getByText("학습 확인 완료").parentElement,
-      ).toHaveTextContent("미완료")
+        screen.queryByText("실행 시 기록된 예상"),
+      ).not.toBeInTheDocument()
       expect(
-        screen.getByText("실행 시 기록된 예상").parentElement,
-      ).toHaveTextContent("아직 기록되지 않음")
-      expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
-      expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+        screen.queryByLabelText("선택한 근거와 결과 비교"),
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole("button", { name: "학습 확인" }),
+      ).not.toBeInTheDocument()
+      expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
       expect(
         screen.getByRole("region", { name: "Binary inspector" }),
       ).toHaveTextContent("터미널 또는 monitor에서 프레임을 선택하세요.")
@@ -868,6 +870,9 @@ describe("BeginnerCanAttackLabPage", () => {
         .getByRole("heading", { name: "Learning Check" })
         .closest("section")
       expect(learningCheck).not.toBeNull()
+      expect(learningCheck?.parentElement?.firstElementChild).toBe(
+        learningCheck,
+      )
       expect(
         within(learningCheck!).getByRole("heading", {
           name: "Actual · 관찰 결과",
@@ -988,17 +993,19 @@ describe("BeginnerCanAttackLabPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
     )
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
-      "미달성",
-    )
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
-      "미완료",
-    )
     expect(
-      screen.getByText("실행 시 기록된 예상").parentElement,
-    ).toHaveTextContent("아직 기록되지 않음")
-    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+      screen.queryByText("공격 조건 충족"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("실행 시 기록된 예상"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
   })
 
   it("plays capture evidence without opening any vehicle part", async () => {
@@ -1608,15 +1615,15 @@ describe("BeginnerCanAttackLabPage", () => {
 
     await user.type(screen.getByLabelText("실행 전 예상"), "첫 시나리오 예상")
     await user.type(
-      screen.getByLabelText("선택한 근거와 결과 비교"),
-      "첫 시나리오에서 작성한 충분히 긴 비교 설명입니다.",
-    )
-    await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
       "bad-1",
     )
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
+    await user.type(
+      await screen.findByLabelText("선택한 근거와 결과 비교"),
+      "첫 시나리오에서 작성한 충분히 긴 비교 설명입니다.",
+    )
     expect(
       screen.getByRole("button", { name: /COMMAND_REJECTED/ }),
     ).toBeInTheDocument()
@@ -1630,7 +1637,9 @@ describe("BeginnerCanAttackLabPage", () => {
       screen.queryByRole("button", { name: /COMMAND_REJECTED/ }),
     ).not.toBeInTheDocument()
     expect(screen.getByLabelText("실행 전 예상")).toHaveValue("")
-    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
 
     await user.type(
       screen.getByRole("textbox", { name: "제한 터미널 명령" }),
@@ -1638,6 +1647,9 @@ describe("BeginnerCanAttackLabPage", () => {
     )
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
+    expect(
+      await screen.findByLabelText("선택한 근거와 결과 비교"),
+    ).toHaveValue("")
     await user.click(screen.getByRole("button", { name: "실습 초기화" }))
     await waitFor(() =>
       expect(api.resetBeginnerCanAttackSession).toHaveBeenCalled(),
@@ -1647,6 +1659,9 @@ describe("BeginnerCanAttackLabPage", () => {
     ).not.toBeInTheDocument()
     expect(
       screen.queryByRole("button", { name: /COMMAND_REJECTED/ }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
     ).not.toBeInTheDocument()
   })
 })

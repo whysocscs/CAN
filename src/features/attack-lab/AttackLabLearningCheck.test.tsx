@@ -56,7 +56,6 @@ describe("AttackLabLearningCheck", () => {
     const cases: Array<Partial<AttackLabLearningCheckProps>> = [
       { predictionBeforeAction: "" },
       { evidenceSelected: false },
-      { reviewReady: false },
       { explanation: "20자 미만 설명" },
     ]
 
@@ -118,11 +117,27 @@ describe("AttackLabLearningCheck", () => {
     expect(screen.getByLabelText("선택한 근거와 결과 비교")).toBeEnabled()
   })
 
-  it("waits for authoritative flow completion before enabling the principle reflection", () => {
-    render(<AttackLabLearningCheck {...props({ reviewReady: false })} />)
+  it("shows only the prediction step until authoritative playback completes", () => {
+    const view = render(
+      <AttackLabLearningCheck {...props({ reviewReady: false })} />,
+    )
 
-    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toBeEnabled()
+    expect(screen.getByRole("textbox", { name: "실행 전 예상" })).toBeEnabled()
     expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
-    expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
+    expect(screen.queryByText("Expected · 실행 전")).not.toBeInTheDocument()
+    expect(screen.queryByText("Actual · 관찰 결과")).not.toBeInTheDocument()
+    expect(
+      screen.queryByLabelText("선택한 근거와 결과 비교"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("button", { name: "학습 확인" }),
+    ).not.toBeInTheDocument()
+
+    view.rerender(<AttackLabLearningCheck {...props({ reviewReady: true })} />)
+
+    expect(screen.getByText("Expected · 실행 전")).toBeInTheDocument()
+    expect(screen.getByText("Actual · 관찰 결과")).toBeInTheDocument()
+    expect(screen.getByLabelText("선택한 근거와 결과 비교")).toBeEnabled()
+    expect(screen.getByRole("button", { name: "학습 확인" })).toBeEnabled()
   })
 })

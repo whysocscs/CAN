@@ -39,6 +39,20 @@ interface MockHtmlLayout {
   anchorY: number
 }
 
+interface MockOrbitControls {
+  target: THREE.Vector3
+  update: ReturnType<typeof vi.fn>
+  addEventListener: (
+    type: string,
+    listener: (event: { type: string }) => void,
+  ) => void
+  removeEventListener: (
+    type: string,
+    listener: (event: { type: string }) => void,
+  ) => void
+  dispatchEvent: (event: { type: string }) => void
+}
+
 type MockCalculatePosition = (
   object: THREE.Object3D,
   camera: THREE.Camera,
@@ -58,17 +72,14 @@ const canvasState = vi.hoisted(() => ({
       near?: number
       far?: number
     }
-    shadows?: boolean | string
+    shadows?: unknown
   } | undefined,
   sceneElements: [] as Array<{
     type: string
     props: Record<string, unknown>
   }>,
   camera: undefined as THREE.PerspectiveCamera | undefined,
-  controls: undefined as {
-    target: THREE.Vector3
-    update: ReturnType<typeof vi.fn>
-  } | undefined,
+  controls: undefined as MockOrbitControls | undefined,
   frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
   lineProps: [] as Array<{ current: MockLineProps }>,
   htmlLayout: {
@@ -109,7 +120,7 @@ vi.mock("@react-three/fiber", async () => {
         near?: number
         far?: number
       }
-      shadows?: boolean | string
+      shadows?: unknown
     }) => {
       useEffect(() => {
         canvasState.mounts += 1
@@ -217,11 +228,24 @@ vi.mock("@react-three/drei", async () => {
   }
   const Bounds = ({ children }: { children?: ReactNode }) => {
     useEffect(() => {
+      let overviewAnimationActive = true
+      const cancelOverviewAnimation = () => {
+        overviewAnimationActive = false
+      }
+      canvasState.controls?.addEventListener(
+        "start",
+        cancelOverviewAnimation,
+      )
       canvasState.boundsRefit = () => {
+        if (!overviewAnimationActive) return
         canvasState.camera?.position.set(9, 9, 9)
         canvasState.controls?.target.set(9, 9, 9)
       }
       return () => {
+        canvasState.controls?.removeEventListener(
+          "start",
+          cancelOverviewAnimation,
+        )
         canvasState.boundsRefit = undefined
       }
     }, [])
@@ -572,7 +596,25 @@ describe("VehicleNetworkViewport", () => {
     canvasState.sceneElements = []
     canvasState.camera = new THREE.PerspectiveCamera()
     canvasState.camera.position.set(-5.6, 3.1, 7.2)
-    canvasState.controls = { target: new THREE.Vector3(), update: vi.fn() }
+    const controlListeners = new Map<
+      string,
+      Set<(event: { type: string }) => void>
+    >()
+    canvasState.controls = {
+      target: new THREE.Vector3(),
+      update: vi.fn(),
+      addEventListener: (type, listener) => {
+        const listeners = controlListeners.get(type) ?? new Set()
+        listeners.add(listener)
+        controlListeners.set(type, listeners)
+      },
+      removeEventListener: (type, listener) => {
+        controlListeners.get(type)?.delete(listener)
+      },
+      dispatchEvent: (event) => {
+        controlListeners.get(event.type)?.forEach((listener) => listener(event))
+      },
+    }
     canvasState.frameCallbacks = []
     canvasState.lineProps = []
     canvasState.htmlLayout = {
@@ -659,7 +701,7 @@ describe("VehicleNetworkViewport", () => {
     renderDoorViewport()
 
     expect(canvasState.canvasProps).toMatchObject({
-      shadows: true,
+      shadows: { type: THREE.PCFShadowMap },
       camera: {
         position: [5.8, 3.8, 7.6],
         fov: 38,
@@ -1221,6 +1263,15 @@ describe("VehicleNetworkViewport", () => {
   })
 
   it("resets an already-overview camera once per new playback from the shared direction", async () => {
+    const scheduledFrames: FrameRequestCallback[] = []
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        scheduledFrames.push(callback)
+        return scheduledFrames.length
+      }),
+    )
+    vi.stubGlobal("cancelAnimationFrame", vi.fn())
     const view = renderDoorViewport({
       playback: {
         playbackId: 7,
@@ -1231,6 +1282,9 @@ describe("VehicleNetworkViewport", () => {
         segmentIndex: 0,
       },
     })
+    await waitFor(() => expect(scheduledFrames).toHaveLength(1))
+    act(() => scheduledFrames.shift()?.(0))
+    act(() => scheduledFrames.shift()?.(16))
     await waitFor(() =>
       expect(canvasState.overviewResets.length).toBeGreaterThan(0),
     )
@@ -1988,6 +2042,50 @@ describe("VehicleNetworkViewport", () => {
     expect(canvasState.mounts).toBe(1)
   })
 
+  it("keeps the Canvas root and overview bounds reset stable across one playback's segments", async () => {
+    const scheduledFrames: FrameRequestCallback[] = []
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        scheduledFrames.push(callback)
+        return scheduledFrames.length
+      }),
+    )
+    vi.stubGlobal("cancelAnimationFrame", vi.fn())
+    const playback = {
+      ...playingDoorSnapshotAtGateway,
+      playbackId: 31,
+      segmentIndex: 1,
+    }
+    const view = renderDoorViewport({ playback })
+
+    await waitFor(() => expect(scheduledFrames).toHaveLength(1))
+    act(() => scheduledFrames.shift()?.(0))
+    act(() => scheduledFrames.shift()?.(16))
+    await waitFor(() =>
+      expect(canvasState.overviewResets.length).toBeGreaterThan(0),
+    )
+    const coordinateRoot = canvasState.coordinateRoot
+    const overviewResetCount = canvasState.overviewResets.length
+    let previousPacket = getCanvasMesh("vehicle-flow-packet")
+
+    for (const segmentIndex of [2, 3, 4]) {
+      view.rerender(
+        <VehicleNetworkViewport
+          {...defaultDoorViewportProps}
+          playback={{ ...playback, segmentIndex }}
+        />,
+      )
+
+      const packet = getCanvasMesh("vehicle-flow-packet")
+      expect(packet).not.toBe(previousPacket)
+      expect(canvasState.mounts).toBe(1)
+      expect(canvasState.coordinateRoot).toBe(coordinateRoot)
+      expect(canvasState.overviewResets).toHaveLength(overviewResetCount)
+      previousPacket = packet
+    }
+  })
+
   it("uses static line and node states without a moving packet for reduced motion", () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: true,
@@ -2078,7 +2176,7 @@ describe("VehicleNetworkViewport", () => {
     expect(canvasState.orbitProps?.enableDamping).toBe(false)
   })
 
-  it("keeps the selected camera target when the viewport is refit", async () => {
+  it("cancels an in-flight overview refit before taking camera focus", async () => {
     vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
         matches: true,
         addEventListener: vi.fn(),
@@ -2088,6 +2186,7 @@ describe("VehicleNetworkViewport", () => {
     renderDoorViewport()
 
     await user.click(screen.getByRole("button", { name: "Target ECU" }))
+    const selectedPosition = canvasState.camera!.position.clone()
     const selectedTarget = canvasState.controls!.target.clone()
     expect(selectedTarget.equals(new THREE.Vector3(9, 9, 9))).toBe(false)
 
@@ -2096,6 +2195,7 @@ describe("VehicleNetworkViewport", () => {
       canvasState.frameCallbacks.forEach((callback) => callback({}, 0.016))
     })
 
+    expect(canvasState.camera!.position.equals(selectedPosition)).toBe(true)
     expect(canvasState.controls!.target.equals(selectedTarget)).toBe(true)
   })
 
