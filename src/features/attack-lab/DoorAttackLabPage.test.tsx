@@ -580,6 +580,17 @@ describe("DoorAttackLabPage", () => {
     )
   })
 
+  it("uses one intrinsic learning-grid rule so narrow panels never force two unreadable columns", () => {
+    const learningGridRules = Array.from(
+      doorAttackLabCss.matchAll(/\.door-attack-lab__learning\s*\{([^}]*)\}/g),
+      (match) => match[1],
+    ).filter((rule) => rule.includes("grid-template-columns"))
+
+    expect(learningGridRules).toHaveLength(1)
+    expect(learningGridRules[0]).toContain("repeat(auto-fit")
+    expect(learningGridRules[0]).toContain("min(100%, 280px)")
+  })
+
   it("explains how terminal reconnaissance becomes a door lab script without revealing the answer", async () => {
     render(<DoorAttackLabPage />)
 

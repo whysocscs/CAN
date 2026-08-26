@@ -895,7 +895,7 @@
 .door-attack-lab__terminal input { min-width: 0; border: 0; outline: 0; background: transparent; color: #edf3ff; font-family: inherit; font-size: 10px; }
 .door-attack-lab__terminal form button { display: grid; width: 25px; height: 25px; place-items: center; border: 1px solid #40506b; background: #263249; color: #a9c6ff; }
 
-.door-attack-lab__learning { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 12px; }
+.door-attack-lab__learning { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); align-items: start; gap: 12px; }
 .door-attack-lab__learning > section { padding: 11px; }
 .door-attack-lab__learning header { display: flex; align-items: center; gap: 6px; color: var(--dal-accent); }
 .door-attack-lab__learning h2 { margin: 0; color: var(--dal-text); font-size: 11px; }
@@ -1154,7 +1154,6 @@
   .door-attack-lab__vehicle-flow { min-height: 520px; }
   .vehicle-network-viewport { min-height: 473px; }
   .door-attack-lab__secondary { grid-template-columns: minmax(0, 1fr) 310px; }
-  .door-attack-lab__learning { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 820px) {
@@ -1191,7 +1190,6 @@
   .vehicle-network-viewport__callout[data-placement="target-far-left"] { right: calc(50% + 20px); }
   .vehicle-network-viewport__hint { bottom: auto; top: 370px; }
   .door-attack-lab__secondary { grid-template-columns: minmax(0, 1fr); }
-  .door-attack-lab__learning { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 520px) {
@@ -1249,7 +1247,6 @@
   .vehicle-network-viewport__callout[data-placement="effect-high-right"] { left: calc(50% - 27px); }
   .vehicle-network-viewport__callout strong { font-size: 12px; }
   .vehicle-network-viewport__callout small { font-size: 10px; }
-  .door-attack-lab__learning { grid-template-columns: 1fr; }
   .door-attack-lab__monitor-scroll { overflow-x: auto; }
   .door-attack-lab__panel-heading > span:not(.door-attack-lab__truth-qualifier) { display: none; }
   .door-attack-lab__panel-heading > .door-attack-lab__truth-qualifier { display: block; max-width: 150px; font-size: 8px; }

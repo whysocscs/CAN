@@ -1643,7 +1643,7 @@ describe("VehicleNetworkViewport", () => {
       ).not.toBeInTheDocument()
       expect(
         within(canvas)
-          .getAllByTestId("vehicle-topology-pin")
+          .queryAllByTestId("vehicle-topology-pin")
           .some((pin) => pin.getAttribute("data-active") === "true"),
       ).toBe(false)
     },
@@ -1860,6 +1860,7 @@ describe("VehicleNetworkViewport", () => {
         stoppedAt: "terminal",
       } satisfies VehicleFlowTrace,
       segmentIndex: 0,
+      canvasNodes: [],
     },
     {
       name: "terminal to evidence observation",
@@ -1871,16 +1872,18 @@ describe("VehicleNetworkViewport", () => {
         route: ["terminal", "evidence"],
       } satisfies VehicleFlowTrace,
       segmentIndex: 1,
+      canvasNodes: [],
     },
     {
       name: "terminal to OBD to monitor capture",
       phase: "playing" as const,
       trace: captureTrace,
       segmentIndex: 2,
+      canvasNodes: ["obd"],
     },
   ])(
-    "does not imply 3D ECU activity at a non-topology $name node",
-    ({ phase, trace, segmentIndex }) => {
+    "projects only the authoritative vehicle nodes at a non-topology $name node",
+    ({ phase, trace, segmentIndex, canvasNodes }) => {
       renderDoorViewport({
         focusedNodeId: "gateway",
         currentNodeId: "body",
@@ -1900,14 +1903,29 @@ describe("VehicleNetworkViewport", () => {
       ).not.toBeInTheDocument()
       expect(
         within(canvas)
-          .getAllByTestId("vehicle-topology-pin")
+          .queryAllByTestId("vehicle-topology-pin")
           .some((pin) => pin.getAttribute("data-active") === "true"),
       ).toBe(false)
+      expect(
+        within(canvas)
+          .queryAllByTestId("vehicle-topology-marker")
+          .map((marker) => marker.getAttribute("data-node-id")),
+      ).toEqual(canvasNodes)
+      expect(canvasState.lineProps).toHaveLength(0)
       expect(
         screen
           .getByRole("list", { name: "Door spoofing route target map" })
           .querySelector('[data-active="true"]'),
       ).not.toBeInTheDocument()
+      expect(
+        Array.from(
+          screen
+            .getByRole("list", {
+              name: "Door spoofing route command flow",
+            })
+            .querySelectorAll("li"),
+        ).map((node) => node.getAttribute("data-node-id")),
+      ).toEqual(trace.route)
     },
   )
 

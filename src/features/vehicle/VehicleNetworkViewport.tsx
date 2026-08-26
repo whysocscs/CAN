@@ -1068,6 +1068,13 @@ export default function VehicleNetworkViewport({
         : [],
     )
   }, [playbackState.trace, routeNodes])
+  const canvasNodes = useMemo(
+    () =>
+      playbackState.trace
+        ? flowRoute.map(({ node }) => node)
+        : routeNodes,
+    [flowRoute, playbackState.trace, routeNodes],
+  )
   const sourceNode = routeNodes[0]
   const targetNode = getTopologyNode(targetId)
   const effectNode = getTopologyNode(effectId)
@@ -1370,7 +1377,7 @@ export default function VehicleNetworkViewport({
               >
                 <VehicleRigAttachment immediate={reducedMotion} />
                 <TopologyOverlay
-                  nodes={routeNodes}
+                  nodes={canvasNodes}
                   flowRoute={flowRoute}
                   playback={playbackState}
                   accent={accent}
