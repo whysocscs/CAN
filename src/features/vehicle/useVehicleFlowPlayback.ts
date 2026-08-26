@@ -88,14 +88,25 @@ interface PlaybackCursor {
   traceIndex: number
 }
 
+interface PendingBoundary {
+  generation: number
+  run: VehicleFlowRun
+  remainingMs: number
+  deadlineMs: number | null
+  advance: () => void
+}
+
 export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
   const systemReducedMotion = useSystemReducedMotion()
   const reducedMotion = options.reducedMotion ?? systemReducedMotion
   const [snapshot, dispatchSnapshot] = useReducer(snapshotReducer, IDLE)
+  const [isPaused, setIsPaused] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const generationRef = useRef(0)
   const runRef = useRef<VehicleFlowRun | null>(null)
   const cursorRef = useRef<PlaybackCursor | null>(null)
+  const pausedRef = useRef(false)
+  const pendingBoundaryRef = useRef<PendingBoundary | null>(null)
   const optionsRef = useRef(options)
   optionsRef.current = { ...options, reducedMotion }
 
@@ -105,6 +116,32 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
     [],
   )
 
+  const schedulePendingBoundary = useCallback(() => {
+    const pending = pendingBoundaryRef.current
+    if (
+      !pending ||
+      pausedRef.current ||
+      timerRef.current !== null ||
+      !ownsRun(pending.generation, pending.run)
+    )
+      return
+
+    pending.deadlineMs = Date.now() + pending.remainingMs
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null
+      if (
+        pausedRef.current ||
+        pendingBoundaryRef.current !== pending ||
+        !ownsRun(pending.generation, pending.run)
+      )
+        return
+
+      pending.deadlineMs = null
+      pendingBoundaryRef.current = null
+      pending.advance()
+    }, pending.remainingMs)
+  }, [ownsRun])
+
   const finishSynchronously = useCallback(
     (generation: number) => {
       const run = runRef.current
@@ -112,6 +149,9 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
 
       if (timerRef.current !== null) clearTimeout(timerRef.current)
       timerRef.current = null
+      pendingBoundaryRef.current = null
+      pausedRef.current = false
+      setIsPaused(false)
       const cursor = cursorRef.current
       const startTraceIndex =
         cursor?.generation === generation ? cursor.traceIndex : 0
@@ -175,28 +215,40 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
           optionsRef.current.onEffect?.(trace)
           if (!ownsRun(generation, run)) return
         }
-        timerRef.current = setTimeout(() => {
-          if (!ownsRun(generation, run)) return
-          timerRef.current = null
-          if (traceIndex + 1 < run.traces.length) {
-            advance(generation, traceIndex + 1, 0)
-            return
-          }
+        pendingBoundaryRef.current = {
+          generation,
+          run,
+          remainingMs: optionsRef.current.finalHoldMs ?? DEFAULT_FINAL_HOLD_MS,
+          deadlineMs: null,
+          advance: () => {
+            if (!ownsRun(generation, run)) return
+            if (traceIndex + 1 < run.traces.length) {
+              advance(generation, traceIndex + 1, 0)
+              return
+            }
 
-          runRef.current = null
-          cursorRef.current = null
-          dispatchSnapshot({ type: "finish" })
-          optionsRef.current.onComplete?.(run.runKey)
-        }, optionsRef.current.finalHoldMs ?? DEFAULT_FINAL_HOLD_MS)
+            runRef.current = null
+            cursorRef.current = null
+            pausedRef.current = false
+            setIsPaused(false)
+            dispatchSnapshot({ type: "finish" })
+            optionsRef.current.onComplete?.(run.runKey)
+          },
+        }
+        schedulePendingBoundary()
         return
       }
 
-      timerRef.current = setTimeout(
-        () => advance(generation, traceIndex, segmentIndex + 1),
-        optionsRef.current.stepMs ?? DEFAULT_STEP_MS,
-      )
+      pendingBoundaryRef.current = {
+        generation,
+        run,
+        remainingMs: optionsRef.current.stepMs ?? DEFAULT_STEP_MS,
+        deadlineMs: null,
+        advance: () => advance(generation, traceIndex, segmentIndex + 1),
+      }
+      schedulePendingBoundary()
     },
-    [ownsRun],
+    [ownsRun, schedulePendingBoundary],
   )
 
   const stop = useCallback((clearSnapshot: boolean) => {
@@ -206,12 +258,55 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
     const cancelled = runRef.current
     runRef.current = null
     cursorRef.current = null
+    pendingBoundaryRef.current = null
+    pausedRef.current = false
+    setIsPaused(false)
     dispatchSnapshot({ type: clearSnapshot ? "clear" : "cancel" })
     if (cancelled) optionsRef.current.onCancel?.(cancelled.runKey)
   }, [])
 
   const cancel = useCallback(() => stop(false), [stop])
   const clear = useCallback(() => stop(true), [stop])
+
+  const pause = useCallback(() => {
+    if (!runRef.current || pausedRef.current) return false
+
+    const pending = pendingBoundaryRef.current
+    if (pending && pending.deadlineMs !== null) {
+      pending.remainingMs = Math.max(0, pending.deadlineMs - Date.now())
+      pending.deadlineMs = null
+    }
+    if (timerRef.current !== null) clearTimeout(timerRef.current)
+    timerRef.current = null
+    pausedRef.current = true
+    setIsPaused(true)
+    return true
+  }, [])
+
+  const resume = useCallback(() => {
+    if (!runRef.current || !pausedRef.current) return false
+
+    pausedRef.current = false
+    setIsPaused(false)
+    schedulePendingBoundary()
+    return true
+  }, [schedulePendingBoundary])
+
+  const nextStep = useCallback(() => {
+    const pending = pendingBoundaryRef.current
+    if (
+      !pausedRef.current ||
+      !pending ||
+      !ownsRun(pending.generation, pending.run)
+    )
+      return false
+
+    if (timerRef.current !== null) clearTimeout(timerRef.current)
+    timerRef.current = null
+    pendingBoundaryRef.current = null
+    pending.advance()
+    return true
+  }, [ownsRun])
 
   const play = useCallback(
     (run: VehicleFlowRun) => {
@@ -254,14 +349,23 @@ export function useVehicleFlowPlayback(options: VehicleFlowPlaybackOptions) {
       timerRef.current = null
       runRef.current = null
       cursorRef.current = null
+      pendingBoundaryRef.current = null
+      pausedRef.current = false
     },
     [],
   )
 
+  const isActive = snapshot.phase === "playing"
+
   return {
     snapshot,
-    isPlaying: snapshot.phase === "playing",
+    isPlaying: isActive && !isPaused,
+    isPaused,
+    isActive,
     play,
+    pause,
+    resume,
+    nextStep,
     cancel,
     clear,
   }

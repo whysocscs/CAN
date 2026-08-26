@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   captureTrace,
   executedAlertTrace,
@@ -42,29 +43,29 @@ describe("VehicleFlowRail", () => {
   it.each([
     [false, "교육용 처리/관찰 순서 · slow-motion trace"],
     [true, "정적 최종 상태 · reduced motion"],
-  ] as const)("reports the actual motion mode when reducedMotion is %s", (
-    reducedMotion,
-    label,
-  ) => {
-    render(
-      <VehicleFlowRail
-        scenarioTitle="Door attack route"
-        route={["obd", "ids", "gateway", "body", "leftDoor"]}
-        playback={{
-          playbackId: 0,
-          phase: "idle",
-          trace: null,
-          traceIndex: 0,
-          traceCount: 0,
-          segmentIndex: 0,
-        }}
-        reducedMotion={reducedMotion}
-        accent="#d94b4b"
-      />,
-    )
+  ] as const)(
+    "reports the actual motion mode when reducedMotion is %s",
+    (reducedMotion, label) => {
+      render(
+        <VehicleFlowRail
+          scenarioTitle="Door attack route"
+          route={["obd", "ids", "gateway", "body", "leftDoor"]}
+          playback={{
+            playbackId: 0,
+            phase: "idle",
+            trace: null,
+            traceIndex: 0,
+            traceCount: 0,
+            segmentIndex: 0,
+          }}
+          reducedMotion={reducedMotion}
+          accent="#d94b4b"
+        />,
+      )
 
-    expect(screen.getByText(label)).toBeInTheDocument()
-  })
+      expect(screen.getByText(label)).toBeInTheDocument()
+    },
+  )
 
   it.each(["idle", "complete"] as const)(
     "highlights the selected route node while playback is %s",
@@ -129,8 +130,9 @@ describe("VehicleFlowRail", () => {
       "aria-current",
       "step",
     )
-    expect(screen.getByText("Toy IDS").closest("li"))
-      .toHaveAccessibleName(/Toy IDS.*현재 처리 중/)
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAccessibleName(
+      /Toy IDS.*현재 처리 중/,
+    )
     expect(screen.getByText("Toy Body ECU").closest("li")).not.toHaveAttribute(
       "data-selected",
     )
@@ -158,7 +160,9 @@ describe("VehicleFlowRail", () => {
         accent="#d94b4b"
       />,
     )
-    const rail = screen.getByRole("list", { name: "Door attack route command flow" })
+    const rail = screen.getByRole("list", {
+      name: "Door attack route command flow",
+    })
     expect(within(rail).getByText("Lab Terminal")).toBeInTheDocument()
     expect(within(rail).getByText("Toy IDS").closest("li")).toHaveAttribute(
       "data-flow-state",
@@ -173,8 +177,9 @@ describe("VehicleFlowRail", () => {
     expect(screen.getByText(/COUNTER_REJECTED/)).toBeInTheDocument()
     expect(screen.getByText(/관찰\/탐지됨.*차단 근거 없음/)).toBeInTheDocument()
     expect(screen.queryByText(/expected counter/i)).not.toBeInTheDocument()
-    expect(screen.queryByText("cansend vcan0 456#000113B7"))
-      .not.toBeInTheDocument()
+    expect(
+      screen.queryByText("cansend vcan0 456#000113B7"),
+    ).not.toBeInTheDocument()
   })
 
   it("keeps the final ECU rejection hidden from Terminal until Body ECU arrival", () => {
@@ -263,8 +268,9 @@ describe("VehicleFlowRail", () => {
       "aria-current",
       "step",
     )
-    expect(screen.getByText("Toy Body ECU").closest("li"))
-      .toHaveAccessibleName(/Toy Body ECU.*거부됨/)
+    expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAccessibleName(
+      /Toy Body ECU.*거부됨/,
+    )
   })
 
   it("marks the current node cancelled while preserving only completed nodes", () => {
@@ -318,16 +324,20 @@ describe("VehicleFlowRail", () => {
       />,
     )
 
-    const rail = screen.getByRole("list", { name: "Capture route command flow" })
+    const rail = screen.getByRole("list", {
+      name: "Capture route command flow",
+    })
     expect(within(rail).getByText("Lab Terminal")).toBeInTheDocument()
     expect(within(rail).getByText("Training OBD-II")).toBeInTheDocument()
     expect(within(rail).getByText("CAN Monitor")).toBeInTheDocument()
     expect(within(rail).queryByText("Toy Body ECU")).not.toBeInTheDocument()
     expect(within(rail).queryByText("Left Door Effect")).not.toBeInTheDocument()
-    expect(screen.getByText("교육용 논리 위치 · 실제 OEM 배치 아님")).toBeInTheDocument()
+    expect(
+      screen.getByText("교육용 논리 위치 · 실제 OEM 배치 아님"),
+    ).toBeInTheDocument()
   })
 
-  it("keeps per-segment and per-trace HUD changes out of live announcements", () => {
+  it("keeps live playback status stable while frame and segment details advance", () => {
     const secondTrace = {
       ...executedAlertTrace,
       traceId: "attempt-second",
@@ -351,8 +361,15 @@ describe("VehicleFlowRail", () => {
       />,
     )
 
-    expect(screen.getByText(executedAlertTrace.commandLabel)).toBeInTheDocument()
-    expect(document.querySelector('[aria-live="polite"]')).not.toBeInTheDocument()
+    const liveStatus = screen.getByRole("status")
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(liveStatus).toHaveTextContent("재생 상태: 자동 재생 중")
+    expect(liveStatus).not.toHaveTextContent(/Frame|현재 장치/)
+    const initialDetail = screen.getByText(
+      "Frame 1/2 · 현재 장치 Lab Terminal · 상태 자동 재생 중",
+    )
+    expect(initialDetail).toHaveClass("sr-only")
+    expect(initialDetail).not.toHaveAttribute("role")
 
     view.rerender(
       <VehicleFlowRail
@@ -370,7 +387,210 @@ describe("VehicleFlowRail", () => {
       />,
     )
 
-    expect(screen.getByText("second synthetic script line")).toBeInTheDocument()
-    expect(document.querySelector('[aria-live="polite"]')).not.toBeInTheDocument()
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "재생 상태: 자동 재생 중",
+    )
+    expect(screen.getByRole("status")).not.toHaveTextContent(
+      /Frame|현재 장치/,
+    )
+    expect(
+      screen.getByText(
+        "Frame 2/2 · 현재 장치 Toy Gateway · 상태 자동 재생 중",
+      ),
+    ).not.toHaveAttribute("role")
+  })
+
+  it("lets a learner pause the automatic trace and advance exactly one playback boundary at a time", async () => {
+    const user = userEvent.setup()
+    const onPause = vi.fn()
+    const onResume = vi.fn()
+    const onNextStep = vi.fn()
+    const playback = {
+      playbackId: 9,
+      phase: "playing" as const,
+      trace: executedAlertTrace,
+      traceIndex: 0,
+      traceCount: 1,
+      segmentIndex: 2,
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        accent="#d94b4b"
+        isPaused={false}
+        onPause={onPause}
+        onResume={onResume}
+        onNextStep={onNextStep}
+      />,
+    )
+
+    const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+    expect(within(controls).getByText("자동 재생 중")).toBeInTheDocument()
+    expect(
+      within(controls).getByRole("button", { name: "한 단계 진행" }),
+    ).toBeDisabled()
+    await user.click(within(controls).getByRole("button", { name: "일시정지" }))
+    expect(onPause).toHaveBeenCalledOnce()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        accent="#d94b4b"
+        isPaused
+        onPause={onPause}
+        onResume={onResume}
+        onNextStep={onNextStep}
+      />,
+    )
+
+    expect(within(controls).getByText("일시정지됨")).toBeInTheDocument()
+    await user.click(
+      within(controls).getByRole("button", { name: "한 단계 진행" }),
+    )
+    await user.click(
+      within(controls).getByRole("button", { name: "계속 재생" }),
+    )
+    expect(onNextStep).toHaveBeenCalledOnce()
+    expect(onResume).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["idle", false, "재생 대기"],
+    ["playing", false, "자동 재생 중"],
+    ["playing", true, "일시정지됨"],
+    ["complete", false, "재생 완료"],
+    ["cancelled", false, "재생 취소됨"],
+  ] as const)(
+    "reports the %s playback lifecycle accurately when paused is %s",
+    (phase, isPaused, expectedStatus) => {
+      render(
+        <VehicleFlowRail
+          scenarioTitle="Door attack route"
+          route={["obd", "ids", "gateway", "body", "leftDoor"]}
+          playback={
+            phase === "idle"
+              ? {
+                  playbackId: 0,
+                  phase,
+                  trace: null,
+                  traceIndex: 0,
+                  traceCount: 0,
+                  segmentIndex: 0,
+                }
+              : {
+                  playbackId: 9,
+                  phase,
+                  trace: executedAlertTrace,
+                  traceIndex: 0,
+                  traceCount: 1,
+                  segmentIndex: 2,
+                }
+          }
+          accent="#d94b4b"
+          isPaused={isPaused}
+          onPause={() => undefined}
+          onResume={() => undefined}
+          onNextStep={() => undefined}
+        />,
+      )
+
+      const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+      expect(within(controls).getByText(expectedStatus)).toBeInTheDocument()
+    },
+  )
+
+  it("announces pause, completion, and cancellation playback boundaries", () => {
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 2,
+        }}
+        accent="#d94b4b"
+        isPaused={false}
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+
+    const liveStatus = screen.getByRole("status")
+    expect(liveStatus).toHaveTextContent("재생 상태: 자동 재생 중")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 2,
+        }}
+        accent="#d94b4b"
+        isPaused
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 일시정지됨")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "complete",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 5,
+        }}
+        accent="#d94b4b"
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 재생 완료")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "cancelled",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 3,
+        }}
+        accent="#d94b4b"
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 재생 취소됨")
+    expect(liveStatus).not.toHaveTextContent(/Frame|현재 장치/)
   })
 })

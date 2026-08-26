@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 const sharedState = vi.hoisted(() => ({
   canvasProps: undefined as Record<string, unknown> | undefined,
-  canvasChildren: [] as Array<{ type: string; props: Record<string, unknown> }>,
+  canvasChildren: [] as Array<{
+    type: string
+    props: Record<string, unknown>
+  }>,
   boundsProps: undefined as Record<string, unknown> | undefined,
   centerRenders: 0,
   orbitProps: undefined as Record<string, unknown> | undefined,
@@ -43,8 +46,17 @@ vi.mock("@react-three/drei", async () => {
       sharedState.boundsProps = props
       return <div data-testid="shared-bounds">{children}</div>
     },
-    Center: ({ children }: { children?: ReactNode }) => {
+    Center: ({
+      children,
+      onCentered,
+      cacheKey,
+    }: {
+      children?: ReactNode
+      onCentered?: () => void
+      cacheKey?: unknown
+    }) => {
       sharedState.centerRenders += 1
+      React.useLayoutEffect(() => onCentered?.(), [cacheKey, onCentered])
       return <div data-testid="shared-center">{children}</div>
     },
     OrbitControls: (props: Record<string, unknown>) => {
@@ -143,18 +155,15 @@ describe("SharedVehicleScene", () => {
       observe: true,
       margin: 0.9,
     })
-    expect(sharedState.centerRenders).toBe(2)
-    expect(sharedState.orbitProps).toMatchObject(
-      NORMAL_CAN_SCENE_PRESET.orbit,
-    )
+    expect(sharedState.centerRenders).toBe(1)
+    expect(sharedState.orbitProps).toMatchObject(NORMAL_CAN_SCENE_PRESET.orbit)
     expect(
       sharedState.canvasChildren.find(({ type }) => type === "ambientLight")
         ?.props,
     ).toMatchObject({ intensity: 0.72 })
     expect(
-      sharedState.canvasChildren.find(
-        ({ type }) => type === "directionalLight",
-      )?.props,
+      sharedState.canvasChildren.find(({ type }) => type === "directionalLight")
+        ?.props,
     ).toMatchObject({ intensity: 2.35 })
   })
 
@@ -165,12 +174,24 @@ describe("SharedVehicleScene", () => {
       </SharedVehicleScene>,
     )
 
-    const root = screen.getByTestId("shared-center").querySelector(
-      'primitive[name="shared-vehicle-coordinate-root"]',
-    )
+    const root = screen
+      .getByTestId("shared-center")
+      .querySelector('primitive[name="shared-vehicle-coordinate-root"]')
     expect(root).not.toBeNull()
     expect(root?.querySelector("primitive")).not.toBeNull()
     expect(root?.querySelector('mesh[name="consumer-overlay"]')).not.toBeNull()
+  })
+
+  it("reports centered only after the cloned GLB resource is committed", () => {
+    const onCentered = vi.fn()
+
+    render(<SharedVehicleScene xray={false} onCentered={onCentered} />)
+
+    expect(sharedState.centerRenders).toBe(1)
+    expect(onCentered).toHaveBeenCalledOnce()
+    expect(
+      screen.getByTestId("shared-center").querySelector("primitive primitive"),
+    ).not.toBeNull()
   })
 
   it("preserves source transparency, opacity, and depth-write values in non-xray clones", () => {
@@ -196,12 +217,11 @@ describe("SharedVehicleScene", () => {
       </SharedVehicleScene>,
     )
 
-    const clonedMesh = clone?.getObjectByName("OUTER_LENS") as
-      | THREE.Mesh
-      | undefined
-    const clonedMaterial = clonedMesh?.material as
-      | THREE.MeshStandardMaterial
-      | undefined
+    const clonedMesh = clone?.getObjectByName(
+      "OUTER_LENS",
+    ) as THREE.Mesh | undefined
+    const clonedMaterial =
+      clonedMesh?.material as THREE.MeshStandardMaterial | undefined
 
     expect(clonedMaterial).not.toBe(sourceMaterial)
     expect(clonedMaterial).toMatchObject({
@@ -238,12 +258,11 @@ describe("SharedVehicleScene", () => {
         <CloneProbe onClone={rememberClone} />
       </SharedVehicleScene>,
     )
-    const normalMesh = clone?.getObjectByName("BODY_SHELL") as
-      | THREE.Mesh
-      | undefined
-    const normalMaterial = normalMesh?.material as
-      | THREE.MeshStandardMaterial
-      | undefined
+    const normalMesh = clone?.getObjectByName(
+      "BODY_SHELL",
+    ) as THREE.Mesh | undefined
+    const normalMaterial =
+      normalMesh?.material as THREE.MeshStandardMaterial | undefined
     expect(normalMaterial).not.toBe(sourceMaterial)
     expect(normalMaterial).toMatchObject({
       transparent: true,
@@ -257,12 +276,11 @@ describe("SharedVehicleScene", () => {
         <CloneProbe onClone={rememberClone} />
       </SharedVehicleScene>,
     )
-    const xrayMesh = clone?.getObjectByName("BODY_SHELL") as
-      | THREE.Mesh
-      | undefined
-    const xrayMaterial = xrayMesh?.material as
-      | THREE.MeshStandardMaterial
-      | undefined
+    const xrayMesh = clone?.getObjectByName(
+      "BODY_SHELL",
+    ) as THREE.Mesh | undefined
+    const xrayMaterial =
+      xrayMesh?.material as THREE.MeshStandardMaterial | undefined
     expect(normalDispose).toHaveBeenCalledOnce()
     expect(xrayMaterial).not.toBe(sourceMaterial)
     expect(xrayMaterial).toMatchObject({
@@ -316,8 +334,8 @@ describe("SharedVehicleScene", () => {
     view.unmount()
 
     expect(
-      clonedMaterials.map((material) =>
-        vi.mocked(material.dispose).mock.calls.length,
+      clonedMaterials.map(
+        (material) => vi.mocked(material.dispose).mock.calls.length,
       ),
     ).toEqual(clonedMaterials.map(() => 1))
   })

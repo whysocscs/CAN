@@ -73,16 +73,26 @@ vi.mock("../vehicle/useVehicleFlowPlayback", async (importOriginal) => {
   }
 })
 vi.mock("./DoorAttackVehicle", async () => {
-  const { default: VehicleFlowRail } = await import("../vehicle/VehicleFlowRail")
+  const { default: VehicleFlowRail } = await import(
+    "../vehicle/VehicleFlowRail"
+  )
   return {
     default: ({
       currentStage,
       playback,
       presentation,
+      playbackPaused,
+      onPlaybackPause,
+      onPlaybackResume,
+      onPlaybackNextStep,
     }: {
       currentStage?: string
       playback?: VehicleFlowPlaybackSnapshot
       presentation?: VehicleFlowPresentation
+      playbackPaused?: boolean
+      onPlaybackPause?: () => void
+      onPlaybackResume?: () => void
+      onPlaybackNextStep?: () => void
     }) => {
       const signature = playback
         ? [
@@ -111,16 +121,22 @@ vi.mock("./DoorAttackVehicle", async () => {
             <VehicleFlowRail
               scenarioTitle="Door attack route"
               route={["obd", "ids", "gateway", "body", "leftDoor"]}
-              playback={playback ?? {
-                playbackId: 0,
-                phase: "idle",
-                trace: null,
-                traceIndex: 0,
-                traceCount: 0,
-                segmentIndex: 0,
-              }}
+              playback={
+                playback ?? {
+                  playbackId: 0,
+                  phase: "idle",
+                  trace: null,
+                  traceIndex: 0,
+                  traceCount: 0,
+                  segmentIndex: 0,
+                }
+              }
               presentation={presentation}
               accent="#d94b4b"
+              isPaused={playbackPaused}
+              onPause={onPlaybackPause}
+              onResume={onPlaybackResume}
+              onNextStep={onPlaybackNextStep}
             />
           ) : null}
         </div>
@@ -535,6 +551,25 @@ describe("DoorAttackLabPage", () => {
     expect(stream.connect).toHaveBeenCalledTimes(1)
   })
 
+  it("switches Door stage guidance between Guided evidence steps and Challenge planning", async () => {
+    const user = userEvent.setup()
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+
+    const guidance = screen.getByRole("region", { name: "현재 단계 안내" })
+    expect(within(guidance).getByText("단계 목적")).toBeInTheDocument()
+    expect(within(guidance).getByText("지금 할 일")).toBeInTheDocument()
+    expect(within(guidance).getByText("확인할 증거")).toBeInTheDocument()
+    expect(within(guidance).getByText("완료 기준")).toBeInTheDocument()
+
+    await user.click(screen.getByRole("radio", { name: /Challenge/ }))
+
+    expect(within(guidance).getByText("스스로 정할 항목")).toBeInTheDocument()
+    expect(within(guidance).queryByText("지금 할 일")).not.toBeInTheDocument()
+    expect(within(guidance).queryByText("확인할 증거")).not.toBeInTheDocument()
+    expect(within(guidance).queryByText("완료 기준")).not.toBeInTheDocument()
+  })
+
   it("keeps the terminal column at its content height instead of stretching it to the Activity column", async () => {
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
@@ -594,6 +629,120 @@ describe("DoorAttackLabPage", () => {
       "data-playback-phase",
       "complete",
     )
+  })
+
+  it("keeps Door inputs locked and delays the effect while playback is paused", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    playbackHarness.renderRail = true
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+    const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+    await user.click(within(controls).getByRole("button", { name: "일시정지" }))
+
+    act(() => vi.advanceTimersByTime(10_000))
+
+    expect(within(controls).getByText("일시정지됨")).toBeInTheDocument()
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(
+      screen.getByRole("textbox", { name: "공격 스크립트" }),
+    ).toBeDisabled()
+    expect(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "스크립트 실행" })).toBeDisabled()
+  })
+
+  it("advances one paused Door boundary and resumes through completion", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    playbackHarness.renderRail = true
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+    const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+    const commandFlow = screen.getByRole("list", {
+      name: "Door attack route command flow",
+    })
+    await user.click(within(controls).getByRole("button", { name: "일시정지" }))
+    expect(
+      within(commandFlow).getByRole("listitem", {
+        name: "Lab Terminal · 현재 처리 중",
+      }),
+    ).toBeInTheDocument()
+
+    await user.click(
+      within(controls).getByRole("button", { name: "한 단계 진행" }),
+    )
+    expect(
+      within(commandFlow).getByRole("listitem", {
+        name: "Training OBD-II · 현재 처리 중",
+      }),
+    ).toBeInTheDocument()
+    act(() => vi.advanceTimersByTime(10_000))
+    expect(
+      within(commandFlow).getByRole("listitem", {
+        name: "Training OBD-II · 현재 처리 중",
+      }),
+    ).toBeInTheDocument()
+    expect(vehicle.isOpen("doorL")).toBe(false)
+
+    await user.click(
+      within(controls).getByRole("button", { name: "계속 재생" }),
+    )
+    act(() => vi.runAllTimers())
+
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "complete",
+    )
+  })
+
+  it("opens Door reflection only after playback completes and shows its authoritative comparison", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+
+    expect(
+      screen.getByText(/후보 Frame n\/N마다 예상 ECU 판정/),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/관찰한 rolling counter와 checksum 관계/),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/실행 결과 재생이 완료되면/)).toBeInTheDocument()
+
+    act(() => vi.runAllTimers())
+
+    expect(screen.queryByText(/차량 흐름이 완료되면/)).not.toBeInTheDocument()
+    const actual = screen
+      .getByRole("heading", {
+        name: "Actual · 관찰 결과",
+      })
+      .closest("article")
+    expect(actual).not.toBeNull()
+    expect(actual).toHaveTextContent("Toy ECU")
+    expect(actual).toHaveTextContent("EXECUTED")
+    expect(actual).toHaveTextContent("차량 영향")
+    expect(actual).toHaveTextContent("Left Door · 적용됨")
   })
 
   it("plays the complete authoritative trace array once in sequence order", async () => {
@@ -1039,8 +1188,11 @@ describe("DoorAttackLabPage", () => {
       const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
       await user.type(input, "pwd")
       await user.click(screen.getByRole("button", { name: "명령 실행" }))
-      await waitFor(() =>
-        expect(screen.getByRole("button", { name: "명령 실행" })).toBeEnabled(),
+      await waitFor(
+        () =>
+          expect(
+            screen.getByRole("button", { name: "명령 실행" }),
+          ).toBeEnabled(),
         { timeout: 3_000 },
       )
 
@@ -1501,33 +1653,40 @@ describe("DoorAttackLabPage", () => {
     await waitFor(() => expect(terminalInput).toBeEnabled())
 
     await user.type(
-      terminalInput,
-      rejectedDoorTrace.commandLabel,
+      screen.getByLabelText("실행 전 예상"),
+      "과거 후보 프레임은 Counter 검증에서 거부될 것으로 예상합니다.",
     )
+    await user.type(terminalInput, rejectedDoorTrace.commandLabel)
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledOnce())
-    expect(api.runDoorLabCommand.mock.calls[0]?.[1])
-      .toBe(rejectedDoorTrace.commandLabel)
+    expect(api.runDoorLabCommand.mock.calls[0]?.[1]).toBe(
+      rejectedDoorTrace.commandLabel,
+    )
 
     const transcript = await screen.findByRole("region", {
       name: "Virtual terminal transcript",
     })
     expect(
-      await within(transcript).findByText(`$ ${rejectedDoorTrace.commandLabel}`),
+      await within(transcript).findByText(
+        `$ ${rejectedDoorTrace.commandLabel}`,
+      ),
     ).toBeInTheDocument()
-    expect(within(transcript).queryByText("COUNTER_REJECTED"))
-      .not.toBeInTheDocument()
+    expect(
+      within(transcript).queryByText("COUNTER_REJECTED"),
+    ).not.toBeInTheDocument()
     expect(screen.queryByRole("alert")).not.toBeInTheDocument()
 
     const why = screen
       .getByRole("heading", { name: "왜 이런 결과가 발생했나요?" })
       .closest("section")
     expect(why).not.toBeNull()
-    expect(within(why!).queryByText("가상 CAN 경로 입력"))
-      .not.toBeInTheDocument()
+    expect(
+      within(why!).queryByText("가상 CAN 경로 입력"),
+    ).not.toBeInTheDocument()
     expect(within(why!).queryByText("Toy ECU")).not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /COUNTER_REJECTED/ }))
-      .toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /COUNTER_REJECTED/ }),
+    ).toBeInTheDocument()
 
     act(() => vi.advanceTimersByTime(600))
     expect(within(why!).getByText("가상 CAN 경로 입력")).toBeInTheDocument()
@@ -1539,6 +1698,25 @@ describe("DoorAttackLabPage", () => {
     expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
       "data-presentation-status",
       "REJECTED",
+    )
+
+    act(() => vi.advanceTimersByTime(900))
+    const matchingFrame = within(
+      screen.getByRole("region", { name: "Network monitor" }),
+    ).getByRole("button", { name: "0x456 01 01 10 B5 frame 선택" })
+    await user.click(matchingFrame)
+    await user.type(
+      screen.getByLabelText("선택한 근거와 결과 비교"),
+      "선택한 과거 프레임은 Toy Body ECU에서 COUNTER_REJECTED로 거부되어 문 효과가 없었습니다.",
+    )
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "미달성",
+    )
+    const confirm = screen.getByRole("button", { name: "학습 확인" })
+    expect(confirm).toBeEnabled()
+    await user.click(confirm)
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "완료",
     )
   })
 
@@ -1560,14 +1738,18 @@ describe("DoorAttackLabPage", () => {
 
     await act(async () => request.resolve(multiFrameRunResult))
 
-    expect(screen.getByText("실행 시 기록된 예상").parentElement)
-      .toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
-    expect(screen.getByText("공격 조건 충족").parentElement)
-      .toHaveTextContent("달성")
-    expect(screen.getByText("학습 확인 완료").parentElement)
-      .toHaveTextContent("미완료")
-    expect(screen.getByText(multiFrameFirstTrace.commandLabel))
-      .toBeInTheDocument()
+    expect(
+      screen.getByText("실행 시 기록된 예상").parentElement,
+    ).toHaveTextContent("왼쪽 문 효과가 적용될 것으로 예상합니다.")
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "달성",
+    )
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "미완료",
+    )
+    expect(
+      screen.getByText(multiFrameFirstTrace.commandLabel),
+    ).toBeInTheDocument()
     expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
       "data-presentation-command",
       multiFrameFirstTrace.commandLabel,
@@ -1581,8 +1763,9 @@ describe("DoorAttackLabPage", () => {
     const actionSummary = liveRegions[0].textContent
 
     act(() => vi.advanceTimersByTime(3_900))
-    expect(screen.getByText(multiFrameSecondTrace.commandLabel))
-      .toBeInTheDocument()
+    expect(
+      screen.getByText(multiFrameSecondTrace.commandLabel),
+    ).toBeInTheDocument()
     expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
       "data-presentation-command",
       multiFrameSecondTrace.commandLabel,
@@ -1636,10 +1819,13 @@ describe("DoorAttackLabPage", () => {
     await user.click(matchingFrame)
 
     const confirm = screen.getByRole("button", { name: "학습 확인" })
+    expect(confirm).toBeDisabled()
+    act(() => vi.advanceTimersByTime(3_900))
     expect(confirm).toBeEnabled()
     await user.click(confirm)
-    expect(screen.getByText("학습 확인 완료").parentElement)
-      .toHaveTextContent("완료")
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "완료",
+    )
   })
 
   it("invalidates the previous Door action as soon as a second accepted submit starts", async () => {
@@ -1674,17 +1860,24 @@ describe("DoorAttackLabPage", () => {
     await flushCanEvents()
     fireEvent.change(screen.getByLabelText("선택한 근거와 결과 비교"), {
       target: {
-        value: "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
+        value:
+          "선택한 프레임과 최신 Toy ECU 효과가 같은 실행임을 충분히 확인했습니다.",
       },
     })
     await user.click(screen.getByRole("button", { name: "학습 확인" }))
 
-    expect(screen.getByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
-      .toBeInTheDocument()
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent("달성")
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("완료")
-    expect(screen.getByRole("region", { name: "Binary inspector" }))
-      .not.toHaveTextContent("Network monitor에서 frame을 선택하세요.")
+    expect(
+      screen.getByRole("heading", { name: "왜 이런 결과가 발생했나요?" }),
+    ).toBeInTheDocument()
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "달성",
+    )
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "완료",
+    )
+    expect(
+      screen.getByRole("region", { name: "Binary inspector" }),
+    ).not.toHaveTextContent("Network monitor에서 frame을 선택하세요.")
 
     fireEvent.change(prediction, {
       target: { value: "두 번째 요청에서 현재 캡처할 예상입니다." },
@@ -1693,25 +1886,41 @@ describe("DoorAttackLabPage", () => {
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledTimes(2))
 
-    expect(screen.queryByRole("heading", { name: "왜 이런 결과가 발생했나요?" }))
-      .not.toBeInTheDocument()
+    expect(
+      screen.queryByRole("heading", { name: "왜 이런 결과가 발생했나요?" }),
+    ).not.toBeInTheDocument()
     expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
       "data-presentation-status",
       "missing",
     )
-    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent("미달성")
-    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent("미완료")
-    expect(screen.getByText("실행 시 기록된 예상").parentElement)
-      .toHaveTextContent("아직 기록되지 않음")
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "미달성",
+    )
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "미완료",
+    )
+    expect(
+      screen.getByText("실행 시 기록된 예상").parentElement,
+    ).toHaveTextContent("아직 기록되지 않음")
     expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
     expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
-    expect(screen.getByRole("region", { name: "Binary inspector" }))
-      .toHaveTextContent("Network monitor에서 frame을 선택하세요.")
-    expect(screen.getByText("Toy IDS").parentElement).toHaveTextContent("PENDING")
-    expect(within(screen.getByRole("region", { name: "Virtual terminal transcript" }))
-      .getAllByTestId("attack-terminal-entry")).toHaveLength(1)
-    expect(within(screen.getByRole("region", { name: "Activity log" }))
-      .getByRole("button", { name: /EXECUTED/ })).toBeInTheDocument()
+    expect(
+      screen.getByRole("region", { name: "Binary inspector" }),
+    ).toHaveTextContent("Network monitor에서 frame을 선택하세요.")
+    expect(screen.getByText("Toy IDS").parentElement).toHaveTextContent(
+      "PENDING",
+    )
+    expect(
+      within(
+        screen.getByRole("region", { name: "Virtual terminal transcript" }),
+      ).getAllByTestId("attack-terminal-entry"),
+    ).toHaveLength(1)
+    expect(
+      within(screen.getByRole("region", { name: "Activity log" })).getByRole(
+        "button",
+        { name: /EXECUTED/ },
+      ),
+    ).toBeInTheDocument()
 
     expect(api.runDoorLabCommand.mock.calls[1]?.[2]).toBeInstanceOf(AbortSignal)
   })
@@ -1755,10 +1964,12 @@ describe("DoorAttackLabPage", () => {
     )
     await flushCanEvents()
     await user.click(screen.getByRole("button", { name: "학습 확인" }))
-    expect(screen.getByText("공격 조건 충족").parentElement)
-      .toHaveTextContent("달성")
-    expect(screen.getByText("학습 확인 완료").parentElement)
-      .toHaveTextContent("완료")
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "달성",
+    )
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "완료",
+    )
 
     await user.type(terminal, "pwd malformed")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
@@ -1766,12 +1977,15 @@ describe("DoorAttackLabPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
     )
-    expect(screen.getByText("공격 조건 충족").parentElement)
-      .toHaveTextContent("미달성")
-    expect(screen.getByText("학습 확인 완료").parentElement)
-      .toHaveTextContent("미완료")
-    expect(screen.getByText("실행 시 기록된 예상").parentElement)
-      .toHaveTextContent("아직 기록되지 않음")
+    expect(screen.getByText("공격 조건 충족").parentElement).toHaveTextContent(
+      "미달성",
+    )
+    expect(screen.getByText("학습 확인 완료").parentElement).toHaveTextContent(
+      "미완료",
+    )
+    expect(
+      screen.getByText("실행 시 기록된 예상").parentElement,
+    ).toHaveTextContent("아직 기록되지 않음")
     expect(screen.getByLabelText("선택한 근거와 결과 비교")).toHaveValue("")
     expect(screen.getByRole("button", { name: "학습 확인" })).toBeDisabled()
   })
@@ -1786,10 +2000,12 @@ describe("DoorAttackLabPage", () => {
     const transcript = screen.getByRole("region", {
       name: "Virtual terminal transcript",
     })
-    expect(within(transcript).queryByTestId("attack-terminal-entry"))
-      .not.toBeInTheDocument()
-    expect(screen.getByRole("button", { name: /CHECKSUM_INVALID/ }))
-      .toBeInTheDocument()
+    expect(
+      within(transcript).queryByTestId("attack-terminal-entry"),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByRole("button", { name: /CHECKSUM_INVALID/ }),
+    ).toBeInTheDocument()
   })
 
   it("caps terminal at 100 and Activity at 20 and clears both on reset", async () => {
@@ -1804,11 +2020,13 @@ describe("DoorAttackLabPage", () => {
           frames: [],
           state: initialSession,
           idsStatus: null,
-          flowTraces: [{
-            ...localDoorTrace,
-            traceId: `local-${resultIndex}`,
-            commandLabel: command,
-          }],
+          flowTraces: [
+            {
+              ...localDoorTrace,
+              traceId: `local-${resultIndex}`,
+              commandLabel: command,
+            },
+          ],
         })
       },
     )
@@ -1827,8 +2045,9 @@ describe("DoorAttackLabPage", () => {
     const transcript = screen.getByRole("region", {
       name: "Virtual terminal transcript",
     })
-    expect(within(transcript).getAllByTestId("attack-terminal-entry"))
-      .toHaveLength(100)
+    expect(
+      within(transcript).getAllByTestId("attack-terminal-entry"),
+    ).toHaveLength(100)
     expect(within(transcript).queryByText("$ pwd-0")).not.toBeInTheDocument()
     expect(within(transcript).getByText("$ pwd-100")).toBeInTheDocument()
     const activity = screen.getByRole("region", { name: "Activity log" })
@@ -1836,8 +2055,9 @@ describe("DoorAttackLabPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "실습 초기화" }))
     await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalledOnce())
-    expect(within(transcript).queryByTestId("attack-terminal-entry"))
-      .not.toBeInTheDocument()
+    expect(
+      within(transcript).queryByTestId("attack-terminal-entry"),
+    ).not.toBeInTheDocument()
     expect(within(activity).queryByRole("button")).not.toBeInTheDocument()
   }, 30_000)
 
@@ -1849,22 +2069,31 @@ describe("DoorAttackLabPage", () => {
     await user.type(terminal, "pwd")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
     expect(screen.getByTestId("attack-terminal-entry")).toBeInTheDocument()
-    expect(screen.getByRole("region", { name: "Activity log" }))
-      .toHaveTextContent("OK")
+    expect(
+      screen.getByRole("region", { name: "Activity log" }),
+    ).toHaveTextContent("OK")
 
     api.createDoorLabSession.mockResolvedValueOnce({
       ...initialSession,
       sessionId: "session-2",
     })
     view.rerender(<DoorAttackLabPage key="session-2" />)
-    await waitFor(() => expect(api.createDoorLabSession).toHaveBeenCalledTimes(2))
     await waitFor(() =>
-      expect(screen.getByRole("textbox", { name: "제한 터미널 명령" }))
-        .toBeEnabled(),
+      expect(api.createDoorLabSession).toHaveBeenCalledTimes(2),
+    )
+    await waitFor(() =>
+      expect(
+        screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+      ).toBeEnabled(),
     )
 
-    expect(screen.queryByTestId("attack-terminal-entry")).not.toBeInTheDocument()
-    expect(within(screen.getByRole("region", { name: "Activity log" }))
-      .queryByRole("button")).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId("attack-terminal-entry"),
+    ).not.toBeInTheDocument()
+    expect(
+      within(screen.getByRole("region", { name: "Activity log" })).queryByRole(
+        "button",
+      ),
+    ).not.toBeInTheDocument()
   })
 })

@@ -39,6 +39,7 @@ export interface AttackLabFeedbackPresentation {
   flow: VehicleFlowPresentation
   terminal: AttackLabTerminalTranscript | null
   explanationRows: readonly AttackLabExplanationRow[]
+  actualRows: readonly AttackLabExplanationRow[]
   explanation: string
 }
 
@@ -54,7 +55,8 @@ export interface AttackLabActivityEntry {
 
 const SAFE_REASON: Readonly<Record<string, string>> = {
   EXECUTED: "Toy ECU가 제출된 상태 프레임을 수락했습니다.",
-  COUNTER_REJECTED: "rolling counter(순서 카운터)가 예상 진행 순서와 맞지 않습니다.",
+  COUNTER_REJECTED:
+    "rolling counter(순서 카운터)가 예상 진행 순서와 맞지 않습니다.",
   CHECKSUM_INVALID: "Checksum(검사값)이 이 프레임에 대해 유효하지 않습니다.",
   TARGET_ID_MISMATCH: "제출한 message identifier가 Toy 대상 계약과 다릅니다.",
   LENGTH_INVALID: "제출한 DLC가 Toy 대상 계약과 다릅니다.",
@@ -76,11 +78,16 @@ const IDS_MEANING: Readonly<Record<"NORMAL" | "ALERT", string>> = {
 }
 
 function reasonFor(resultCode: string): string {
-  return SAFE_REASON[resultCode] ?? "교육용 분석에 필요한 안전한 판정 정보가 없습니다."
+  return (
+    SAFE_REASON[resultCode] ??
+    "교육용 분석에 필요한 안전한 판정 정보가 없습니다."
+  )
 }
 
 function isSafeVerdictCode(value: string | null): value is string {
-  return value !== null && Object.prototype.hasOwnProperty.call(SAFE_REASON, value)
+  return (
+    value !== null && Object.prototype.hasOwnProperty.call(SAFE_REASON, value)
+  )
 }
 
 function emittedFrame(traces: readonly VehicleFlowTrace[]): boolean {
@@ -93,8 +100,12 @@ function capturedToFile(traces: readonly VehicleFlowTrace[]): boolean {
   return traces.some((trace) => trace.kind === "capture")
 }
 
-function terminalOutcome(result: AttackLabActionResult): "오류 없음" | "로컬 오류" {
-  return result.ok || emittedFrame(result.traces) || capturedToFile(result.traces)
+function terminalOutcome(
+  result: AttackLabActionResult,
+): "오류 없음" | "로컬 오류" {
+  return result.ok ||
+    emittedFrame(result.traces) ||
+    capturedToFile(result.traces)
     ? "오류 없음"
     : "로컬 오류"
 }
@@ -133,8 +144,13 @@ function nodeFeedbackFor(
     return {
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
-      status: atFinalNode && trace.outcome === "REJECTED" ? "NO VEHICLE PATH" : "PROCESSING",
-      detail: atFinalNode ? reason : "가상 터미널이 구조화된 실습 결과를 준비하고 있습니다.",
+      status:
+        atFinalNode && trace.outcome === "REJECTED"
+          ? "NO VEHICLE PATH"
+          : "PROCESSING",
+      detail: atFinalNode
+        ? reason
+        : "가상 터미널이 구조화된 실습 결과를 준비하고 있습니다.",
       source: "Terminal",
       persist,
     }
@@ -144,10 +160,14 @@ function nodeFeedbackFor(
     return {
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
-      status: atFinalNode && trace.outcome === "REJECTED" ? "NO VEHICLE PATH" : "OBSERVED",
-      detail: atFinalNode && trace.outcome === "REJECTED"
-        ? reason
-        : "Evidence가 교육용 분석에 기록되었습니다.",
+      status:
+        atFinalNode && trace.outcome === "REJECTED"
+          ? "NO VEHICLE PATH"
+          : "OBSERVED",
+      detail:
+        atFinalNode && trace.outcome === "REJECTED"
+          ? reason
+          : "Evidence가 교육용 분석에 기록되었습니다.",
       source: "교육용 분석",
       persist,
     }
@@ -169,14 +189,18 @@ function nodeFeedbackFor(
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
       status: "OBSERVED",
-      detail: trace.idsVerdict ? IDS_MEANING[trace.idsVerdict] : "Toy IDS가 프레임을 관찰 중입니다.",
+      detail: trace.idsVerdict
+        ? IDS_MEANING[trace.idsVerdict]
+        : "Toy IDS가 프레임을 관찰 중입니다.",
       source: "Toy IDS",
       persist,
     }
   }
 
   if (isTargetNode(currentNodeId) && atFinalNode) {
-    const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict) ? trace.ecuVerdict : null
+    const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict)
+      ? trace.ecuVerdict
+      : null
     return {
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
@@ -189,7 +213,10 @@ function nodeFeedbackFor(
     }
   }
 
-  if ((currentNodeId === "leftDoor" || currentNodeId === "tailgate") && atFinalNode) {
+  if (
+    (currentNodeId === "leftDoor" || currentNodeId === "tailgate") &&
+    atFinalNode
+  ) {
     return {
       nodeId: currentNodeId,
       title: nodeTitle(currentNodeId),
@@ -241,10 +268,20 @@ function presentationFor(
   const atFinalNode = segmentIndex === trace.route.length - 1
   const idsIndex = trace.route.indexOf("ids")
   const targetIndex = trace.route.findIndex(isTargetNode)
-  const effectIndex = trace.effectTarget ? trace.route.indexOf(trace.effectTarget) : -1
-  const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict) ? trace.ecuVerdict : null
+  const effectIndex = trace.effectTarget
+    ? trace.route.indexOf(trace.effectTarget)
+    : -1
+  const ecuVerdict = isSafeVerdictCode(trace.ecuVerdict)
+    ? trace.ecuVerdict
+    : null
   const nodeFeedback = currentNodeId
-    ? nodeFeedbackFor(trace, currentNodeId, atFinalNode, result.resultCode, playback.phase)
+    ? nodeFeedbackFor(
+        trace,
+        currentNodeId,
+        atFinalNode,
+        result.resultCode,
+        playback.phase,
+      )
     : null
 
   return {
@@ -255,16 +292,23 @@ function presentationFor(
     canId: trace.canId,
     dlc: trace.data.length,
     data: trace.data,
-    currentTransition: !atFinalNode && currentNodeId && trace.route[segmentIndex + 1]
-      ? `${nodeTitle(currentNodeId)} -> ${nodeTitle(trace.route[segmentIndex + 1])}`
-      : null,
+    currentTransition:
+      !atFinalNode && currentNodeId && trace.route[segmentIndex + 1]
+        ? `${nodeTitle(currentNodeId)} -> ${nodeTitle(trace.route[segmentIndex + 1])}`
+        : null,
     currentNodeId,
     outcome: atFinalNode ? trace.outcome : null,
     stoppedAt: atFinalNode ? trace.stoppedAt : null,
-    effectTarget: effectIndex >= 0 && segmentIndex >= effectIndex ? trace.effectTarget : null,
-    effectApplied: effectIndex >= 0 && segmentIndex >= effectIndex && trace.effectApplied,
-    ecuVerdict: targetIndex >= 0 && segmentIndex >= targetIndex ? ecuVerdict : null,
-    idsVerdict: idsIndex >= 0 && segmentIndex >= idsIndex ? trace.idsVerdict : null,
+    effectTarget:
+      effectIndex >= 0 && segmentIndex >= effectIndex
+        ? trace.effectTarget
+        : null,
+    effectApplied:
+      effectIndex >= 0 && segmentIndex >= effectIndex && trace.effectApplied,
+    ecuVerdict:
+      targetIndex >= 0 && segmentIndex >= targetIndex ? ecuVerdict : null,
+    idsVerdict:
+      idsIndex >= 0 && segmentIndex >= idsIndex ? trace.idsVerdict : null,
     nodeFeedback,
   }
 }
@@ -275,17 +319,23 @@ function explanationRowsFor(
   flow: VehicleFlowPresentation,
 ): AttackLabExplanationRow[] {
   const trace = playback.trace
-  const rows: AttackLabExplanationRow[] = [{
-    key: "terminal",
-    label: "터미널 결과",
-    value: terminalOutcome(result),
-    source: "Terminal",
-  }]
+  const rows: AttackLabExplanationRow[] = [
+    {
+      key: "terminal",
+      label: "터미널 결과",
+      value: terminalOutcome(result),
+      source: "Terminal",
+    },
+  ]
   if (!trace || !flow.currentNodeId) return rows
 
   const segmentIndex = visibleSegmentIndex(playback, trace)
   const routeInputIndex = trace.route.indexOf("obd")
-  if (trace.kind === "inject" && routeInputIndex >= 0 && segmentIndex >= routeInputIndex) {
+  if (
+    trace.kind === "inject" &&
+    routeInputIndex >= 0 &&
+    segmentIndex >= routeInputIndex
+  ) {
     rows.push({
       key: "route-input",
       label: "가상 CAN 경로 입력",
@@ -301,7 +351,10 @@ function explanationRowsFor(
       source: "교육용 분석",
     })
   }
-  if (trace.kind === "capture" && segmentIndex >= trace.route.indexOf("monitor")) {
+  if (
+    trace.kind === "capture" &&
+    segmentIndex >= trace.route.indexOf("monitor")
+  ) {
     rows.push({
       key: "evidence",
       label: "Evidence",
@@ -336,9 +389,140 @@ function explanationRowsFor(
   return rows
 }
 
-function explanationFor(result: AttackLabActionResult, flow: VehicleFlowPresentation): string {
+const SCENARIO_SUCCESS_EXPLANATION: Readonly<Record<AttackLabScenarioId, string>> =
+  {
+    door: "Toy Body ECU가 rolling counter와 checksum 규칙에 맞는 ordered state-frame sequence(순서화 상태 프레임 연속)를 수락해 교육용 Left Door 차량 효과가 적용되었습니다.",
+    spoofing:
+      "정상 기능에 쓰이는 message identifier와 새 state payload가 Toy Rear ECU에 수락되었습니다. 이 Toy contract에서 CAN ID는 authenticated sender identity(인증된 송신자 신원)가 아니므로 교육용 Tailgate 차량 효과가 적용되었습니다.",
+    replay:
+      "같은 session/generation에서 캡처한 byte-identical frame이 다시 수락되었습니다. 이 Toy contract에 freshness protection(신선도 보호)이 없으므로 교육용 Left Door 차량 효과가 적용되었습니다.",
+  }
+
+function effectLabel(
+  effectTarget: VehicleFlowPresentation["effectTarget"],
+): string {
+  if (effectTarget === "leftDoor") return "Left Door"
+  if (effectTarget === "tailgate") return "Tailgate"
+  return "없음"
+}
+
+function actualTraceRowsFor(
+  trace: VehicleFlowTrace | null,
+  flow: VehicleFlowPresentation,
+  frameLabel: string | null,
+  keySuffix: string,
+): AttackLabExplanationRow[] {
+  const rows: AttackLabExplanationRow[] = []
+  const labelFor = (label: string) =>
+    frameLabel ? `${frameLabel} · ${label}` : label
+
+  if (flow.canId) {
+    const frameKindLabel =
+      trace?.kind === "capture"
+        ? "캡처 프레임"
+        : trace?.kind === "observe"
+          ? "관찰 프레임"
+          : "제출 프레임"
+    rows.push({
+      key: `actual-frame${keySuffix}`,
+      label: labelFor(frameKindLabel),
+      value: `${flow.canId} · DLC ${flow.dlc} · DATA ${flow.data.join(" ")}`,
+      source: "교육용 분석",
+    })
+  }
+  if (flow.currentNodeId) {
+    rows.push({
+      key: `actual-node${keySuffix}`,
+      label: labelFor(flow.outcome ? "최종 도달 장치" : "현재 장치"),
+      value: nodeTitle(flow.currentNodeId),
+      source: "교육용 분석",
+    })
+  }
+  if (flow.idsVerdict) {
+    rows.push({
+      key: `actual-ids${keySuffix}`,
+      label: labelFor("Toy IDS"),
+      value: flow.idsVerdict,
+      source: "Toy IDS",
+    })
+  }
+  if (flow.ecuVerdict) {
+    rows.push({
+      key: `actual-ecu${keySuffix}`,
+      label: labelFor("Toy ECU"),
+      value: flow.ecuVerdict,
+      source: "Toy ECU",
+    })
+  }
+  if (flow.outcome) {
+    rows.push({
+      key: `actual-effect${keySuffix}`,
+      label: labelFor("차량 영향"),
+      value: flow.effectApplied
+        ? `${effectLabel(flow.effectTarget)} · 적용됨`
+        : "없음",
+      source: "교육용 분석",
+    })
+  }
+  return rows
+}
+
+function actualRowsFor(
+  result: AttackLabActionResult,
+  playback: VehicleFlowPlaybackSnapshot,
+  flow: VehicleFlowPresentation,
+): AttackLabExplanationRow[] {
+  const terminalRow: AttackLabExplanationRow = {
+    key: "actual-terminal",
+    label: "Terminal",
+    value: terminalOutcome(result),
+    source: "Terminal",
+  }
+
+  if (playback.phase === "complete" && result.traces.length > 1) {
+    const traceCount = result.traces.length
+    return [
+      terminalRow,
+      ...result.traces.flatMap((trace, traceIndex) => {
+        const completedPlayback: VehicleFlowPlaybackSnapshot = {
+          ...playback,
+          phase: "complete",
+          trace,
+          traceIndex,
+          traceCount,
+          segmentIndex: trace.route.length - 1,
+        }
+        return actualTraceRowsFor(
+          trace,
+          presentationFor(result, completedPlayback),
+          `Frame ${traceIndex + 1}/${traceCount}`,
+          `-${traceIndex}`,
+        )
+      }),
+    ]
+  }
+
+  const frameLabel =
+    playback.trace && playback.traceCount > 1
+      ? `Frame ${playback.traceIndex + 1}/${playback.traceCount}`
+      : null
+  return [
+    terminalRow,
+    ...actualTraceRowsFor(
+      playback.trace,
+      flow,
+      frameLabel,
+      frameLabel ? `-${playback.traceIndex}` : "",
+    ),
+  ]
+}
+
+function explanationFor(
+  result: AttackLabActionResult,
+  flow: VehicleFlowPresentation,
+): string {
   if (flow.effectApplied) {
-    return `${reasonFor(result.resultCode)} 가상 CAN 경로 입력 후 교육용 차량 효과가 적용되었습니다.`
+    return SCENARIO_SUCCESS_EXPLANATION[result.scenario]
   }
   if (flow.ecuVerdict) {
     return `Toy ECU 판정: ${reasonFor(flow.ecuVerdict)}`
@@ -350,10 +534,11 @@ function explanationFor(result: AttackLabActionResult, flow: VehicleFlowPresenta
     return "Evidence가 차량 효과와 분리되어 기록되었습니다."
   }
   if (
-    flow.currentNodeId === "terminal"
-    && !emittedFrame(result.traces)
-    && !capturedToFile(result.traces)
-  ) return reasonFor(result.resultCode)
+    flow.currentNodeId === "terminal" &&
+    !emittedFrame(result.traces) &&
+    !capturedToFile(result.traces)
+  )
+    return reasonFor(result.resultCode)
   return "가상 CAN 경로가 교육용 노드 순서에 따라 진행 중입니다."
 }
 
@@ -383,6 +568,7 @@ export function classifyAttackLabFeedback({
     flow,
     terminal: classifyTerminalTranscript(result),
     explanationRows: explanationRowsFor(result, playback, flow),
+    actualRows: actualRowsFor(result, playback, flow),
     explanation: explanationFor(result, flow),
   }
 }
@@ -394,15 +580,18 @@ export function appendAttackLabActivity(
   const traces = action.traces
   const finalTrace = traces.at(-1) ?? null
   const frameEmitted = emittedFrame(traces)
-  return [...entries, {
-    id: action.actionId,
-    origin: action.origin,
-    commandLabel: action.commandLabel,
-    resultCode: action.resultCode,
-    frameEmitted,
-    stoppedAt: finalTrace?.stoppedAt ?? null,
-    effectApplied: finalTrace?.effectApplied ?? false,
-  }].slice(-20)
+  return [
+    ...entries,
+    {
+      id: action.actionId,
+      origin: action.origin,
+      commandLabel: action.commandLabel,
+      resultCode: action.resultCode,
+      frameEmitted,
+      stoppedAt: finalTrace?.stoppedAt ?? null,
+      effectApplied: finalTrace?.effectApplied ?? false,
+    },
+  ].slice(-20)
 }
 
 export function appendAttackLabTranscript(

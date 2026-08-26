@@ -55,9 +55,14 @@ import {
 } from "./attackLabFeedback"
 import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
+import AttackLabGuidancePanel from "./AttackLabGuidancePanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import AttackStageRail from "./AttackStageRail"
+import {
+  ATTACK_LAB_PREDICTION_PROMPTS,
+  ATTACK_LAB_PRINCIPLE_QUESTIONS,
+} from "./attackLabLearning"
 import { deriveAttackStageIndex } from "./attackLabStage"
 import DoorAttackVehicle from "./DoorAttackVehicle"
 import LabScriptGuide from "./LabScriptGuide"
@@ -234,8 +239,12 @@ export default function DoorAttackLabPage() {
   const [terminalCommand, setTerminalCommand] = useState("")
   const [terminalEntries, setTerminalEntries] = useState<TranscriptEntry[]>([])
   const [activity, setActivity] = useState<AttackLabActivityEntry[]>([])
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
-  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(null)
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
+    null,
+  )
+  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(
+    null,
+  )
   const [predictionDraft, setPredictionDraft] = useState("")
   const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
   const [explanation, setExplanation] = useState("")
@@ -398,7 +407,7 @@ export default function DoorAttackLabPage() {
       (kind === "reset"
         ? busyRef.current === "reset"
         : busyRef.current !== null) ||
-      (kind !== "reset" && flow.isPlaying)
+      (kind !== "reset" && flow.isActive)
     )
       return null
     if (kind === "reset") actionControllerRef.current?.abort()
@@ -551,14 +560,16 @@ export default function DoorAttackLabPage() {
       setIdsStatus(result.idsStatus)
       setLastRunAttempts(result.attempts)
       appendMonitorFrames(attemptsToMonitorFrames(result.attempts, "run"))
-      const resultCode = result.error
-        ?? result.attempts.at(-1)?.verdict
-        ?? (result.state.completed ? "EXECUTED" : "OK")
+      const resultCode =
+        result.error ??
+        result.attempts.at(-1)?.verdict ??
+        (result.state.completed ? "EXECUTED" : "OK")
       recordAction({
         request,
         commandLabel: "Door lab script",
-        ok: result.error === null
-          && result.attempts.every((attempt) => attempt.verdict === "EXECUTED"),
+        ok:
+          result.error === null &&
+          result.attempts.every((attempt) => attempt.verdict === "EXECUTED"),
         resultCode,
         rawOutput: result.error ?? "",
         rawTraces: result.flowTraces,
@@ -574,7 +585,7 @@ export default function DoorAttackLabPage() {
   const handleReset = async () => {
     const request = beginAction("reset")
     if (!request) return
-    const wasPlaying = flow.isPlaying
+    const wasPlaying = flow.isActive
     flow.cancel()
     if (!wasPlaying) flow.clear()
     pendingFlowRef.current = null
@@ -689,9 +700,13 @@ export default function DoorAttackLabPage() {
     ? frameBits(selectedFrame.data).split(" ")
     : []
   const feedback = useMemo(
-    () => lastAction
-      ? classifyAttackLabFeedback({ result: lastAction, playback: flow.snapshot })
-      : null,
+    () =>
+      lastAction
+        ? classifyAttackLabFeedback({
+            result: lastAction,
+            playback: flow.snapshot,
+          })
+        : null,
     [flow.snapshot, lastAction],
   )
   const latestActivity = useMemo(
@@ -699,31 +714,40 @@ export default function DoorAttackLabPage() {
     [activity, lastAction?.actionId],
   )
   const latestAttemptIds = useMemo(
-    () => lastAction?.traces.flatMap((trace) =>
-      trace.attemptId ? [trace.attemptId] : []
-    ) ?? [],
+    () =>
+      lastAction?.traces.flatMap((trace) =>
+        trace.attemptId ? [trace.attemptId] : [],
+      ) ?? [],
     [lastAction],
   )
   const technicalComplete = useMemo(
     () => lastAction?.traces.some((trace) => trace.effectApplied) ?? false,
     [lastAction],
   )
+  const reviewReady =
+    lastAction !== null &&
+    (lastAction.traces.length === 0
+      ? flow.snapshot.phase === "idle"
+      : flow.snapshot.phase === "complete")
   const evidenceSelected = useMemo(() => {
     const monitorMatches = Boolean(
-      selectedFrame
-        && latestAttemptIds.some((attemptId) => selectedFrame.key.includes(attemptId)),
+      selectedFrame &&
+        latestAttemptIds.some((attemptId) =>
+          selectedFrame.key.includes(attemptId),
+        ),
     )
     const activityMatches = Boolean(
-      latestActivity
-        && !latestActivity.frameEmitted
-        && selectedActivityId === latestActivity.id,
+      latestActivity &&
+        !latestActivity.frameEmitted &&
+        selectedActivityId === latestActivity.id,
     )
     return monitorMatches || activityMatches
   }, [latestActivity, latestAttemptIds, selectedActivityId, selectedFrame])
   const resultSummary = useMemo(
-    () => lastAction
-      ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
-      : "",
+    () =>
+      lastAction
+        ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
+        : "",
     [lastAction],
   )
   const selectMonitorFrame = useCallback((key: string) => {
@@ -734,13 +758,20 @@ export default function DoorAttackLabPage() {
     setSelectedActivityId(id)
     setConfirmed(false)
   }, [])
+  const currentStageIndex = deriveAttackStageIndex({
+    scenario: "door",
+    backendStage: session?.stage,
+    playback: flow.snapshot,
+  })
 
   return (
     <section
       className="door-attack-lab"
       aria-labelledby="door-attack-lab-title"
     >
-      <p className="sr-only" aria-live="polite">{resultSummary}</p>
+      <p className="sr-only" aria-live="polite">
+        {resultSummary}
+      </p>
       <header className="door-attack-lab__header">
         <div>
           <p>BLACK-BOX CAN · 격리된 Toy ECU 실습</p>
@@ -772,14 +803,9 @@ export default function DoorAttackLabPage() {
         </dl>
       </header>
 
-      <AttackStageRail
-        stages={STAGES}
-        currentIndex={deriveAttackStageIndex({
-          scenario: "door",
-          backendStage: session?.stage,
-          playback: flow.snapshot,
-        })}
-      />
+      <AttackStageRail stages={STAGES} currentIndex={currentStageIndex} />
+
+      <AttackLabGuidancePanel scenario="door" stageIndex={currentStageIndex} />
 
       {offlineError ? (
         <div className="door-attack-lab__offline" role="alert">
@@ -825,6 +851,10 @@ export default function DoorAttackLabPage() {
             currentStage={session?.stage}
             playback={flow.snapshot}
             presentation={feedback?.flow}
+            playbackPaused={flow.isPaused}
+            onPlaybackPause={flow.pause}
+            onPlaybackResume={flow.resume}
+            onPlaybackNextStep={flow.nextStep}
           />
         </section>
 
@@ -849,7 +879,7 @@ export default function DoorAttackLabPage() {
             value={script}
             onChange={(event) => setScript(event.target.value)}
             spellCheck={false}
-            disabled={flow.isPlaying}
+            disabled={flow.isActive}
           />
           <div className="door-attack-lab__editor-actions">
             <button
@@ -865,7 +895,7 @@ export default function DoorAttackLabPage() {
               type="button"
               className="is-primary"
               onClick={() => void handleRun()}
-              disabled={!session || busy !== null || flow.isPlaying}
+              disabled={!session || busy !== null || flow.isActive}
             >
               {busy === "run" ? (
                 <CircleNotch
@@ -1003,7 +1033,7 @@ export default function DoorAttackLabPage() {
               onChange={(event) => setTerminalCommand(event.target.value)}
               onKeyDown={handleTerminalKeyDown}
               autoComplete="off"
-              disabled={!session || busy !== null || flow.isPlaying}
+              disabled={!session || busy !== null || flow.isActive}
             />
             <button
               type="submit"
@@ -1012,7 +1042,7 @@ export default function DoorAttackLabPage() {
                 !session ||
                 !terminalCommand.trim() ||
                 busy !== null ||
-                flow.isPlaying
+                flow.isActive
               }
             >
               <CaretRight size={15} weight="bold" aria-hidden="true" />
@@ -1098,8 +1128,12 @@ export default function DoorAttackLabPage() {
             predictionBeforeAction={predictionBeforeAction}
             explanation={explanation}
             technicalComplete={technicalComplete}
+            reviewReady={reviewReady}
             evidenceSelected={evidenceSelected}
             confirmed={confirmed}
+            expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS.door}
+            principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS.door}
+            actualRows={feedback?.actualRows ?? []}
             onPredictionChange={(value) => {
               setPredictionDraft(value)
               setConfirmed(false)

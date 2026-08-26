@@ -71,11 +71,16 @@ import {
 } from "./attackLabFeedback"
 import AttackLabActivityLog from "./AttackLabActivityLog"
 import AttackLabFeedbackPanel from "./AttackLabFeedbackPanel"
+import AttackLabGuidancePanel from "./AttackLabGuidancePanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
 import AttackStageRail from "./AttackStageRail"
 import { deriveAttackStageIndex } from "./attackLabStage"
 import LabScriptGuide from "./LabScriptGuide"
+import {
+  ATTACK_LAB_PREDICTION_PROMPTS,
+  ATTACK_LAB_PRINCIPLE_QUESTIONS,
+} from "./attackLabLearning"
 import "./doorAttackLab.css"
 
 const CONFIG: Record<BeginnerCanAttackScenario, BeginnerCanAttackUiConfig> = {
@@ -88,7 +93,7 @@ const CONFIG: Record<BeginnerCanAttackScenario, BeginnerCanAttackUiConfig> = {
     targetId: "rear",
     effectId: "tailgate",
     definition:
-      "공격자가 정상 송신자의 CAN ID를 사용해 새 상태 프레임을 구성하여 전송합니다. 이 Toy contract에는 source authentication(송신자 인증)이 없습니다.",
+      "공격자가 정상 기능 프레임에 사용되는 CAN ID(송신자 인증값 아님)로 새 상태 payload를 구성해 전송합니다. 이 Toy contract에는 source authentication(송신자 인증)이 없습니다.",
     stages: ["목표 확인", "정상 관찰", "Payload 작성", "ECU 수락", "증거"],
     initialScript:
       "# 관찰한 근거로 새 상태 프레임을 작성하세요.\n# cansend vcan0 <ID>#<DATA>",
@@ -164,11 +169,10 @@ interface PendingBeginnerFlow {
   state: BeginnerCanAttackState["vehicleState"]
 }
 
-type MonitorAction =
-  | { type: "append"; frames: BeginnerCanAttackMonitorFrame[] }
-  | { type: "select"; key: string }
-  | { type: "clear" }
-  | { type: "deselect" }
+type MonitorAction = {
+  type: "append"
+  frames: BeginnerCanAttackMonitorFrame[]
+} | { type: "select"; key: string } | { type: "clear" } | { type: "deselect" }
 
 function monitorReducer(
   state: BeginnerCanAttackMonitorState,
@@ -185,7 +189,9 @@ function monitorReducer(
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "알 수 없는 오류가 발생했습니다."
+  return error instanceof Error
+    ? error.message
+    : "알 수 없는 오류가 발생했습니다."
 }
 
 function applyVehicleState(state: BeginnerCanAttackState["vehicleState"]) {
@@ -195,13 +201,11 @@ function applyVehicleState(state: BeginnerCanAttackState["vehicleState"]) {
   vehicle.set("tailgate", ratios.tailgate)
 }
 
-const STAGE_INDEX_BY_SCENARIO: Record<
-  BeginnerCanAttackScenario,
-  Partial<Record<BeginnerCanAttackStage, number>>
-> = {
-  spoofing: { RECON: 0, OBSERVE: 1, CRAFT: 2, EVIDENCE: 4 },
-  replay: { RECON: 0, CAPTURE: 1, EXECUTE: 2, EVIDENCE: 4 },
-}
+const STAGE_INDEX_BY_SCENARIO: Record<BeginnerCanAttackScenario, Partial<Record<BeginnerCanAttackStage, number>>> =
+  {
+    spoofing: { RECON: 0, OBSERVE: 1, CRAFT: 2, EVIDENCE: 4 },
+    replay: { RECON: 0, CAPTURE: 1, EXECUTE: 2, EVIDENCE: 4 },
+  }
 
 function stageIndex(
   scenario: BeginnerCanAttackScenario,
@@ -215,7 +219,9 @@ function currentTopologyNode(
   state?: BeginnerCanAttackState,
 ) {
   const route = VEHICLE_ROUTES[config.routeId]
-  return route[Math.min(stageIndex(config.scenario, state?.stage), route.length - 1)]
+  return route[
+    Math.min(stageIndex(config.scenario, state?.stage), route.length - 1)
+  ]
 }
 
 function sequenceFrames(
@@ -241,8 +247,12 @@ export default function BeginnerCanAttackLabPage({
   const [terminalCommand, setTerminalCommand] = useState("")
   const [terminalEntries, setTerminalEntries] = useState<TranscriptEntry[]>([])
   const [activity, setActivity] = useState<AttackLabActivityEntry[]>([])
-  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null)
-  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(null)
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
+    null,
+  )
+  const [lastAction, setLastAction] = useState<AttackLabActionResult | null>(
+    null,
+  )
   const [predictionDraft, setPredictionDraft] = useState("")
   const [predictionBeforeAction, setPredictionBeforeAction] = useState("")
   const [explanation, setExplanation] = useState("")
@@ -250,8 +260,12 @@ export default function BeginnerCanAttackLabPage({
   const [commandHistory, setCommandHistory] = useState<string[]>([])
   const [historyIndex, setHistoryIndex] = useState(-1)
   const [hintIndex, setHintIndex] = useState(-1)
-  const [lastResult, setLastResult] = useState<BeginnerCanAttackResult | null>(null)
-  const [idsStatus, setIdsStatus] = useState<BeginnerCanAttackIdsStatus | null>(null)
+  const [lastResult, setLastResult] = useState<BeginnerCanAttackResult | null>(
+    null,
+  )
+  const [idsStatus, setIdsStatus] = useState<BeginnerCanAttackIdsStatus | null>(
+    null,
+  )
   const mountedRef = useRef(false)
   const scenarioRef = useRef(scenario)
   const lifecycleGenerationRef = useRef(0)
@@ -275,7 +289,8 @@ export default function BeginnerCanAttackLabPage({
         pending.sessionId !== current?.sessionId ||
         pending.sessionGeneration !== current.generation ||
         pending.actionGeneration !== actionGenerationRef.current
-      ) return
+      )
+        return
       applyVehicleState(pending.state)
       pendingFlowRef.current = null
     },
@@ -292,22 +307,28 @@ export default function BeginnerCanAttackLabPage({
     setConfirmed(false)
   }, [])
 
-  const nextMonitorSequence = useCallback(() => ++monitorSequenceRef.current, [])
-  const clearLocalWorkbench = useCallback((nextConfig: BeginnerCanAttackUiConfig) => {
-    dispatchMonitor({ type: "clear" })
-    clearLearningState()
-    setCommandHistory([])
-    setHistoryIndex(-1)
-    setTerminalCommand("")
-    setHintIndex(-1)
-    setScript(nextConfig.initialScript)
-    setLastResult(null)
-    setIdsStatus(null)
-    setActionError(null)
-    setBusy(null)
-    busyRef.current = null
-    monitorSequenceRef.current = 0
-  }, [clearLearningState])
+  const nextMonitorSequence = useCallback(
+    () => ++monitorSequenceRef.current,
+    [],
+  )
+  const clearLocalWorkbench = useCallback(
+    (nextConfig: BeginnerCanAttackUiConfig) => {
+      dispatchMonitor({ type: "clear" })
+      clearLearningState()
+      setCommandHistory([])
+      setHistoryIndex(-1)
+      setTerminalCommand("")
+      setHintIndex(-1)
+      setScript(nextConfig.initialScript)
+      setLastResult(null)
+      setIdsStatus(null)
+      setActionError(null)
+      setBusy(null)
+      busyRef.current = null
+      monitorSequenceRef.current = 0
+    },
+    [clearLearningState],
+  )
 
   const loadSession = useCallback(() => {
     const existing = createFlightRef.current
@@ -336,7 +357,10 @@ export default function BeginnerCanAttackLabPage({
 
     const promise = (async () => {
       try {
-        const next = await createBeginnerCanAttackSession(scenario, controller.signal)
+        const next = await createBeginnerCanAttackSession(
+          scenario,
+          controller.signal,
+        )
         if (!isCurrent() || next.scenario !== scenario) return
         sessionRef.current = next
         applyVehicleState(next.vehicleState)
@@ -371,7 +395,11 @@ export default function BeginnerCanAttackLabPage({
       clearLocalWorkbench(config)
     }
     scenarioRef.current = scenario
-    applyVehicleState({ leftDoor: "closed", rightDoor: "closed", tailgate: "closed" })
+    applyVehicleState({
+      leftDoor: "closed",
+      rightDoor: "closed",
+      tailgate: "closed",
+    })
     void loadSession()
     return () => {
       mountedRef.current = false
@@ -386,22 +414,32 @@ export default function BeginnerCanAttackLabPage({
         actionControllerRef.current?.abort()
       })
     }
-  }, [clearLocalWorkbench, config, flow.cancel, flow.clear, loadSession, scenario])
+  }, [
+    clearLocalWorkbench,
+    config,
+    flow.cancel,
+    flow.clear,
+    loadSession,
+    scenario,
+  ])
 
   const currentAcceptedEventPredicate = useCallback(
     (event: CanEvent) => beginnerEventMatchesSession(event, sessionRef.current),
     [],
   )
 
-  const handleCanEvents = useCallback((events: CanEvent[]) => {
-    const frames = events
-      .filter(currentAcceptedEventPredicate)
-      .map(eventToBeginnerMonitorFrame)
-    dispatchMonitor({
-      type: "append",
-      frames: sequenceFrames(frames, nextMonitorSequence),
-    })
-  }, [currentAcceptedEventPredicate, nextMonitorSequence])
+  const handleCanEvents = useCallback(
+    (events: CanEvent[]) => {
+      const frames = events
+        .filter(currentAcceptedEventPredicate)
+        .map(eventToBeginnerMonitorFrame)
+      dispatchMonitor({
+        type: "append",
+        frames: sequenceFrames(frames, nextMonitorSequence),
+      })
+    },
+    [currentAcceptedEventPredicate, nextMonitorSequence],
+  )
 
   const currentReplayVehiclePredicate = useCallback(
     (event: CanEvent) =>
@@ -418,14 +456,17 @@ export default function BeginnerCanAttackLabPage({
     vehicleEventPredicate: currentReplayVehiclePredicate,
   })
 
-  const beginAction = (kind: Exclude<BusyState, null>): ActionRequest | null => {
+  const beginAction = (
+    kind: Exclude<BusyState, null>,
+  ): ActionRequest | null => {
     const current = sessionRef.current
     if (
       !current ||
       (kind === "reset"
         ? busyRef.current === "reset"
-        : busyRef.current !== null || flow.isPlaying)
-    ) return null
+        : busyRef.current !== null || flow.isActive)
+    )
+      return null
     if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
     const actionGeneration = ++actionGenerationRef.current
@@ -477,7 +518,8 @@ export default function BeginnerCanAttackLabPage({
       !mountedRef.current ||
       request.controller.signal.aborted ||
       actionGenerationRef.current !== request.actionGeneration
-    ) return
+    )
+      return
     if (actionControllerRef.current === request.controller) {
       actionControllerRef.current = null
     }
@@ -517,7 +559,8 @@ export default function BeginnerCanAttackLabPage({
       result.state.scenario !== request.scenario ||
       result.state.sessionId !== request.sessionId ||
       result.state.generation !== request.sessionGeneration
-    ) return false
+    )
+      return false
     const traces = parseVehicleFlowTraces(result.flowTraces)
     sessionRef.current = result.state
     setSession(result.state)
@@ -590,7 +633,7 @@ export default function BeginnerCanAttackLabPage({
   const handleReset = async () => {
     const request = beginAction("reset")
     if (!request) return
-    const wasPlaying = flow.isPlaying
+    const wasPlaying = flow.isActive
     flow.cancel()
     if (!wasPlaying) flow.clear()
     pendingFlowRef.current = null
@@ -611,7 +654,8 @@ export default function BeginnerCanAttackLabPage({
         next.scenario !== request.scenario ||
         next.sessionId !== request.sessionId ||
         next.generation !== request.sessionGeneration + 1
-      ) return
+      )
+        return
       sessionRef.current = next
       flow.clear()
       applyVehicleState(next.vehicleState)
@@ -661,9 +705,10 @@ export default function BeginnerCanAttackLabPage({
     event.preventDefault()
     setHistoryIndex((current) => {
       if (commandHistory.length === 0) return -1
-      const next = event.key === "ArrowUp"
-        ? Math.min(current + 1, commandHistory.length - 1)
-        : Math.max(current - 1, -1)
+      const next =
+        event.key === "ArrowUp"
+          ? Math.min(current + 1, commandHistory.length - 1)
+          : Math.max(current - 1, -1)
       setTerminalCommand(
         next === -1 ? "" : commandHistory[commandHistory.length - 1 - next],
       )
@@ -671,20 +716,30 @@ export default function BeginnerCanAttackLabPage({
     })
   }
 
-  const selectedFrame = monitor.frames.find(
-    (frame) => frame.key === monitor.selectedKey,
-  ) ?? null
-  const selectedBits = selectedFrame ? beginnerFrameBits(selectedFrame.data) : []
+  const selectedFrame =
+    monitor.frames.find((frame) => frame.key === monitor.selectedKey) ?? null
+  const selectedBits = selectedFrame
+    ? beginnerFrameBits(selectedFrame.data)
+    : []
   const currentNodeId = currentTopologyNode(config, session ?? undefined)
   const contractStatus = session?.completed
     ? "COMPLETED"
     : session && session.stage !== "RECON"
       ? "OBSERVED"
       : "UNKNOWN"
+  const currentStageIndex = deriveAttackStageIndex({
+    scenario,
+    backendStage: session?.stage,
+    playback: flow.snapshot,
+  })
   const feedback = useMemo(
-    () => lastAction
-      ? classifyAttackLabFeedback({ result: lastAction, playback: flow.snapshot })
-      : null,
+    () =>
+      lastAction
+        ? classifyAttackLabFeedback({
+            result: lastAction,
+            playback: flow.snapshot,
+          })
+        : null,
     [flow.snapshot, lastAction],
   )
   const latestActivity = useMemo(
@@ -692,31 +747,40 @@ export default function BeginnerCanAttackLabPage({
     [activity, lastAction?.actionId],
   )
   const latestAttemptIds = useMemo(
-    () => lastAction?.traces.flatMap((trace) =>
-      trace.attemptId ? [trace.attemptId] : []
-    ) ?? [],
+    () =>
+      lastAction?.traces.flatMap((trace) =>
+        trace.attemptId ? [trace.attemptId] : [],
+      ) ?? [],
     [lastAction],
   )
   const technicalComplete = useMemo(
     () => lastAction?.traces.some((trace) => trace.effectApplied) ?? false,
     [lastAction],
   )
+  const reviewReady =
+    lastAction !== null &&
+    (lastAction.traces.length === 0
+      ? flow.snapshot.phase === "idle"
+      : flow.snapshot.phase === "complete")
   const evidenceSelected = useMemo(() => {
     const monitorMatches = Boolean(
-      selectedFrame
-        && latestAttemptIds.some((attemptId) => selectedFrame.key.includes(attemptId)),
+      selectedFrame &&
+        latestAttemptIds.some((attemptId) =>
+          selectedFrame.key.includes(attemptId),
+        ),
     )
     const activityMatches = Boolean(
-      latestActivity
-        && !latestActivity.frameEmitted
-        && selectedActivityId === latestActivity.id,
+      latestActivity &&
+        !latestActivity.frameEmitted &&
+        selectedActivityId === latestActivity.id,
     )
     return monitorMatches || activityMatches
   }, [latestActivity, latestAttemptIds, selectedActivityId, selectedFrame])
   const resultSummary = useMemo(
-    () => lastAction
-      ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
-      : "",
+    () =>
+      lastAction
+        ? `${lastAction.resultCode} 구조화 결과가 Activity에 기록되었습니다.`
+        : "",
     [lastAction],
   )
   const selectMonitorFrame = useCallback((key: string) => {
@@ -729,34 +793,57 @@ export default function BeginnerCanAttackLabPage({
   }, [])
 
   return (
-    <section className="door-attack-lab beginner-can-attack-lab" aria-labelledby="beginner-can-attack-title">
-      <p className="sr-only" aria-live="polite">{resultSummary}</p>
+    <section
+      className="door-attack-lab beginner-can-attack-lab"
+      aria-labelledby="beginner-can-attack-title"
+    >
+      <p className="sr-only" aria-live="polite">
+        {resultSummary}
+      </p>
       <header className="door-attack-lab__header">
         <div>
           <p>CAN ATTACK BASICS · 격리된 Toy ECU 실습</p>
           <h1 id="beginner-can-attack-title">{config.title}</h1>
           <span>{config.definition}</span>
-          <strong className="beginner-can-attack-lab__badge">Toy ECU / virtual CAN</strong>
+          <strong className="beginner-can-attack-lab__badge">
+            Toy ECU / virtual CAN
+          </strong>
         </div>
         <dl className="door-attack-lab__target-summary">
-          <div><dt>Target</dt><dd>{config.targetSummary}</dd></div>
-          <div><dt>GLB/Toy effect</dt><dd>{config.effectSummary}</dd></div>
-          <div><dt>Contract</dt><dd>{contractStatus}</dd></div>
+          <div>
+            <dt>Target</dt>
+            <dd>{config.targetSummary}</dd>
+          </div>
+          <div>
+            <dt>GLB/Toy effect</dt>
+            <dd>{config.effectSummary}</dd>
+          </div>
+          <div>
+            <dt>Contract</dt>
+            <dd>{contractStatus}</dd>
+          </div>
           <div>
             <dt>CAN stream</dt>
-            <dd data-status={streamStatus}>{streamStatus === "open" ? "LIVE" : streamStatus === "connecting" ? "CONNECTING" : "OFFLINE"}</dd>
+            <dd data-status={streamStatus}>
+              {streamStatus === "open"
+                ? "LIVE"
+                : streamStatus === "connecting"
+                  ? "CONNECTING"
+                  : "OFFLINE"}
+            </dd>
           </div>
         </dl>
       </header>
 
       <AttackStageRail
         stages={config.stages}
-        currentIndex={deriveAttackStageIndex({
-          scenario,
-          backendStage: session?.stage,
-          playback: flow.snapshot,
-        })}
+        currentIndex={currentStageIndex}
         className="beginner-can-attack-lab__stages"
+      />
+
+      <AttackLabGuidancePanel
+        scenario={scenario}
+        stageIndex={currentStageIndex}
       />
 
       {loading && !offlineError ? (
@@ -772,17 +859,43 @@ export default function BeginnerCanAttackLabPage({
       {offlineError ? (
         <div className="door-attack-lab__offline" role="alert">
           <Warning size={19} weight="fill" aria-hidden="true" />
-          <div><strong>Beginner CAN lab backend 오프라인</strong><span>{offlineError}</span></div>
-          <button type="button" onClick={() => void loadSession()} disabled={loading}>세션 다시 연결</button>
+          <div>
+            <strong>Beginner CAN lab backend 오프라인</strong>
+            <span>{offlineError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadSession()}
+            disabled={loading}
+          >
+            세션 다시 연결
+          </button>
         </div>
       ) : null}
-      {actionError ? <div className="door-attack-lab__action-error" role="alert">{actionError}</div> : null}
+      {actionError ? (
+        <div className="door-attack-lab__action-error" role="alert">
+          {actionError}
+        </div>
+      ) : null}
 
       <div className="door-attack-lab__primary">
-        <section className="door-attack-lab__vehicle-flow" aria-labelledby="beginner-vehicle-title">
+        <section
+          className="door-attack-lab__vehicle-flow"
+          aria-labelledby="beginner-vehicle-title"
+        >
           <header className="door-attack-lab__panel-heading">
-            <div><Cpu size={18} aria-hidden="true" /><span><strong id="beginner-vehicle-title">Vehicle topology</strong><small>{config.targetSummary} → {config.effectSummary} GLB/Toy effect</small></span></div>
-            <span className="door-attack-lab__truth-qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
+            <div>
+              <Cpu size={18} aria-hidden="true" />
+              <span>
+                <strong id="beginner-vehicle-title">Vehicle topology</strong>
+                <small>
+                  {config.targetSummary} → {config.effectSummary} GLB/Toy effect
+                </small>
+              </span>
+            </div>
+            <span className="door-attack-lab__truth-qualifier">
+              교육용 논리 위치 · 실제 OEM 배치 아님
+            </span>
           </header>
           <VehicleNetworkViewport
             route={VEHICLE_ROUTES[config.routeId]}
@@ -793,50 +906,273 @@ export default function BeginnerCanAttackLabPage({
             accent={config.accent}
             playback={flow.snapshot}
             presentation={feedback?.flow}
+            playbackPaused={flow.isPaused}
+            onPlaybackPause={flow.pause}
+            onPlaybackResume={flow.resume}
+            onPlaybackNextStep={flow.nextStep}
           />
         </section>
 
-        <section className="door-attack-lab__editor" role="region" aria-label="Code editor">
-          <header className="door-attack-lab__panel-heading"><div><Code size={18} aria-hidden="true" /><span><strong>Restricted lab script</strong><small>comments + scenario final action</small></span></div><span>최대 20 lines</span></header>
+        <section
+          className="door-attack-lab__editor"
+          role="region"
+          aria-label="Code editor"
+        >
+          <header className="door-attack-lab__panel-heading">
+            <div>
+              <Code size={18} aria-hidden="true" />
+              <span>
+                <strong>Restricted lab script</strong>
+                <small>comments + scenario final action</small>
+              </span>
+            </div>
+            <span>최대 20 lines</span>
+          </header>
           <LabScriptGuide mode={scenario} />
-          <textarea aria-label="공격 스크립트" value={script} onChange={(event) => setScript(event.target.value)} spellCheck={false} disabled={flow.isPlaying} />
+          <textarea
+            aria-label="공격 스크립트"
+            value={script}
+            onChange={(event) => setScript(event.target.value)}
+            spellCheck={false}
+            disabled={flow.isActive}
+          />
           <div className="door-attack-lab__editor-actions">
-            <button type="button" className="is-secondary" onClick={() => void handleReset()} disabled={!session || busy === "reset"}><ArrowClockwise size={15} aria-hidden="true" />{busy === "reset" ? "초기화 중" : "실습 초기화"}</button>
-            <button type="button" className="is-primary" onClick={() => void handleRun()} disabled={!session || busy !== null || flow.isPlaying}>{busy === "run" ? <CircleNotch size={15} className="door-attack-lab__spin" aria-hidden="true" /> : <Play size={15} weight="fill" aria-hidden="true" />}{busy === "run" ? "검증 중" : "스크립트 실행"}</button>
+            <button
+              type="button"
+              className="is-secondary"
+              onClick={() => void handleReset()}
+              disabled={!session || busy === "reset"}
+            >
+              <ArrowClockwise size={15} aria-hidden="true" />
+              {busy === "reset" ? "초기화 중" : "실습 초기화"}
+            </button>
+            <button
+              type="button"
+              className="is-primary"
+              onClick={() => void handleRun()}
+              disabled={!session || busy !== null || flow.isActive}
+            >
+              {busy === "run" ? (
+                <CircleNotch
+                  size={15}
+                  className="door-attack-lab__spin"
+                  aria-hidden="true"
+                />
+              ) : (
+                <Play size={15} weight="fill" aria-hidden="true" />
+              )}
+              {busy === "run" ? "검증 중" : "스크립트 실행"}
+            </button>
           </div>
         </section>
 
-        <section className="door-attack-lab__binary" role="region" aria-label="Binary inspector">
-          <header className="door-attack-lab__panel-heading"><div><ShieldCheck size={18} aria-hidden="true" /><span><strong>Binary inspector</strong><small>선택한 frame의 byte / bit view</small></span></div><span>{selectedFrame?.canId ?? "NO FRAME"}</span></header>
+        <section
+          className="door-attack-lab__binary"
+          role="region"
+          aria-label="Binary inspector"
+        >
+          <header className="door-attack-lab__panel-heading">
+            <div>
+              <ShieldCheck size={18} aria-hidden="true" />
+              <span>
+                <strong>Binary inspector</strong>
+                <small>선택한 frame의 byte / bit view</small>
+              </span>
+            </div>
+            <span>{selectedFrame?.canId ?? "NO FRAME"}</span>
+          </header>
           <div className="door-attack-lab__bytes">
-            {selectedFrame ? selectedFrame.data.map((byte, index) => <div key={`${selectedFrame.key}-${index}`}><small>BYTE {index}</small><strong>{byte}</strong><code>{selectedBits[index]}</code></div>) : <p className="door-attack-lab__empty">터미널 또는 monitor에서 프레임을 선택하세요.</p>}
+            {selectedFrame ? (
+              selectedFrame.data.map((byte, index) => (
+                <div key={`${selectedFrame.key}-${index}`}>
+                  <small>BYTE {index}</small>
+                  <strong>{byte}</strong>
+                  <code>{selectedBits[index]}</code>
+                </div>
+              ))
+            ) : (
+              <p className="door-attack-lab__empty">
+                터미널 또는 monitor에서 프레임을 선택하세요.
+              </p>
+            )}
           </div>
         </section>
 
-        <section className="door-attack-lab__monitor" role="region" aria-label="Network monitor">
-          <header className="door-attack-lab__panel-heading"><div><Radio size={18} aria-hidden="true" /><span><strong>Network monitor</strong><small>REST rejected/capture + accepted live stream</small></span></div><span>{monitor.frames.length} / 300</span></header>
+        <section
+          className="door-attack-lab__monitor"
+          role="region"
+          aria-label="Network monitor"
+        >
+          <header className="door-attack-lab__panel-heading">
+            <div>
+              <Radio size={18} aria-hidden="true" />
+              <span>
+                <strong>Network monitor</strong>
+                <small>REST rejected/capture + accepted live stream</small>
+              </span>
+            </div>
+            <span>{monitor.frames.length} / 300</span>
+          </header>
           <div className="door-attack-lab__monitor-scroll">
-            <table><caption className="sr-only">Beginner CAN lab observed frames</caption><thead><tr><th>Time</th><th>ID</th><th>DATA</th><th>Source</th><th>Verdict</th></tr></thead><tbody>
-              {monitor.frames.length === 0 ? <tr><td colSpan={5}>아직 관찰된 프레임이 없습니다.</td></tr> : monitor.frames.map((frame) => <tr key={frame.key} data-selected={frame.key === monitor.selectedKey}><td>{MONITOR_TIME_FORMATTER.format(new Date(frame.timestamp))}</td><td><button type="button" aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`} onClick={() => selectMonitorFrame(frame.key)}>{frame.canId}</button></td><td>{formatBeginnerFrameData(frame.data)}</td><td>{frame.source}</td><td>{frame.verdict}</td></tr>)}
-            </tbody></table>
+            <table>
+              <caption className="sr-only">
+                Beginner CAN lab observed frames
+              </caption>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>ID</th>
+                  <th>DATA</th>
+                  <th>Source</th>
+                  <th>Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {monitor.frames.length === 0 ? (
+                  <tr>
+                    <td colSpan={5}>아직 관찰된 프레임이 없습니다.</td>
+                  </tr>
+                ) : (
+                  monitor.frames.map((frame) => (
+                    <tr
+                      key={frame.key}
+                      data-selected={frame.key === monitor.selectedKey}
+                    >
+                      <td>
+                        {MONITOR_TIME_FORMATTER.format(
+                          new Date(frame.timestamp),
+                        )}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`}
+                          onClick={() => selectMonitorFrame(frame.key)}
+                        >
+                          {frame.canId}
+                        </button>
+                      </td>
+                      <td>{formatBeginnerFrameData(frame.data)}</td>
+                      <td>{frame.source}</td>
+                      <td>{frame.verdict}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
       </div>
 
       <div className="door-attack-lab__secondary">
-        <section className="door-attack-lab__terminal" role="region" aria-label="Virtual terminal">
-          <header className="door-attack-lab__panel-heading"><div><TerminalWindow size={18} aria-hidden="true" /><span><strong>Virtual terminal</strong><small>allowlisted in-memory interpreter</small></span></div><span>{busy === "terminal" ? "RUNNING" : "READY"}</span></header>
+        <section
+          className="door-attack-lab__terminal"
+          role="region"
+          aria-label="Virtual terminal"
+        >
+          <header className="door-attack-lab__panel-heading">
+            <div>
+              <TerminalWindow size={18} aria-hidden="true" />
+              <span>
+                <strong>Virtual terminal</strong>
+                <small>allowlisted in-memory interpreter</small>
+              </span>
+            </div>
+            <span>{busy === "terminal" ? "RUNNING" : "READY"}</span>
+          </header>
           <AttackLabTerminalTranscript
             entries={terminalEntries}
             emptyMessage="관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다."
           />
-          <form className="beginner-can-attack-lab__terminal-form" onSubmit={(event) => void handleTerminalSubmit(event)}><span aria-hidden="true">$</span><input aria-label="제한 터미널 명령" value={terminalCommand} onChange={(event) => setTerminalCommand(event.target.value)} onKeyDown={handleTerminalKeyDown} disabled={!session || busy !== null || flow.isPlaying} autoComplete="off" /><button type="submit" disabled={!session || busy !== null || flow.isPlaying}>명령 실행</button></form>
+          <form
+            className="beginner-can-attack-lab__terminal-form"
+            onSubmit={(event) => void handleTerminalSubmit(event)}
+          >
+            <span aria-hidden="true">$</span>
+            <input
+              aria-label="제한 터미널 명령"
+              value={terminalCommand}
+              onChange={(event) => setTerminalCommand(event.target.value)}
+              onKeyDown={handleTerminalKeyDown}
+              disabled={!session || busy !== null || flow.isActive}
+              autoComplete="off"
+            />
+            <button
+              type="submit"
+              disabled={!session || busy !== null || flow.isActive}
+            >
+              명령 실행
+            </button>
+          </form>
         </section>
 
         <div className="door-attack-lab__learning">
-          <section role="region" aria-label="Hints"><header><Lightbulb size={17} aria-hidden="true" /><strong>Hints</strong></header><p>{hintIndex < 0 ? "힌트는 정답을 대신하지 않습니다." : config.hints[hintIndex]}</p><button type="button" onClick={() => setHintIndex((index) => Math.min(index + 1, config.hints.length - 1))}>다음 힌트</button></section>
-          <section role="region" aria-label="Learning objective"><header><ShieldCheck size={17} aria-hidden="true" /><strong>Learning objective</strong></header><p>{config.objective}</p><p>물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만 검증합니다.</p></section>
-          <section role="region" aria-label="Evidence"><header><Radio size={17} aria-hidden="true" /><strong>Evidence / completion</strong></header><dl><div><dt>Stage</dt><dd>{session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}</dd></div><div><dt>Attempts</dt><dd>{session?.attemptCount ?? 0}</dd></div><div><dt>Last verdict</dt><dd>{busy && busy !== "reset" ? "PENDING" : lastResult?.code ?? session?.lastVerdict ?? "NONE"}</dd></div><div><dt>Toy IDS</dt><dd>{idsStatus ?? "PENDING"}</dd></div><div><dt>Toy 기술 결과 달성</dt><dd>{technicalComplete ? "달성" : "미달성"}</dd></div></dl></section>
+          <section role="region" aria-label="Hints">
+            <header>
+              <Lightbulb size={17} aria-hidden="true" />
+              <strong>Hints</strong>
+            </header>
+            <p>
+              {hintIndex < 0
+                ? "힌트는 정답을 대신하지 않습니다."
+                : config.hints[hintIndex]}
+            </p>
+            <button
+              type="button"
+              onClick={() =>
+                setHintIndex((index) =>
+                  Math.min(index + 1, config.hints.length - 1),
+                )
+              }
+            >
+              다음 힌트
+            </button>
+          </section>
+          <section role="region" aria-label="Learning objective">
+            <header>
+              <ShieldCheck size={17} aria-hidden="true" />
+              <strong>Learning objective</strong>
+            </header>
+            <p>{config.objective}</p>
+            <p>
+              물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만
+              검증합니다.
+            </p>
+          </section>
+          <section role="region" aria-label="Evidence">
+            <header>
+              <Radio size={17} aria-hidden="true" />
+              <strong>Evidence / completion</strong>
+            </header>
+            <dl>
+              <div>
+                <dt>Stage</dt>
+                <dd>
+                  {session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}
+                </dd>
+              </div>
+              <div>
+                <dt>Attempts</dt>
+                <dd>{session?.attemptCount ?? 0}</dd>
+              </div>
+              <div>
+                <dt>Last verdict</dt>
+                <dd>
+                  {busy && busy !== "reset"
+                    ? "PENDING"
+                    : (lastResult?.code ?? session?.lastVerdict ?? "NONE")}
+                </dd>
+              </div>
+              <div>
+                <dt>Toy IDS</dt>
+                <dd>{idsStatus ?? "PENDING"}</dd>
+              </div>
+              <div>
+                <dt>Toy 기술 결과 달성</dt>
+                <dd>{technicalComplete ? "달성" : "미달성"}</dd>
+              </div>
+            </dl>
+          </section>
           <AttackLabFeedbackPanel feedback={feedback} />
           <AttackLabActivityLog
             entries={activity}
@@ -848,8 +1184,12 @@ export default function BeginnerCanAttackLabPage({
             predictionBeforeAction={predictionBeforeAction}
             explanation={explanation}
             technicalComplete={technicalComplete}
+            reviewReady={reviewReady}
             evidenceSelected={evidenceSelected}
             confirmed={confirmed}
+            expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS[scenario]}
+            principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS[scenario]}
+            actualRows={feedback?.actualRows ?? []}
             onPredictionChange={(value) => {
               setPredictionDraft(value)
               setConfirmed(false)

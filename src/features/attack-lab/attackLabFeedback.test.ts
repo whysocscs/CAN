@@ -35,6 +35,55 @@ function actionResult(
   }
 }
 
+const spoofingSuccessTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "spoofing-success",
+  route: ["terminal", "obd", "ids", "gateway", "rear", "tailgate"],
+  effectTarget: "tailgate",
+}
+
+const replaySuccessTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "replay-success",
+  commandLabel: "canplayer -I capture.log -l 1",
+}
+
+const orderedDoorTraces: readonly VehicleFlowTrace[] = [
+  {
+    ...executedDoorTrace,
+    traceId: "ordered-door-1",
+    sequence: 1,
+    commandIndex: 1,
+    commandLabel: "cansend vcan0 456#000113B7",
+    data: ["00", "01", "13", "B7"],
+    route: ["terminal", "obd", "ids", "gateway", "body"],
+    effectTarget: null,
+    effectState: null,
+    effectApplied: false,
+  },
+  {
+    ...executedDoorTrace,
+    traceId: "ordered-door-2",
+    sequence: 2,
+    commandIndex: 2,
+    commandLabel: "cansend vcan0 456#000114B0",
+    data: ["00", "01", "14", "B0"],
+    route: ["terminal", "obd", "ids", "gateway", "body"],
+    idsVerdict: "ALERT",
+    effectTarget: null,
+    effectState: null,
+    effectApplied: false,
+  },
+  {
+    ...executedDoorTrace,
+    traceId: "ordered-door-3",
+    sequence: 3,
+    commandIndex: 3,
+    commandLabel: "cansend vcan0 456#000115B1",
+    data: ["00", "01", "15", "B1"],
+  },
+]
+
 function playback(
   trace: VehicleFlowTrace,
   segmentIndex: number,
@@ -55,7 +104,10 @@ function complete(trace: VehicleFlowTrace): VehicleFlowPlaybackSnapshot {
   return playback(trace, trace.route.length - 1, { phase: "complete" })
 }
 
-function automaticTextFor(result: AttackLabActionResult, snapshot: VehicleFlowPlaybackSnapshot): string {
+function automaticTextFor(
+  result: AttackLabActionResult,
+  snapshot: VehicleFlowPlaybackSnapshot,
+): string {
   const feedback = classifyAttackLabFeedback({ result, playback: snapshot })
   return [
     feedback.explanation,
@@ -85,28 +137,234 @@ describe("attack lab feedback policy", () => {
     })
 
     expect(feedback.explanation).toContain("rolling counter")
-    expect(feedback.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "터미널 결과", value: "오류 없음" }),
-      expect.objectContaining({ label: "가상 CAN 경로 입력", value: "성공" }),
-      expect.objectContaining({ label: "ECU 판정", value: "COUNTER_REJECTED" }),
-    ]))
+    expect(feedback.explanationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "터미널 결과", value: "오류 없음" }),
+        expect.objectContaining({ label: "가상 CAN 경로 입력", value: "성공" }),
+        expect.objectContaining({
+          label: "ECU 판정",
+          value: "COUNTER_REJECTED",
+        }),
+      ]),
+    )
   })
 
   it.each([
     ["cansend", executedDoorTrace],
-    ["canplayer", { ...executedDoorTrace, commandLabel: "canplayer -I capture.log" }],
-  ] as const)("keeps an executed %s submission silent and explains its effect", (
-    _operation,
-    trace,
-  ) => {
-    const result = actionResult({ traces: [trace], commandLabel: trace.commandLabel })
-    const feedback = classifyAttackLabFeedback({ result, playback: complete(trace) })
+    [
+      "canplayer",
+      { ...executedDoorTrace, commandLabel: "canplayer -I capture.log" },
+    ],
+  ] as const)(
+    "keeps an executed %s submission silent and explains its effect",
+    (_operation, trace) => {
+      const result = actionResult({
+        traces: [trace],
+        commandLabel: trace.commandLabel,
+      })
+      const feedback = classifyAttackLabFeedback({
+        result,
+        playback: complete(trace),
+      })
 
-    expect(classifyTerminalTranscript(result)).toMatchObject({ stream: "silent", text: "" })
-    expect(feedback.flow.nodeFeedback?.status).toBe("EFFECT APPLIED")
-    expect(feedback.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "차량 영향", value: "적용됨" }),
-    ]))
+      expect(classifyTerminalTranscript(result)).toMatchObject({
+        stream: "silent",
+        text: "",
+      })
+      expect(feedback.flow.nodeFeedback?.status).toBe("EFFECT APPLIED")
+      expect(feedback.explanationRows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "차량 영향", value: "적용됨" }),
+        ]),
+      )
+    },
+  )
+
+  it.each([
+    ["door", executedDoorTrace, "ordered state-frame sequence"],
+    ["spoofing", spoofingSuccessTrace, "authenticated sender identity"],
+    ["replay", replaySuccessTrace, "freshness protection"],
+  ] as const)(
+    "explains the %s success with its own security principle",
+    (scenario, trace, principle) => {
+      const feedback = classifyAttackLabFeedback({
+        result: actionResult({ scenario, traces: [trace] }),
+        playback: complete(trace),
+      })
+
+      expect(feedback.explanation).toContain(principle)
+    },
+  )
+
+  it("places the authoritative observed result beside the learner prediction without exposing a hidden expected value", () => {
+    const feedback = classifyAttackLabFeedback({
+      result: actionResult(),
+      playback: complete(executedDoorTrace),
+    })
+
+    expect(feedback.actualRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Terminal", value: "오류 없음" }),
+        expect.objectContaining({
+          label: "제출 프레임",
+          value: "0x456 · DLC 4 · DATA 00 01 13 B7",
+        }),
+        expect.objectContaining({ label: "Toy IDS", value: "NORMAL" }),
+        expect.objectContaining({ label: "Toy ECU", value: "EXECUTED" }),
+        expect.objectContaining({
+          label: "차량 영향",
+          value: "Left Door · 적용됨",
+        }),
+      ]),
+    )
+    expect(feedback.actualRows.map((row) => row.label)).not.toContain(
+      "기대 Counter",
+    )
+    expect(feedback.actualRows.map((row) => row.label)).not.toContain(
+      "정답 Payload",
+    )
+  })
+
+  it("aggregates every completed script frame with its own authoritative IDS, ECU, and effect result", () => {
+    const finalTrace = orderedDoorTraces[2]
+    const feedback = classifyAttackLabFeedback({
+      result: actionResult({ origin: "script", traces: orderedDoorTraces }),
+      playback: playback(finalTrace, finalTrace.route.length - 1, {
+        phase: "complete",
+        traceIndex: 2,
+        traceCount: 3,
+      }),
+    })
+
+    expect(feedback.actualRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Frame 1/3 · 제출 프레임",
+          value: "0x456 · DLC 4 · DATA 00 01 13 B7",
+        }),
+        expect.objectContaining({
+          label: "Frame 1/3 · Toy IDS",
+          value: "NORMAL",
+        }),
+        expect.objectContaining({
+          label: "Frame 1/3 · Toy ECU",
+          value: "EXECUTED",
+        }),
+        expect.objectContaining({
+          label: "Frame 1/3 · 차량 영향",
+          value: "없음",
+        }),
+        expect.objectContaining({
+          label: "Frame 2/3 · 제출 프레임",
+          value: "0x456 · DLC 4 · DATA 00 01 14 B0",
+        }),
+        expect.objectContaining({
+          label: "Frame 2/3 · Toy IDS",
+          value: "ALERT",
+        }),
+        expect.objectContaining({
+          label: "Frame 2/3 · Toy ECU",
+          value: "EXECUTED",
+        }),
+        expect.objectContaining({
+          label: "Frame 2/3 · 차량 영향",
+          value: "없음",
+        }),
+        expect.objectContaining({
+          label: "Frame 3/3 · 제출 프레임",
+          value: "0x456 · DLC 4 · DATA 00 01 15 B1",
+        }),
+        expect.objectContaining({
+          label: "Frame 3/3 · Toy IDS",
+          value: "NORMAL",
+        }),
+        expect.objectContaining({
+          label: "Frame 3/3 · Toy ECU",
+          value: "EXECUTED",
+        }),
+        expect.objectContaining({
+          label: "Frame 3/3 · 차량 영향",
+          value: "Left Door · 적용됨",
+        }),
+      ]),
+    )
+    expect(
+      feedback.actualRows.filter((row) => row.value.includes("적용됨")),
+    ).toEqual([
+      expect.objectContaining({ label: "Frame 3/3 · 차량 영향" }),
+    ])
+  })
+
+  it("keeps the in-flight Actual comparison scoped to the current script frame", () => {
+    const currentTrace = orderedDoorTraces[1]
+    const feedback = classifyAttackLabFeedback({
+      result: actionResult({ origin: "script", traces: orderedDoorTraces }),
+      playback: playback(currentTrace, currentTrace.route.length - 1, {
+        traceIndex: 1,
+        traceCount: 3,
+      }),
+    })
+
+    expect(feedback.actualRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Frame 2/3 · 제출 프레임",
+          value: "0x456 · DLC 4 · DATA 00 01 14 B0",
+        }),
+      ]),
+    )
+    expect(feedback.actualRows.map((row) => row.value).join(" ")).not.toContain(
+      "00 01 13 B7",
+    )
+    expect(feedback.actualRows.map((row) => row.value).join(" ")).not.toContain(
+      "00 01 15 B1",
+    )
+  })
+
+  it.each([
+    ["capture", captureTrace, "캡처 프레임"],
+    [
+      "observe",
+      { ...captureTrace, traceId: "observe-frame", kind: "observe" },
+      "관찰 프레임",
+    ],
+    ["inject", executedDoorTrace, "제출 프레임"],
+  ] as const)(
+    "labels a %s playback frame by its trace kind",
+    (_kind, trace, expectedLabel) => {
+      const feedback = classifyAttackLabFeedback({
+        result: actionResult({ traces: [trace] }),
+        playback: complete(trace),
+      })
+
+      expect(feedback.actualRows).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: "actual-frame",
+            label: expectedLabel,
+          }),
+        ]),
+      )
+    },
+  )
+
+  it("labels an in-flight node as current instead of falsely calling it the final device", () => {
+    const feedback = classifyAttackLabFeedback({
+      result: actionResult(),
+      playback: playback(executedDoorTrace, 1),
+    })
+
+    expect(feedback.actualRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "현재 장치",
+          value: "Training OBD-II",
+        }),
+      ]),
+    )
+    expect(feedback.actualRows.map((row) => row.label)).not.toContain(
+      "최종 도달 장치",
+    )
   })
 
   it("keeps candump output in stdout while preserving its observation route", () => {
@@ -127,8 +385,10 @@ describe("attack lab feedback policy", () => {
       stream: "stdout",
       text: "captured frame text",
     })
-    expect(classifyAttackLabFeedback({ result, playback: complete(observeTrace) }).flow.nodeFeedback)
-      .toMatchObject({ nodeId: "monitor", status: "OBSERVED" })
+    expect(
+      classifyAttackLabFeedback({ result, playback: complete(observeTrace) })
+        .flow.nodeFeedback,
+    ).toMatchObject({ nodeId: "monitor", status: "OBSERVED" })
   })
 
   it("keeps capture redirection silent and labels its Evidence explanation", () => {
@@ -137,13 +397,19 @@ describe("attack lab feedback policy", () => {
       commandLabel: captureTrace.commandLabel,
       traces: [captureTrace],
     })
-    const feedback = classifyAttackLabFeedback({ result, playback: complete(captureTrace) })
+    const feedback = classifyAttackLabFeedback({
+      result,
+      playback: complete(captureTrace),
+    })
 
-    expect(classifyTerminalTranscript(result)).toMatchObject({ stream: "silent", text: "" })
+    expect(classifyTerminalTranscript(result)).toMatchObject({
+      stream: "silent",
+      text: "",
+    })
     expect(feedback.explanation).toContain("Evidence")
-    expect(feedback.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Evidence" }),
-    ]))
+    expect(feedback.explanationRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "Evidence" })]),
+    )
   })
 
   it.each([
@@ -152,31 +418,36 @@ describe("attack lab feedback policy", () => {
     "FILE_NOT_FOUND",
     "CAPTURE_FILE_UNKNOWN",
     "REPEAT_COUNT_INVALID",
-  ])("keeps local or preflight %s in stderr without a vehicle path", (resultCode) => {
-    const result = actionResult({
-      ok: false,
-      resultCode,
-      rawOutput: "virtual terminal error",
-      traces: [terminalLocalRejectionTrace],
-    })
-    const feedback = classifyAttackLabFeedback({
-      result,
-      playback: complete(terminalLocalRejectionTrace),
-    })
+  ])(
+    "keeps local or preflight %s in stderr without a vehicle path",
+    (resultCode) => {
+      const result = actionResult({
+        ok: false,
+        resultCode,
+        rawOutput: "virtual terminal error",
+        traces: [terminalLocalRejectionTrace],
+      })
+      const feedback = classifyAttackLabFeedback({
+        result,
+        playback: complete(terminalLocalRejectionTrace),
+      })
 
-    expect(classifyTerminalTranscript(result)).toMatchObject({
-      stream: "stderr",
-      text: "virtual terminal error",
-    })
-    expect(feedback.flow.nodeFeedback).toMatchObject({
-      nodeId: "terminal",
-      status: "NO VEHICLE PATH",
-    })
-    expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "ECU 판정" }),
-      expect.objectContaining({ label: "Toy IDS 관찰" }),
-    ]))
-  })
+      expect(classifyTerminalTranscript(result)).toMatchObject({
+        stream: "stderr",
+        text: "virtual terminal error",
+      })
+      expect(feedback.flow.nodeFeedback).toMatchObject({
+        nodeId: "terminal",
+        status: "NO VEHICLE PATH",
+      })
+      expect(feedback.explanationRows).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ label: "ECU 판정" }),
+          expect.objectContaining({ label: "Toy IDS 관찰" }),
+        ]),
+      )
+    },
+  )
 
   it("keeps an evidence-stop Replay preflight in stderr with no vehicle path", () => {
     const evidencePreflight: VehicleFlowTrace = {
@@ -192,17 +463,24 @@ describe("attack lab feedback policy", () => {
       rawOutput: "virtual replay preflight error",
       traces: [evidencePreflight],
     })
-    const feedback = classifyAttackLabFeedback({ result, playback: complete(evidencePreflight) })
+    const feedback = classifyAttackLabFeedback({
+      result,
+      playback: complete(evidencePreflight),
+    })
 
-    expect(classifyTerminalTranscript(result)).toMatchObject({ stream: "stderr" })
+    expect(classifyTerminalTranscript(result)).toMatchObject({
+      stream: "stderr",
+    })
     expect(feedback.flow.nodeFeedback).toMatchObject({
       nodeId: "evidence",
       status: "NO VEHICLE PATH",
     })
-    expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "ECU 판정" }),
-      expect.objectContaining({ label: "Toy IDS 관찰" }),
-    ]))
+    expect(feedback.explanationRows).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "ECU 판정" }),
+        expect.objectContaining({ label: "Toy IDS 관찰" }),
+      ]),
+    )
   })
 
   it("does not create a transcript for a missing platform action result", () => {
@@ -236,23 +514,39 @@ describe("attack lab feedback policy", () => {
       data: secondTrace.data,
       currentTransition: "Toy Gateway -> Toy Body ECU",
     })
-    expect(feedback.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "프레임", value: "Frame 2/3" }),
-    ]))
+    expect(feedback.explanationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "프레임", value: "Frame 2/3" }),
+      ]),
+    )
   })
 
   it("keeps each multi-frame trace command label instead of the outer script label", () => {
     const traces = [
       { ...executedDoorTrace, traceId: "one", commandLabel: "script line one" },
-      { ...executedDoorTrace, traceId: "two", sequence: 2, commandLabel: "script line two" },
+      {
+        ...executedDoorTrace,
+        traceId: "two",
+        sequence: 2,
+        commandLabel: "script line two",
+      },
     ]
-    const result = actionResult({ origin: "script", commandLabel: "whole script", traces })
+    const result = actionResult({
+      origin: "script",
+      commandLabel: "whole script",
+      traces,
+    })
 
     for (const [index, trace] of traces.entries()) {
-      expect(classifyAttackLabFeedback({
-        result,
-        playback: playback(trace, 0, { traceIndex: index, traceCount: traces.length }),
-      }).flow.commandLabel).toBe(trace.commandLabel)
+      expect(
+        classifyAttackLabFeedback({
+          result,
+          playback: playback(trace, 0, {
+            traceIndex: index,
+            traceCount: traces.length,
+          }),
+        }).flow.commandLabel,
+      ).toBe(trace.commandLabel)
     }
   })
 
@@ -266,12 +560,22 @@ describe("attack lab feedback policy", () => {
       playback: playback(executedAlertTrace, 2),
     })
 
-    expect(normal.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Toy IDS 관찰", value: "관찰됨 · Toy 규칙 경보 없음" }),
-    ]))
-    expect(alert.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Toy IDS 관찰", value: "관찰/탐지됨 · 차단 근거 없음" }),
-    ]))
+    expect(normal.explanationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Toy IDS 관찰",
+          value: "관찰됨 · Toy 규칙 경보 없음",
+        }),
+      ]),
+    )
+    expect(alert.explanationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "Toy IDS 관찰",
+          value: "관찰/탐지됨 · 차단 근거 없음",
+        }),
+      ]),
+    )
   })
 
   it("discloses IDS, ECU, and effect facts only at their authoritative segments", () => {
@@ -285,38 +589,42 @@ describe("attack lab feedback policy", () => {
       result: rejectedResult,
       playback: playback(rejectedBodyTrace, 1),
     })
-    expect(beforeIds.explanationRows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Toy IDS 관찰" }),
-      expect.objectContaining({ label: "ECU 판정" }),
-      expect.objectContaining({ label: "차량 영향" }),
-    ]))
+    expect(beforeIds.explanationRows).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Toy IDS 관찰" }),
+        expect.objectContaining({ label: "ECU 판정" }),
+        expect.objectContaining({ label: "차량 영향" }),
+      ]),
+    )
     expect(beforeIds.explanation).not.toContain("rolling counter")
 
     const atIds = classifyAttackLabFeedback({
       result: rejectedResult,
       playback: playback(rejectedBodyTrace, 2),
     })
-    expect(atIds.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "Toy IDS 관찰" }),
-    ]))
+    expect(atIds.explanationRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ label: "Toy IDS 관찰" }),
+      ]),
+    )
     expect(atIds.explanation).not.toContain("rolling counter")
 
     const atEcu = classifyAttackLabFeedback({
       result: rejectedResult,
       playback: complete(rejectedBodyTrace),
     })
-    expect(atEcu.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "ECU 판정" }),
-    ]))
+    expect(atEcu.explanationRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "ECU 판정" })]),
+    )
     expect(atEcu.explanation).toContain("Toy ECU")
 
     const atEffect = classifyAttackLabFeedback({
       result: actionResult(),
       playback: complete(executedDoorTrace),
     })
-    expect(atEffect.explanationRows).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "차량 영향" }),
-    ]))
+    expect(atEffect.explanationRows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "차량 영향" })]),
+    )
     expect(atEffect.explanation).toContain("차량 효과가 적용")
   })
 
@@ -338,18 +646,22 @@ describe("attack lab feedback policy", () => {
       rawOutput: privateValues.slice(0, -1).join(" "),
       traces: [trace],
     })
-    const feedback = classifyAttackLabFeedback({ result, playback: complete(trace) })
+    const feedback = classifyAttackLabFeedback({
+      result,
+      playback: complete(trace),
+    })
     const automaticText = automaticTextFor(result, complete(trace))
 
     for (const privateValue of privateValues) {
       expect(automaticText).not.toContain(privateValue)
     }
     expect(feedback.flow.ecuVerdict).toBeNull()
-    expect(feedback.flow.nodeFeedback?.detail)
-      .toBe("교육용 분석에 필요한 안전한 판정 정보가 없습니다.")
-    expect(feedback.explanationRows).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: "ECU 판정" }),
-    ]))
+    expect(feedback.flow.nodeFeedback?.detail).toBe(
+      "교육용 분석에 필요한 안전한 판정 정보가 없습니다.",
+    )
+    expect(feedback.explanationRows).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "ECU 판정" })]),
+    )
   })
 
   it("keeps the newest twenty authoritative actions including local and script results", () => {
@@ -398,28 +710,36 @@ describe("attack lab feedback policy", () => {
       route: ["terminal", "evidence"],
       stoppedAt: "evidence",
     }
-    const entries = appendAttackLabActivity([], actionResult({
-      actionId: "replay-preflight",
-      scenario: "replay",
-      ok: false,
-      resultCode: "CAPTURE_GENERATION_MISMATCH",
-      traces: [evidencePreflight],
-    }))
+    const entries = appendAttackLabActivity(
+      [],
+      actionResult({
+        actionId: "replay-preflight",
+        scenario: "replay",
+        ok: false,
+        resultCode: "CAPTURE_GENERATION_MISMATCH",
+        traces: [evidencePreflight],
+      }),
+    )
 
-    expect(entries).toEqual([expect.objectContaining({
-      id: "replay-preflight",
-      resultCode: "CAPTURE_GENERATION_MISMATCH",
-      frameEmitted: false,
-      stoppedAt: "evidence",
-    })])
+    expect(entries).toEqual([
+      expect.objectContaining({
+        id: "replay-preflight",
+        resultCode: "CAPTURE_GENERATION_MISMATCH",
+        frameEmitted: false,
+        stoppedAt: "evidence",
+      }),
+    ])
   })
 
   it("keeps the newest one hundred terminal transcript entries", () => {
-    const entries: AttackLabTerminalTranscript[] = Array.from({ length: 100 }, (_, index) => ({
-      command: `old-${index}`,
-      stream: "stdout",
-      text: String(index),
-    }))
+    const entries: AttackLabTerminalTranscript[] = Array.from(
+      { length: 100 },
+      (_, index) => ({
+        command: `old-${index}`,
+        stream: "stdout",
+        text: String(index),
+      }),
+    )
     const appended = appendAttackLabTranscript(entries, {
       command: "latest",
       stream: "stderr",
@@ -428,6 +748,9 @@ describe("attack lab feedback policy", () => {
 
     expect(appended).toHaveLength(100)
     expect(appended.at(0)?.command).toBe("old-1")
-    expect(appended.at(-1)).toMatchObject({ command: "latest", stream: "stderr" })
+    expect(appended.at(-1)).toMatchObject({
+      command: "latest",
+      stream: "stderr",
+    })
   })
 })

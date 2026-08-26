@@ -10,11 +10,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import {
-  useFrame,
-  useThree,
-  type ThreeEvent,
-} from "@react-three/fiber"
+import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber"
 import { Html, Line } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
@@ -85,6 +81,10 @@ export interface VehicleNetworkViewportProps {
   initialView?: VehicleCameraView
   playback?: VehicleFlowPlaybackSnapshot
   presentation?: VehicleFlowPresentation
+  playbackPaused?: boolean
+  onPlaybackPause?: () => void
+  onPlaybackResume?: () => void
+  onPlaybackNextStep?: () => void
 }
 
 interface CameraPreset {
@@ -104,16 +104,9 @@ interface NodeCameraFocus {
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
 type TopologyCalloutKind = "logical" | "target" | "effect"
-type VehicleFlowEdgeState =
-  | "idle"
-  | "queued"
-  | "active"
-  | "passed"
-  | "cancelled"
-type VehicleFlowNodeVisualState = "active" | "cancelled"
-  | "observer"
-  | "rejected"
-  | "effect"
+type VehicleFlowEdgeState = "idle" | "queued" | "active" | "passed" | "cancelled"
+type VehicleFlowNodeVisualState = "active" | "cancelled" | "observer" | "rejected" | "effect"
+type VehicleScenePhase = "loading" | "fitting" | "ready" | "error"
 
 interface VehicleRouteNode {
   node: VehicleTopologyNode
@@ -139,18 +132,16 @@ const PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> = {
   tailgate: { x: 15, y: 65 },
 }
 
-const COMPACT_PIN_SCREEN_OFFSETS: Record<
-  VehicleTopologyNodeId,
-  PinScreenOffset
-> = {
-  obd: { x: -36, y: 34 },
-  ids: { x: -34, y: -20 },
-  gateway: { x: 0, y: -46 },
-  body: { x: 22, y: -18 },
-  rear: { x: 22, y: -18 },
-  leftDoor: { x: 28, y: 38 },
-  tailgate: { x: -24, y: 42 },
-}
+const COMPACT_PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> =
+  {
+    obd: { x: -36, y: 34 },
+    ids: { x: -34, y: -20 },
+    gateway: { x: 0, y: -46 },
+    body: { x: 22, y: -18 },
+    rear: { x: 22, y: -18 },
+    leftDoor: { x: 28, y: 38 },
+    tailgate: { x: -24, y: 42 },
+  }
 
 const LOGICAL_CALLOUT_STYLE: CSSProperties = {
   width: "104px",
@@ -160,7 +151,8 @@ const LOGICAL_CALLOUT_STYLE: CSSProperties = {
 
 const DYNAMIC_CALLOUT_STYLE: CSSProperties = {
   width: "clamp(160px, 22vw, 220px)",
-  maxWidth: "min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)))",
+  maxWidth:
+    "min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)))",
   whiteSpace: "normal",
   pointerEvents: "auto",
 }
@@ -230,10 +222,11 @@ export function clampFlowCalloutPosition({
     )
     const left = candidateCenterX - halfWidth
     const top = candidateCenterY - halfHeight
-    const anchorInside = anchorX > left
-      && anchorX < left + calloutWidth
-      && anchorY > top
-      && anchorY < top + calloutHeight
+    const anchorInside =
+      anchorX > left &&
+      anchorX < left + calloutWidth &&
+      anchorY > top &&
+      anchorY < top + calloutHeight
     const clampDistance = Math.hypot(
       candidateCenterX - preferredCenterX,
       candidateCenterY - preferredCenterY,
@@ -249,8 +242,10 @@ export function clampFlowCalloutPosition({
   const top = centerY - halfHeight
   const deltaX = anchorX - centerX
   const deltaY = anchorY - centerY
-  const scaleX = deltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(deltaX)
-  const scaleY = deltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(deltaY)
+  const scaleX =
+    deltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(deltaX)
+  const scaleY =
+    deltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(deltaY)
   const boundaryScale = Math.min(scaleX, scaleY)
   const leaderEndX = Number.isFinite(boundaryScale)
     ? centerX + deltaX * boundaryScale
@@ -359,9 +354,7 @@ function createCameraPresets(
 ): Record<VehicleCameraView, CameraPreset> {
   return {
     overview: {
-      position: new THREE.Vector3(
-        ...NORMAL_CAN_SCENE_PRESET.camera.position,
-      ),
+      position: new THREE.Vector3(...NORMAL_CAN_SCENE_PRESET.camera.position),
       target: new THREE.Vector3(...CAMERA_TARGET),
     },
     source: createNodeCameraPreset(
@@ -489,56 +482,61 @@ function DynamicTopologyFeedback({
     observer.observe(element)
     observerRef.current = observer
   }, [])
-  const calculatePosition = useCallback((
-    object: THREE.Object3D,
-    camera: THREE.Camera,
-    size: { width: number; height: number },
-  ): [number, number] => {
-    const projectedPosition = projectedPositionRef.current
-    projectedPosition.setFromMatrixPosition(object.matrixWorld).project(camera)
-    const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
-    const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
-    const availableWidth = Math.max(1, size.width - FLOW_CALLOUT_INSET * 2)
-    const measuredSize = measuredSizeRef.current
-    const calloutWidth = Math.min(
-      measuredSize.width || fallbackFlowCalloutWidth(),
-      availableWidth,
-    )
-    const calloutHeight = measuredSize.height || FLOW_CALLOUT_FALLBACK_HEIGHT
-    const geometry = clampFlowCalloutPosition({
-      anchorX,
-      anchorY,
-      canvasWidth: size.width,
-      canvasHeight: size.height,
-      calloutWidth,
-      calloutHeight,
-    })
-    const leaderX = geometry.leaderEndX - geometry.left
-    const leaderY = geometry.leaderEndY - geometry.top
-    const deltaX = anchorX - geometry.leaderEndX
-    const deltaY = anchorY - geometry.leaderEndY
-    const element = elementRef.current
-    if (element) {
-      element.style.setProperty(
-        "--vehicle-feedback-canvas-max-width",
-        `${availableWidth}px`,
+  const calculatePosition = useCallback(
+    (
+      object: THREE.Object3D,
+      camera: THREE.Camera,
+      size: { width: number; height: number },
+    ): [number, number] => {
+      const projectedPosition = projectedPositionRef.current
+      projectedPosition
+        .setFromMatrixPosition(object.matrixWorld)
+        .project(camera)
+      const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
+      const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
+      const availableWidth = Math.max(1, size.width - FLOW_CALLOUT_INSET * 2)
+      const measuredSize = measuredSizeRef.current
+      const calloutWidth = Math.min(
+        measuredSize.width || fallbackFlowCalloutWidth(),
+        availableWidth,
       )
-      element.style.setProperty("--vehicle-feedback-leader-x", `${leaderX}px`)
-      element.style.setProperty("--vehicle-feedback-leader-y", `${leaderY}px`)
-      element.style.setProperty(
-        "--vehicle-feedback-leader-length",
-        `${Math.hypot(deltaX, deltaY)}px`,
-      )
-      element.style.setProperty(
-        "--vehicle-feedback-leader-angle",
-        `${Math.atan2(deltaY, deltaX)}rad`,
-      )
-    }
-    return [
-      geometry.left + calloutWidth / 2,
-      geometry.top + calloutHeight / 2,
-    ]
-  }, [])
+      const calloutHeight = measuredSize.height || FLOW_CALLOUT_FALLBACK_HEIGHT
+      const geometry = clampFlowCalloutPosition({
+        anchorX,
+        anchorY,
+        canvasWidth: size.width,
+        canvasHeight: size.height,
+        calloutWidth,
+        calloutHeight,
+      })
+      const leaderX = geometry.leaderEndX - geometry.left
+      const leaderY = geometry.leaderEndY - geometry.top
+      const deltaX = anchorX - geometry.leaderEndX
+      const deltaY = anchorY - geometry.leaderEndY
+      const element = elementRef.current
+      if (element) {
+        element.style.setProperty(
+          "--vehicle-feedback-canvas-max-width",
+          `${availableWidth}px`,
+        )
+        element.style.setProperty("--vehicle-feedback-leader-x", `${leaderX}px`)
+        element.style.setProperty("--vehicle-feedback-leader-y", `${leaderY}px`)
+        element.style.setProperty(
+          "--vehicle-feedback-leader-length",
+          `${Math.hypot(deltaX, deltaY)}px`,
+        )
+        element.style.setProperty(
+          "--vehicle-feedback-leader-angle",
+          `${Math.atan2(deltaY, deltaX)}rad`,
+        )
+      }
+      return [
+        geometry.left + calloutWidth / 2,
+        geometry.top + calloutHeight / 2,
+      ]
+    },
+    [],
+  )
 
   return (
     <Html
@@ -604,8 +602,8 @@ function TopologyPin({
   const compactScreenOffset = COMPACT_PIN_SCREEN_OFFSETS[node.id]
   const calloutKindForNode = feedback
     ? undefined
-    : calloutKind ??
-      (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
+    : (calloutKind ??
+      (tooltipVisible && node.kind === "logical" ? "logical" : undefined))
   const calloutPlacement =
     calloutKindForNode === "target"
       ? "target-far-left"
@@ -625,9 +623,10 @@ function TopologyPin({
     opacity: contextSuppressed ? 0.24 : 1,
   } as CSSProperties
 
-  const truthQualifier = node.kind === "effect"
-    ? "GLB 동작 기준점 · 실제 actuator 위치 아님"
-    : "교육용 논리 ECU · 실제 OEM 위치 아님"
+  const truthQualifier =
+    node.kind === "effect"
+      ? "GLB 동작 기준점 · 실제 actuator 위치 아님"
+      : "교육용 논리 ECU · 실제 OEM 위치 아님"
 
   return (
     <>
@@ -767,13 +766,14 @@ function FlowNodeHalo({
   accent: string
   state: VehicleFlowNodeVisualState
 }) {
-  const tone = state === "observer"
-    ? IDS_OBSERVER_TONE
-    : state === "rejected"
-      ? REJECTED_TONE
-      : state === "effect"
-        ? EFFECT_TONE
-        : accent
+  const tone =
+    state === "observer"
+      ? IDS_OBSERVER_TONE
+      : state === "rejected"
+        ? REJECTED_TONE
+        : state === "effect"
+          ? EFFECT_TONE
+          : accent
   return (
     <group
       position={node.anchor}
@@ -825,10 +825,7 @@ function FlowPacket({
 }) {
   const ref = useRef<THREE.Mesh>(null)
   const progress = useRef(0)
-  const fromPosition = useMemo(
-    () => new THREE.Vector3(...from.anchor),
-    [from],
-  )
+  const fromPosition = useMemo(() => new THREE.Vector3(...from.anchor), [from])
   const toPosition = useMemo(() => new THREE.Vector3(...to.anchor), [to])
 
   useFrame((_, delta) => {
@@ -893,12 +890,10 @@ function TopologyOverlay({
 }) {
   const activeEdgeIndex = flowRoute
     .slice(1)
-    .findIndex(({ traceIndex }, index) =>
-      flowEdgeState(
-        flowRoute[index].traceIndex,
-        traceIndex,
-        playback,
-      ) === "active",
+    .findIndex(
+      ({ traceIndex }, index) =>
+        flowEdgeState(flowRoute[index].traceIndex, traceIndex, playback) ===
+        "active",
     )
   const activeEdge =
     activeEdgeIndex >= 0
@@ -917,9 +912,9 @@ function TopologyOverlay({
           destination.traceIndex,
           playback,
         )
-        const observerRole = structuredPresentation && (
-          node.id === "ids" || destination.node.id === "ids"
-        )
+        const observerRole =
+          structuredPresentation &&
+          (node.id === "ids" || destination.node.id === "ids")
         return (
           <Line
             key={`${node.id}-${destination.node.id}`}
@@ -931,9 +926,11 @@ function TopologyOverlay({
             gapSize={observerRole ? 0.08 : undefined}
             transparent
             opacity={lineOpacity(state)}
-            userData={observerRole
-              ? { flowState: state, observerRole: "ids" }
-              : { flowState: state }}
+            userData={
+              observerRole
+                ? { flowState: state, observerRole: "ids" }
+                : { flowState: state }
+            }
           />
         )
       })}
@@ -971,7 +968,9 @@ function TopologyOverlay({
               cameraFocusedNodeId !== undefined
             }
             feedback={feedback?.nodeId === node.id ? feedback : undefined}
-            contextSuppressed={Boolean(feedback) && feedback?.nodeId !== node.id}
+            contextSuppressed={
+              Boolean(feedback) && feedback?.nodeId !== node.id
+            }
             onSelect={onSelect}
             calloutKind={
               node.id === targetId
@@ -987,9 +986,10 @@ function TopologyOverlay({
   )
 }
 
-class VehicleErrorBoundary extends Component<{ children: ReactNode }, {
-  failed: boolean
-}> {
+class VehicleErrorBoundary extends Component<{
+  children: ReactNode
+  onError: () => void
+}, { failed: boolean }> {
   state = { failed: false }
 
   static getDerivedStateFromError() {
@@ -998,6 +998,7 @@ class VehicleErrorBoundary extends Component<{ children: ReactNode }, {
 
   componentDidCatch(_error: Error, _info: ErrorInfo) {
     // The route map and the rest of the lab remain usable without the GLB.
+    this.props.onError()
   }
 
   render() {
@@ -1046,6 +1047,10 @@ export default function VehicleNetworkViewport({
   initialView = "overview",
   playback,
   presentation,
+  playbackPaused,
+  onPlaybackPause,
+  onPlaybackResume,
+  onPlaybackNextStep,
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
   const playbackState = useMemo(
@@ -1072,16 +1077,62 @@ export default function VehicleNetworkViewport({
       : { view: initialView },
   )
   const [overviewRevision, setOverviewRevision] = useState(0)
+  const [scenePhase, setScenePhase] =
+    useState<VehicleScenePhase>("loading")
+  const centeredRefitFrames = useRef<{
+    layout?: number
+    settled?: number
+  }>({})
+  const sceneReadyTimer = useRef<number | undefined>(undefined)
   const previousPlaybackRef = useRef({
     phase: IDLE_PLAYBACK.phase,
     playbackId: IDLE_PLAYBACK.playbackId,
   })
   const vehicleRootRef = useRef<THREE.Group>(null)
   const [rootTransformVersion, setRootTransformVersion] = useState(0)
-  const handleVehicleCentered = useCallback(
-    () => setRootTransformVersion((version) => version + 1),
-    [],
-  )
+  const cancelSceneSettling = useCallback(() => {
+    const pending = centeredRefitFrames.current
+    if (pending.layout !== undefined) {
+      window.cancelAnimationFrame(pending.layout)
+      pending.layout = undefined
+    }
+    if (pending.settled !== undefined) {
+      window.cancelAnimationFrame(pending.settled)
+      pending.settled = undefined
+    }
+    if (sceneReadyTimer.current !== undefined) {
+      window.clearTimeout(sceneReadyTimer.current)
+      sceneReadyTimer.current = undefined
+    }
+  }, [])
+  const handleVehicleCentered = useCallback(() => {
+    cancelSceneSettling()
+    setScenePhase("fitting")
+    setRootTransformVersion((version) => version + 1)
+    const pending = centeredRefitFrames.current
+    // Center measures the committed clone before OrbitControls and Bounds have
+    // necessarily completed their own layout work. Two frames later all three
+    // share the same scene, so this refit cannot use the empty initial bounds.
+    pending.layout = window.requestAnimationFrame(() => {
+      pending.settled = window.requestAnimationFrame(() => {
+        pending.layout = undefined
+        pending.settled = undefined
+        setOverviewRevision((revision) => revision + 1)
+        sceneReadyTimer.current = window.setTimeout(() => {
+          sceneReadyTimer.current = undefined
+          setScenePhase("ready")
+        }, 350)
+      })
+    })
+  }, [cancelSceneSettling])
+  const handleVehicleError = useCallback(() => {
+    cancelSceneSettling()
+    setScenePhase("error")
+  }, [cancelSceneSettling])
+
+  useEffect(() => {
+    return cancelSceneSettling
+  }, [cancelSceneSettling])
   const cameraPresets = useMemo(
     () =>
       createCameraPresets(
@@ -1115,11 +1166,9 @@ export default function VehicleNetworkViewport({
       playbackId: playbackState.playbackId,
     }
     if (
-      playbackState.phase === "playing"
-      && (
-        previousPlayback.phase === "idle"
-        || previousPlayback.playbackId !== playbackState.playbackId
-      )
+      playbackState.phase === "playing" &&
+      (previousPlayback.phase === "idle" ||
+        previousPlayback.playbackId !== playbackState.playbackId)
     ) {
       requestOverview()
     }
@@ -1144,26 +1193,24 @@ export default function VehicleNetworkViewport({
       ? playbackNodeId
       : undefined
   const presentationFeedback = presentation?.nodeFeedback
-  const topologyFeedback = presentationFeedback
-    && presentationFeedback.nodeId === presentation.currentNodeId
-    && isVehicleTopologyFeedback(presentationFeedback)
-    && (
-      presentation.phase === "playing"
-      || presentation.phase === "complete" && presentationFeedback.persist
-    )
-    ? presentationFeedback
-    : undefined
-  const hasAuthoritativeTrace = Boolean(playbackState.trace)
-    && playbackState.phase !== "idle"
-  const authoritativeActiveNodeId = topologyFeedback?.nodeId
-    ?? (
-      playbackState.phase === "playing" || playbackState.phase === "cancelled"
-        ? playbackCurrentNodeId
-        : undefined
-    )
+  const topologyFeedback =
+    presentationFeedback &&
+    presentationFeedback.nodeId === presentation.currentNodeId &&
+    isVehicleTopologyFeedback(presentationFeedback) &&
+    (presentation.phase === "playing" ||
+      (presentation.phase === "complete" && presentationFeedback.persist))
+      ? presentationFeedback
+      : undefined
+  const hasAuthoritativeTrace =
+    Boolean(playbackState.trace) && playbackState.phase !== "idle"
+  const authoritativeActiveNodeId =
+    topologyFeedback?.nodeId ??
+    (playbackState.phase === "playing" || playbackState.phase === "cancelled"
+      ? playbackCurrentNodeId
+      : undefined)
   const activeNodeId = hasAuthoritativeTrace
     ? authoritativeActiveNodeId
-    : focusedId ?? currentNodeId
+    : (focusedId ?? currentNodeId)
   const activeNodeState: VehicleFlowNodeVisualState =
     playbackState.phase === "cancelled" && playbackCurrentNodeId
       ? "cancelled"
@@ -1249,11 +1296,12 @@ export default function VehicleNetworkViewport({
         tabIndex={0}
       >
         {routeNodes.map((node) => {
-          const nodeStatus = topologyFeedback?.nodeId === node.id
-            ? topologyFeedback.status
-            : node.id === activeNodeId && hasAuthoritativeTrace
-              ? "PROCESSING"
-              : null
+          const nodeStatus =
+            topologyFeedback?.nodeId === node.id
+              ? topologyFeedback.status
+              : node.id === activeNodeId && hasAuthoritativeTrace
+                ? "PROCESSING"
+                : null
           return (
             <li
               key={node.id}
@@ -1261,7 +1309,9 @@ export default function VehicleNetworkViewport({
               data-active={node.id === activeNodeId}
               data-feedback-status={nodeStatus ?? undefined}
               aria-current={node.id === activeNodeId ? "step" : undefined}
-              aria-label={nodeStatus ? `${node.label} · ${nodeStatus}` : undefined}
+              aria-label={
+                nodeStatus ? `${node.label} · ${nodeStatus}` : undefined
+              }
             >
               <span className="vehicle-network-viewport__map-number">
                 {node.number}
@@ -1287,28 +1337,31 @@ export default function VehicleNetworkViewport({
         accent={accent}
         presentation={presentation}
         reducedMotion={reducedMotion}
+        isPaused={playbackPaused}
+        onPause={onPlaybackPause}
+        onResume={onPlaybackResume}
+        onNextStep={onPlaybackNextStep}
       />
 
       <div className="vehicle-network-viewport__canvas">
+        {(scenePhase === "loading" || scenePhase === "fitting") && (
+          <div
+            className="vehicle-network-viewport__scene-loading"
+            role="status"
+          >
+            <CircleNotch
+              size={17}
+              className="door-attack-lab__spin"
+              aria-hidden="true"
+            />
+            {scenePhase === "loading"
+              ? "GLB 차량 불러오는 중"
+              : "차량 3D 장면 맞추는 중"}
+          </div>
+        )}
         <SharedVehicleCanvas>
-          <VehicleErrorBoundary>
-            <Suspense
-              fallback={
-                <Html center>
-                  <div
-                    className="vehicle-network-viewport__status"
-                    role="status"
-                  >
-                    <CircleNotch
-                      size={18}
-                      className="door-attack-lab__spin"
-                      aria-hidden="true"
-                    />
-                    GLB 불러오는 중
-                  </div>
-                </Html>
-              }
-            >
+          <VehicleErrorBoundary onError={handleVehicleError}>
+            <Suspense fallback={null}>
               <SharedVehicleScene
                 ref={vehicleRootRef}
                 xray

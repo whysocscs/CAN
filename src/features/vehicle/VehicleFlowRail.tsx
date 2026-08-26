@@ -6,14 +6,7 @@ import type {
   VehicleFlowPresentation,
 } from "./vehicleFlowTypes"
 
-type FlowNodeState =
-  | "idle"
-  | "queued"
-  | "active"
-  | "passed"
-  | "effect"
-  | "rejected"
-  | "cancelled"
+type FlowNodeState = "idle" | "queued" | "active" | "passed" | "effect" | "rejected" | "cancelled"
 
 interface VehicleFlowRailProps {
   scenarioTitle: string
@@ -23,6 +16,10 @@ interface VehicleFlowRailProps {
   accent: string
   presentation?: VehicleFlowPresentation
   reducedMotion?: boolean
+  isPaused?: boolean
+  onPause?: () => void
+  onResume?: () => void
+  onNextStep?: () => void
 }
 
 interface RailNode {
@@ -49,15 +46,17 @@ function nodeState(
     return "cancelled"
   }
   if (
-    playback.trace?.outcome === "REJECTED"
-    && playback.trace.stoppedAt === nodeId
-    && playback.segmentIndex >= index
-  ) return "rejected"
+    playback.trace?.outcome === "REJECTED" &&
+    playback.trace.stoppedAt === nodeId &&
+    playback.segmentIndex >= index
+  )
+    return "rejected"
   if (
-    playback.trace?.effectApplied
-    && playback.trace.effectTarget === nodeId
-    && playback.segmentIndex >= index
-  ) return "effect"
+    playback.trace?.effectApplied &&
+    playback.trace.effectTarget === nodeId &&
+    playback.segmentIndex >= index
+  )
+    return "effect"
   if (index < playback.segmentIndex) return "passed"
   if (index === playback.segmentIndex) return "active"
   return "queued"
@@ -83,6 +82,16 @@ function nodeStatus(state: FlowNodeState): string {
   return "대기"
 }
 
+function playbackStatus(
+  phase: VehicleFlowPlaybackSnapshot["phase"],
+  isPaused: boolean,
+): string {
+  if (phase === "playing") return isPaused ? "일시정지됨" : "자동 재생 중"
+  if (phase === "complete") return "재생 완료"
+  if (phase === "cancelled") return "재생 취소됨"
+  return "재생 대기"
+}
+
 function idsDisplay(verdict: "NORMAL" | "ALERT"): string {
   return verdict === "NORMAL"
     ? "IDS NORMAL · 관찰됨 · Toy 규칙 경보 없음"
@@ -98,10 +107,11 @@ function FlowNode({
   state: FlowNodeState
   selected: boolean
 }) {
-  const currentStep = state === "active"
-    || state === "effect"
-    || state === "rejected"
-    || state === "cancelled"
+  const currentStep =
+    state === "active" ||
+    state === "effect" ||
+    state === "rejected" ||
+    state === "cancelled"
   return (
     <li
       className="vehicle-flow-rail__node"
@@ -125,6 +135,10 @@ export default function VehicleFlowRail({
   accent,
   presentation,
   reducedMotion = false,
+  isPaused = false,
+  onPause,
+  onResume,
+  onNextStep,
 }: VehicleFlowRailProps) {
   const trace = playback.trace
   const displayRoute = trace
@@ -132,6 +146,12 @@ export default function VehicleFlowRail({
     : route
   const showSelection =
     playback.phase === "idle" || playback.phase === "complete"
+  const playbackStatusLabel = playbackStatus(playback.phase, isPaused)
+  const currentNodeId = trace?.route[playback.segmentIndex] ?? null
+  const accessibleDetail =
+    trace && currentNodeId
+      ? `Frame ${playback.traceIndex + 1}/${playback.traceCount} · 현재 장치 ${flowNodeLabel(currentNodeId)} · 상태 ${playbackStatusLabel}`
+      : `Frame 없음 · 현재 장치 없음 · 상태 ${playbackStatusLabel}`
 
   return (
     <section
@@ -139,7 +159,14 @@ export default function VehicleFlowRail({
       style={{ "--vehicle-route-accent": accent } as CSSProperties}
       aria-label={`${scenarioTitle} command timeline`}
     >
-      <ol className="vehicle-flow-rail__nodes" aria-label={`${scenarioTitle} command flow`}>
+      <span className="sr-only">{accessibleDetail}</span>
+      <span className="sr-only" role="status">
+        재생 상태: {playbackStatusLabel}
+      </span>
+      <ol
+        className="vehicle-flow-rail__nodes"
+        aria-label={`${scenarioTitle} command flow`}
+      >
         {railNodes(displayRoute).map((node) => (
           <FlowNode
             key={node.id}
@@ -150,16 +177,45 @@ export default function VehicleFlowRail({
         ))}
       </ol>
       <div className="vehicle-flow-rail__hud">
+        {onPause && onResume && onNextStep ? (
+          <div
+            className="vehicle-flow-rail__controls"
+            role="group"
+            aria-label="3D 흐름 재생 제어"
+          >
+            <span>{playbackStatusLabel}</span>
+            <button
+              type="button"
+              disabled={playback.phase !== "playing"}
+              onClick={isPaused ? onResume : onPause}
+            >
+              {isPaused ? "계속 재생" : "일시정지"}
+            </button>
+            <button
+              type="button"
+              disabled={playback.phase !== "playing" || !isPaused}
+              onClick={onNextStep}
+            >
+              한 단계 진행
+            </button>
+          </div>
+        ) : null}
         <span className="vehicle-flow-rail__mode">
           {reducedMotion
             ? "정적 최종 상태 · reduced motion"
             : "교육용 처리/관찰 순서 · slow-motion trace"}
         </span>
-        <span className="vehicle-flow-rail__qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
-        <code>{presentation?.commandLabel ?? trace?.commandLabel ?? "명령 대기 중"}</code>
+        <span className="vehicle-flow-rail__qualifier">
+          교육용 논리 위치 · 실제 OEM 배치 아님
+        </span>
+        <code>
+          {presentation?.commandLabel ?? trace?.commandLabel ?? "명령 대기 중"}
+        </code>
         {presentation ? (
           <>
-            <span>Frame {presentation.traceIndex + 1}/{presentation.traceCount}</span>
+            <span>
+              Frame {presentation.traceIndex + 1}/{presentation.traceCount}
+            </span>
             {presentation.canId ? <code>{presentation.canId}</code> : null}
             <span>DLC {presentation.dlc}</span>
             {presentation.data.length ? (

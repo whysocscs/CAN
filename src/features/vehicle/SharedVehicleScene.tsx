@@ -117,7 +117,9 @@ function createVehicleResource(
 export function useSharedVehicleClone(): THREE.Group {
   const scene = useContext(SharedVehicleCloneContext)
   if (!scene) {
-    throw new Error("useSharedVehicleClone must be used inside SharedVehicleScene")
+    throw new Error(
+      "useSharedVehicleClone must be used inside SharedVehicleScene",
+    )
   }
   return scene
 }
@@ -147,11 +149,9 @@ export function vehicleLocalPointToWorld(
 export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
   const camera = useMemo(
     () => ({
-      position: [...NORMAL_CAN_SCENE_PRESET.camera.position] as [
-        number,
-        number,
-        number,
-      ],
+      position: [
+        ...NORMAL_CAN_SCENE_PRESET.camera.position,
+      ] as [number, number, number],
       fov: NORMAL_CAN_SCENE_PRESET.camera.fov,
       near: NORMAL_CAN_SCENE_PRESET.camera.near,
       far: NORMAL_CAN_SCENE_PRESET.camera.far,
@@ -162,10 +162,7 @@ export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
     () => [...NORMAL_CAN_SCENE_PRESET.canvas.dpr] as [number, number],
     [],
   )
-  const renderer = useMemo(
-    () => ({ ...NORMAL_CAN_SCENE_PRESET.renderer }),
-    [],
-  )
+  const renderer = useMemo(() => ({ ...NORMAL_CAN_SCENE_PRESET.renderer }), [])
 
   return (
     <Canvas
@@ -180,9 +177,7 @@ export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
       />
       <fog attach="fog" args={[...NORMAL_CAN_SCENE_PRESET.scene.fog]} />
       <ambientLight intensity={NORMAL_CAN_SCENE_PRESET.lights.ambient} />
-      <hemisphereLight
-        args={[...NORMAL_CAN_SCENE_PRESET.lights.hemisphere]}
-      />
+      <hemisphereLight args={[...NORMAL_CAN_SCENE_PRESET.lights.hemisphere]} />
       <directionalLight
         castShadow
         position={[6, 8, 5]}
@@ -269,61 +264,65 @@ interface SharedVehicleSceneProps {
   onSelectEffect?: (effectId: VehicleEffectTargetId) => void
 }
 
-export const SharedVehicleScene = forwardRef<
-  THREE.Group,
-  SharedVehicleSceneProps
->(function SharedVehicleScene(
-  { xray, children, onCentered, onSelectEffect },
-  rootRef,
-) {
-  const gltf = useGLTF(SHARED_VEHICLE_MODEL_PATH)
-  const coordinateRoot = useMemo(() => {
-    const root = new THREE.Group()
-    root.name = "shared-vehicle-coordinate-root"
-    return root
-  }, [])
-  useImperativeHandle(rootRef, () => coordinateRoot, [coordinateRoot])
-  const resourceRevision = useRef(0)
-  const [resource, setResource] = useState<VehicleResource | null>(null)
+export const SharedVehicleScene =
+  forwardRef<THREE.Group, SharedVehicleSceneProps>(function SharedVehicleScene(
+    { xray, children, onCentered, onSelectEffect },
+    rootRef,
+  ) {
+    const gltf = useGLTF(SHARED_VEHICLE_MODEL_PATH)
+    const coordinateRoot = useMemo(() => {
+      const root = new THREE.Group()
+      root.name = "shared-vehicle-coordinate-root"
+      return root
+    }, [])
+    useImperativeHandle(rootRef, () => coordinateRoot, [coordinateRoot])
+    const resourceRevision = useRef(0)
+    const [resource, setResource] = useState<VehicleResource | null>(null)
 
-  useLayoutEffect(() => {
-    resourceRevision.current += 1
-    const nextResource = createVehicleResource(
-      gltf.scene,
-      xray,
-      resourceRevision.current,
+    useLayoutEffect(() => {
+      resourceRevision.current += 1
+      const nextResource = createVehicleResource(
+        gltf.scene,
+        xray,
+        resourceRevision.current,
+      )
+      setResource(nextResource)
+      return () => {
+        nextResource.clonedMaterials.forEach((material) => material.dispose())
+      }
+    }, [gltf.scene, xray])
+
+    const handleClick = useCallback(
+      (event: ThreeEvent<MouseEvent>) => {
+        if (!onSelectEffect) return
+        const effectId = effectTargetFromVehicleObject(event.object)
+        if (!effectId) return
+        event.stopPropagation()
+        onSelectEffect(effectId)
+      },
+      [onSelectEffect],
     )
-    setResource(nextResource)
-    return () => {
-      nextResource.clonedMaterials.forEach((material) => material.dispose())
-    }
-  }, [gltf.scene, xray])
+    const handleCentered = useCallback(() => {
+      if (!resource) return
+      onCentered?.()
+    }, [onCentered, resource])
 
-  const handleClick = useCallback(
-    (event: ThreeEvent<MouseEvent>) => {
-      if (!onSelectEffect) return
-      const effectId = effectTargetFromVehicleObject(event.object)
-      if (!effectId) return
-      event.stopPropagation()
-      onSelectEffect(effectId)
-    },
-    [onSelectEffect],
-  )
+    if (!resource) return null
 
-  return (
-    <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds}>
-      <Center onCentered={onCentered} cacheKey={resource?.revision ?? 0}>
-        <primitive object={coordinateRoot} name={coordinateRoot.name}>
-          {resource && (
-            <SharedVehicleCloneContext.Provider value={resource.scene}>
-              <primitive object={resource.scene} onClick={handleClick} />
-              {children}
-            </SharedVehicleCloneContext.Provider>
-          )}
-        </primitive>
-      </Center>
-    </Bounds>
-  )
-})
+    return (
+      <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds}>
+        <Center onCentered={handleCentered} cacheKey={resource?.revision ?? 0}>
+          <primitive object={coordinateRoot} name={coordinateRoot.name}>
+            {resource && (
+              <SharedVehicleCloneContext.Provider value={resource.scene}>
+                <primitive object={resource.scene} onClick={handleClick} />
+                {children}
+              </SharedVehicleCloneContext.Provider>
+            )}
+          </primitive>
+        </Center>
+      </Bounds>
+    )
+  })
 
 useGLTF.preload(SHARED_VEHICLE_MODEL_PATH)

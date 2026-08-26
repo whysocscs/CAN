@@ -78,4 +78,26 @@ describe("DoorAttackVehicle topology selection", () => {
     expect(viewport.props?.playback).toBe(playingDoorSnapshotAtGateway)
     expect(viewport.props?.presentation).toBe(presentation)
   })
+
+  it("forwards playback controls to the shared network viewport", () => {
+    const onPlaybackPause = vi.fn()
+    const onPlaybackResume = vi.fn()
+    const onPlaybackNextStep = vi.fn()
+
+    render(
+      <DoorAttackVehicle
+        playbackPaused
+        onPlaybackPause={onPlaybackPause}
+        onPlaybackResume={onPlaybackResume}
+        onPlaybackNextStep={onPlaybackNextStep}
+      />,
+    )
+
+    expect(viewport.props).toMatchObject({
+      playbackPaused: true,
+      onPlaybackPause,
+      onPlaybackResume,
+      onPlaybackNextStep,
+    })
+  })
 })

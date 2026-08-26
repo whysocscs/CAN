@@ -23,6 +23,10 @@ export interface DoorAttackVehicleProps {
   focusedNodeId?: VehicleTopologyNodeId
   playback?: VehicleFlowPlaybackSnapshot
   presentation?: VehicleFlowPresentation
+  playbackPaused?: boolean
+  onPlaybackPause?: () => void
+  onPlaybackResume?: () => void
+  onPlaybackNextStep?: () => void
 }
 
 export default function DoorAttackVehicle({
@@ -30,6 +34,10 @@ export default function DoorAttackVehicle({
   focusedNodeId,
   playback,
   presentation,
+  playbackPaused,
+  onPlaybackPause,
+  onPlaybackResume,
+  onPlaybackNextStep,
 }: DoorAttackVehicleProps) {
   return (
     <VehicleNetworkViewport
@@ -42,6 +50,10 @@ export default function DoorAttackVehicle({
       accent="#d94b4b"
       playback={playback}
       presentation={presentation}
+      playbackPaused={playbackPaused}
+      onPlaybackPause={onPlaybackPause}
+      onPlaybackResume={onPlaybackResume}
+      onPlaybackNextStep={onPlaybackNextStep}
     />
   )
 }
