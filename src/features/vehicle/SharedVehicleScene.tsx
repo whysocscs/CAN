@@ -74,6 +74,11 @@ interface VehicleResource {
   revision: number
 }
 
+/**
+ * GLTF 캐시는 모든 화면이 같은 원본 scene을 돌려준다. 원본의 재질이나 노드를
+ * 직접 바꾸면 정상 실습의 X-ray 설정이 공격 실습까지 번지므로, 화면마다 scene과
+ * 재질을 소유하게 만든다. `clonedMaterials`는 그 소유권을 cleanup까지 이어 준다.
+ */
 function createVehicleResource(
   sourceScene: THREE.Group,
   xray: boolean,
@@ -122,6 +127,7 @@ export function useSharedVehicleClone(): THREE.Group {
   return scene
 }
 
+/** 클릭된 mesh에서 실제로 움직일 수 있는 가장 가까운 차량 부위를 찾는다. */
 export function effectTargetFromVehicleObject(
   object: THREE.Object3D,
 ): VehicleEffectTargetId | undefined {
@@ -136,6 +142,10 @@ export function effectTargetFromVehicleObject(
   return undefined
 }
 
+/**
+ * 토폴로지 좌표는 차량 로컬 좌표로 보관한다. Center/Bounds가 차량을 옮긴 뒤에는
+ * 이 변환을 거쳐야 카메라가 화면에 그려진 핀과 같은 지점을 바라본다.
+ */
 export function vehicleLocalPointToWorld(
   root: THREE.Object3D,
   point: readonly [number, number, number] | VehicleAnchor,
@@ -144,6 +154,7 @@ export function vehicleLocalPointToWorld(
   return root.localToWorld(new THREE.Vector3(...point))
 }
 
+/** 정상 실습과 공격 실습이 공유하는 카메라·조명·렌더러 경계다. */
 export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
   const camera = useMemo(
     () => ({
@@ -247,6 +258,8 @@ export function SharedVehicleOverviewController({
 
   useEffect(() => {
     if (!active) return
+    // 이미 overview인 상태에서도 Reset 버튼은 다시 fit되어야 한다. 그래서 boolean
+    // 상태 대신 호출할 때마다 증가하는 resetRevision을 effect 경계로 사용한다.
     const position = NORMAL_CAN_SCENE_PRESET.camera.position
     const target = NORMAL_CAN_SCENE_PRESET.camera.target
     camera.position.set(...position)
@@ -278,6 +291,7 @@ export const SharedVehicleScene = forwardRef<
 ) {
   const gltf = useGLTF(SHARED_VEHICLE_MODEL_PATH)
   const coordinateRoot = useMemo(() => {
+    // 차량과 overlay를 한 root 아래 두어 Center가 둘을 서로 다른 좌표계로 옮기지 않게 한다.
     const root = new THREE.Group()
     root.name = "shared-vehicle-coordinate-root"
     return root
@@ -287,6 +301,8 @@ export const SharedVehicleScene = forwardRef<
   const [resource, setResource] = useState<VehicleResource | null>(null)
 
   useLayoutEffect(() => {
+    // clone은 render 중 만들지 않는다. StrictMode가 버린 render의 재질은 cleanup할
+    // 기회가 없지만, effect가 만든 자원은 각 setup/cleanup 쌍이 정확히 소유한다.
     resourceRevision.current += 1
     const nextResource = createVehicleResource(
       gltf.scene,

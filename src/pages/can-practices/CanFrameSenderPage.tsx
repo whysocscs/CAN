@@ -173,11 +173,8 @@ const STEP_SEQUENCE: Array<{ key: StepKey; title: string; short: string }> = [
   { key: "command", title: "STEP 1 : Command Parsing", short: "Command Parsing" },
   { key: "frame", title: "STEP 2 : CAN Frame Build", short: "CAN Frame Build" },
   { key: "socketcan", title: "STEP 3 : SocketCAN Flow", short: "SocketCAN Flow" },
-  // STEP 4~7은 후속 개발 전까지 전환 대상에서 제외한다.
-  // { key: "filter", title: "STEP 4 : Acceptance Filter", short: "Acceptance Filter" },
-  // { key: "message", title: "STEP 5 : Message Decode", short: "Message Decode" },
-  // { key: "payload", title: "STEP 6 : Payload Decode", short: "Payload Decode" },
-  // { key: "result", title: "STEP 7 : Application Result", short: "Application Result" },
+  // Filter 이후 결과는 아직 inspector 요약으로만 제공한다. 상호작용과 검증이 끝난
+  // 세 단계만 navigation에 넣어, 빈 stage로 이동하는 링크를 만들지 않는다.
 ]
 
 const STEP_DESCRIPTIONS: Record<StepKey, string> = {
@@ -945,14 +942,8 @@ function StepStage({
       return <StepFrameStage analysis={analysis} substage={substage} />
     case "socketcan":
       return <StepSocketStage analysis={analysis} substage={substage} />
-    //case "filter":
-      //return <StepFilterStage analysis={analysis} substage={substage} />
-    //case "message":
-      //return <StepMessageStage analysis={analysis} substage={substage} />
-    //case "payload":
-      //return <StepPayloadStage analysis={analysis} substage={substage} />
-    //case "result":
-      //return <StepResultStage analysis={analysis} substage={substage} />
+    default:
+      return null
   }
 }
 

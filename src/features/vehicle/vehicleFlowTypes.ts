@@ -92,6 +92,8 @@ function isEffectState(value: unknown): value is VehicleFlowTrace["effectState"]
   return value === null || value === "open" || value === "closed"
 }
 
+// API 응답은 타입 선언만으로 안전해지지 않는다. 화면이 route를 그리거나 차량을
+// 움직이기 전에, 거부 trace가 effect 노드까지 도달하지 않았는지도 함께 검증한다.
 function parseVehicleFlowTrace(value: unknown): VehicleFlowTrace | null {
   if (!isRecord(value)) return null
 
@@ -187,6 +189,10 @@ export function parseVehicleFlowTraces(value: unknown): VehicleFlowTrace[] | nul
     : traces as VehicleFlowTrace[]
 }
 
+/**
+ * 서버가 EXECUTED와 effectApplied를 모두 확정한 trace만 차량 상태에 반영한다.
+ * 프론트가 CAN payload를 보고 성공을 추측하면 거부된 공격도 문을 열 수 있다.
+ */
 export function applyVehicleFlowEffect(trace: VehicleFlowTrace): boolean {
   if (
     trace.outcome !== "EXECUTED"

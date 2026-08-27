@@ -31,6 +31,11 @@ docker compose down
 
 학습·검증 문서:
 
+- 전체 문서 지도: [docs/README.md](docs/README.md)
+- 개발 구조와 상태 소유권: [프로젝트 구조](docs/architecture.md)
+- 화면별 구현/스캐폴드 구분: [기능 구현 현황](docs/feature-status.md)
+- 자동·수동 합격 조건: [검증 절차](docs/verification.md)
+- 리뷰 배점과 확인 근거: [코드 품질 검토표](docs/quality-review.md)
 - 학습자용(정답 없음): [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)
 - 학습자용(정답 없음): [CAN Spoofing·Replay 기초 실습 가이드](docs/labs/can-spoofing-replay-basics.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN 공격 실습 빠른 통과표](docs/instructors/can-attack-lab-quick-pass.md)

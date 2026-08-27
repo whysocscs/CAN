@@ -20,10 +20,18 @@ ALLOWED_ORIGINS: Final = frozenset(
 )
 
 
-def is_allowed_origin(origin: str | None) -> bool:
-    """로컬 Vite 개발 서버는 포트가 달라질 수 있어 호스트 기준으로 허용한다."""
+def is_allowed_origin(
+    origin: str | None,
+    *,
+    require_origin: bool = False,
+) -> bool:
+    """허용된 로컬 개발 서버에서 시작한 WebSocket 요청인지 확인한다.
+
+    CAN stream은 Origin을 보내지 않는 로컬 도구도 구독할 수 있다. 반면 실제 PTY는
+    브라우저 Origin이 없는 요청을 허용하면 안 되므로 호출 지점에서 엄격 모드를 켠다.
+    """
     if not origin:
-        return True
+        return not require_origin
     parsed = urlparse(origin)
     return origin in ALLOWED_ORIGINS or parsed.hostname in {"localhost", "127.0.0.1"}
 
@@ -51,7 +59,7 @@ async def terminal_socket(websocket: WebSocket) -> None:
         return
 
     origin = websocket.headers.get("origin")
-    if not is_allowed_origin(origin):
+    if not is_allowed_origin(origin, require_origin=True):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 

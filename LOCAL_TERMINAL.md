@@ -20,7 +20,7 @@ python -m pip install -r server/requirements.txt
 export CANLITE_ENABLE_REAL_TERMINAL=true
 export CANLITE_TERMINAL_ORIGINS=http://127.0.0.1:8447,http://localhost:8447
 export COREPACK_ENABLE_PROJECT_SPEC=0
-corepack pnpm@10.34.3 terminal:server
+corepack pnpm@10.34.3 terminal:server:unix
 ```
 
 다른 터미널에서 웹앱을 실행합니다.

@@ -2,15 +2,11 @@ import {
   Component,
   Suspense,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import { FitAddon } from "@xterm/addon-fit"
-import { Terminal as Xterm } from "@xterm/xterm"
-import "@xterm/xterm/css/xterm.css"
 import { Html, Line } from "@react-three/drei"
 import {
   ArrowClockwise,
@@ -38,6 +34,7 @@ import {
   CAN_NODE_LABELS,
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
+import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
 import { useCanVehicleStream } from "@/features/vehicle"
 import {
   SharedVehicleCanvas,
@@ -780,132 +777,6 @@ function useReducedMotion() {
   return reducedMotion
 }
 
-function CanCommandTerminal({
-  clearSignal,
-  onCommand,
-}: {
-  clearSignal: number
-  onCommand: (command: string) => Promise<string[]>
-}) {
-  const mountRef = useRef<HTMLDivElement>(null)
-  const terminalRef = useRef<Xterm | null>(null)
-  const onCommandRef = useRef(onCommand)
-  onCommandRef.current = onCommand
-
-  useEffect(() => {
-    terminalRef.current?.clear()
-    terminalRef.current?.write("$ ")
-  }, [clearSignal])
-
-  useEffect(() => {
-    const mount = mountRef.current
-    if (!mount) return
-
-    const terminal = new Xterm({
-      allowTransparency: false,
-      convertEol: true,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: '"JetBrains Mono Variable", "Noto Sans KR Variable", monospace',
-      fontSize: 12,
-      lineHeight: 1.35,
-      scrollback: 5000,
-      theme: {
-        background: "#0d1715",
-        black: "#26342f",
-        blue: "#8daaba",
-        brightBlack: "#70817a",
-        brightBlue: "#aabec9",
-        brightCyan: "#9bc7be",
-        brightGreen: "#a9c9ad",
-        brightMagenta: "#c2b1c8",
-        brightRed: "#d6a096",
-        brightWhite: "#edf2ee",
-        brightYellow: "#d9c494",
-        cursor: "#d7e3db",
-        cyan: "#78aaa0",
-        foreground: "#d4ded7",
-        green: "#86b393",
-        magenta: "#aa9aae",
-        red: "#c9857c",
-        selectionBackground: "#324b44",
-        white: "#c7d1cb",
-        yellow: "#bfa86f",
-      },
-    })
-    const fitAddon = new FitAddon()
-    let commandLine = ""
-    let running = false
-
-    terminal.loadAddon(fitAddon)
-    terminal.open(mount)
-    terminalRef.current = terminal
-    terminal.writeln("\x1b[38;2;132;183;157mCANLite 교육용 CAN Terminal\x1b[0m")
-    terminal.writeln("\x1b[38;2;153;171;163m명령 예: cansend vcan0 101#00\x1b[0m")
-    terminal.write("$ ")
-
-    const fitTerminal = () => {
-      try {
-        fitAddon.fit()
-      } catch {
-        return
-      }
-    }
-
-    const inputSubscription = terminal.onData((data) => {
-      if (running) return
-
-      if (data === "\r") {
-        const command = commandLine.trim()
-        terminal.write("\r\n")
-        commandLine = ""
-        if (!command) {
-          terminal.write("$ ")
-          return
-        }
-
-        running = true
-        void onCommandRef.current(command)
-          .then((lines) => lines.forEach((line) => terminal.writeln(line)))
-          .catch(() => terminal.writeln("\x1b[31m[error] 명령 처리 중 오류가 발생했습니다.\x1b[0m"))
-          .finally(() => {
-            running = false
-            terminal.write("$ ")
-          })
-        return
-      }
-
-      if (data === "\u007f") {
-        if (commandLine.length > 0) {
-          commandLine = commandLine.slice(0, -1)
-          terminal.write("\b \b")
-        }
-        return
-      }
-
-      if (data >= " ") {
-        commandLine += data
-        terminal.write(data)
-      }
-    })
-    const resizeObserver = new ResizeObserver(fitTerminal)
-    resizeObserver.observe(mount)
-    window.requestAnimationFrame(() => {
-      fitTerminal()
-      terminal.focus()
-    })
-
-    return () => {
-      resizeObserver.disconnect()
-      inputSubscription.dispose()
-      terminal.dispose()
-      if (terminalRef.current === terminal) terminalRef.current = null
-    }
-  }, [])
-
-  return <div className="canlab__shell-terminal" aria-label="교육용 CAN 명령 터미널" ref={mountRef} />
-}
-
 export default function CanPracticeOnlyPage() {
   const [activeStep, setActiveStep] = useState<GuideStep>("1")
   const [completedSteps, setCompletedSteps] = useState<GuideStep[]>([])
@@ -1093,8 +964,8 @@ export default function CanPracticeOnlyPage() {
         <div className="canlab__side-note">
           <Keyboard size={18} />
           <p>
-            <strong>Mock Event Adapter</strong>
-            현재는 FastAPI 미연동 상태라 아래 Terminal 영역의 Mock 명령이 이벤트 생성기 역할을 합니다.
+            <strong>Local CAN Adapter</strong>
+            Terminal의 제한 명령은 FastAPI로 CAN frame을 보내며 실제 셸을 실행하지 않습니다.
           </p>
         </div>
       </aside>
@@ -1110,7 +981,7 @@ export default function CanPracticeOnlyPage() {
           </div>
           <div className="canlab__header-status">
             <span>
-              <i /> 프론트엔드 프리뷰
+              <i /> {canStreamStatus === "open" ? "FastAPI 연결됨" : "CAN 연결 대기"}
             </span>
             <button type="button" aria-label="실습 메뉴">
               <List size={19} />
@@ -1462,8 +1333,8 @@ export default function CanPracticeOnlyPage() {
                 </button>
                 {hintOpen && (
                   <p>
-                    먼저 <code>ip link show vcan0</code>와 <code>candump vcan0</code>를 떠올린 뒤, 실제 연동 전에는
-                    Mock Event 버튼이 그 흐름을 대신한다고 보면 됩니다.
+                    먼저 <code>ip link show vcan0</code>와 <code>candump vcan0</code>로 준비 상태를 확인한 뒤,
+                    허용된 <code>cansend</code> frame을 Terminal에서 전송해 보세요.
                   </p>
                 )}
               </section>

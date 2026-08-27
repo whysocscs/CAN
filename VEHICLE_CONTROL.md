@@ -32,7 +32,7 @@ curl -X POST localhost:8010/can/trunk \
 터미널 두 개를 띄웁니다.
 
 ```bash
-corepack pnpm terminal:server        # 백엔드 :8010
+corepack pnpm terminal:server:unix   # 백엔드 :8010 (Windows는 terminal:server:windows)
 ```
 
 ```bash

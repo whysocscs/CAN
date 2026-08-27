@@ -22,8 +22,33 @@ const normalState = vi.hoisted(() => ({
   useGLTF: vi.fn(),
 }))
 
-vi.mock("@xterm/xterm", () => ({ Terminal: vi.fn() }))
-vi.mock("@xterm/addon-fit", () => ({ FitAddon: vi.fn() }))
+const terminalState = vi.hoisted(() => ({
+  fit: vi.fn(),
+  loadAddon: vi.fn(),
+  open: vi.fn(),
+  write: vi.fn(),
+  writeln: vi.fn(),
+  onData: vi.fn(() => ({ dispose: vi.fn() })),
+  focus: vi.fn(),
+  dispose: vi.fn(),
+}))
+
+vi.mock("@xterm/xterm", () => ({
+  Terminal: class Terminal {
+    loadAddon = terminalState.loadAddon
+    open = terminalState.open
+    write = terminalState.write
+    writeln = terminalState.writeln
+    onData = terminalState.onData
+    focus = terminalState.focus
+    dispose = terminalState.dispose
+  },
+}))
+vi.mock("@xterm/addon-fit", () => ({
+  FitAddon: class FitAddon {
+    fit = terminalState.fit
+  },
+}))
 
 vi.mock("@react-three/fiber", async () => {
   const React = await import("react")
@@ -120,6 +145,17 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
         removeEventListener: vi.fn(),
       }),
     )
+    vi.stubGlobal(
+      "ResizeObserver",
+      class ResizeObserver {
+        observe() {}
+        disconnect() {}
+      },
+    )
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
   })
 
   afterEach(() => {
