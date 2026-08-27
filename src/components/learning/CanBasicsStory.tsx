@@ -790,9 +790,9 @@ export default function CanBasicsStory({
                                 {checkpointOptions.map((option) => {
                                   const selected = checkpointAnswer === option
                                   const correct =
-                                    selected && option === checkpointOptions[0]
+                                    selected && option === correctCheckpointAnswer
                                   const wrong =
-                                    selected && option !== checkpointOptions[0]
+                                    selected && option !== correctCheckpointAnswer
                                   return (
                                     <label
                                       key={option}
