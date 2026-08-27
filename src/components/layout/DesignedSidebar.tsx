@@ -8,7 +8,6 @@ import {
   Circuitry,
   Cube,
   Gauge,
-  Gear,
   Info,
   List,
   LockSimple,
@@ -28,14 +27,13 @@ import { Warning20Regular } from "@fluentui/react-icons/svg/warning"
 import { Trophy20Regular } from "@fluentui/react-icons/svg/trophy"
 import { Person20Regular } from "@fluentui/react-icons/svg/person"
 import { Cube20Regular } from "@fluentui/react-icons/svg/cube"
-import { Settings20Regular } from "@fluentui/react-icons/svg/settings"
 import { Info20Regular } from "@fluentui/react-icons/svg/info"
 import { Navigation20Regular } from "@fluentui/react-icons/svg/navigation"
 import { LearningApp20Regular } from "@fluentui/react-icons/svg/learning-app"
 import { useApp, type Route } from "@/context/AppContext"
 import { designMeta, designVersion, previewAccessOpen } from "@/design/version"
 
-type IconKey = "courses" | "dashboard" | "theory" | "practice" | "attack" | "ids" | "results" | "profile" | "models" | "settings" | "about"
+type IconKey = "courses" | "dashboard" | "theory" | "practice" | "attack" | "ids" | "results" | "profile" | "models" | "about"
 
 interface NavItem {
   id: string
@@ -126,7 +124,6 @@ const navItems: NavItem[] = [
         icon: "attack",
         route: "attacks/replay",
       },
-      { id: "attacks/dos", label: "DoS", icon: "attack", route: "attacks/dos" },
     ],
   },
   {
@@ -153,12 +150,6 @@ const navItems: NavItem[] = [
         route: "ids/payload-jump",
       },
       {
-        id: "ids/dos-detection",
-        label: "DoS Detection",
-        icon: "ids",
-        route: "ids/dos-detection",
-      },
-      {
         id: "ids/gateway",
         label: "Gateway Policy",
         icon: "ids",
@@ -170,7 +161,6 @@ const navItems: NavItem[] = [
   { id: "badges", label: "배지", icon: "results", route: "badges" },
   { id: "profile", label: "프로필", icon: "profile", route: "profile" },
   { id: "models", label: "3D 모델 관리", icon: "models", route: "models" },
-  { id: "settings", label: "설정", icon: "settings", route: "settings" },
   { id: "about", label: "프로젝트 소개", icon: "about", route: "about" },
 ]
 
@@ -223,8 +213,6 @@ function craftIcon(key: IconKey, size = 18): ReactNode {
       return <UserCircle {...props} />
     case "models":
       return <Cube {...props} />
-    case "settings":
-      return <Gear {...props} />
     case "about":
       return <Info {...props} />
   }
@@ -250,8 +238,6 @@ function fluentIcon(key: IconKey): ReactNode {
       return <Person20Regular />
     case "models":
       return <Cube20Regular />
-    case "settings":
-      return <Settings20Regular />
     case "about":
       return <Info20Regular />
   }
@@ -384,16 +370,18 @@ export default function DesignedSidebar() {
         />
         {item.children && expanded && (
           <div className="designed-nav__children">
-            {item.children.filter((child) => !hiddenNavItemIds.has(child.id)).map((child) => (
-              <NavButton
-                key={child.id}
-                item={child}
-                active={child.route === currentRoute}
-                locked={isLocked(child.id, devMode, progress.courseProgress)}
-                child
-                onClick={() => activate(child)}
-              />
-            ))}
+            {item.children
+              .filter((child) => !hiddenNavItemIds.has(child.id))
+              .map((child) => (
+                <NavButton
+                  key={child.id}
+                  item={child}
+                  active={child.route === currentRoute}
+                  locked={isLocked(child.id, devMode, progress.courseProgress)}
+                  child
+                  onClick={() => activate(child)}
+                />
+              ))}
           </div>
         )}
       </div>
@@ -442,7 +430,9 @@ export default function DesignedSidebar() {
         )}
 
         <nav className="designed-nav" aria-label="주요 메뉴">
-          {navItems.filter((item) => !hiddenNavItemIds.has(item.id)).map(renderItem)}
+          {navItems
+            .filter((item) => !hiddenNavItemIds.has(item.id))
+            .map(renderItem)}
         </nav>
 
         <div className="designed-sidebar__footer">
@@ -464,24 +454,28 @@ export default function DesignedSidebar() {
       </div>
 
       <nav className="designed-sidebar__mobile" aria-label="모바일 주요 메뉴">
-        {mobileItems.filter((item) => !hiddenNavItemIds.has(item.id)).map((item) => {
-          const locked = isLocked(item.id, devMode, progress.courseProgress)
-          const active = item.route === currentRoute
-          return (
-            <button
-              key={item.id}
-              type="button"
-              disabled={locked}
-              aria-current={active ? "page" : undefined}
-              onClick={() => activate(item)}
-            >
-              {designVersion === "ver3"
-                ? fluentIcon(item.icon)
-                : craftIcon(item.icon, 20)}
-              <span>{item.label.replace("전체 ", "").replace("3D ", "")}</span>
-            </button>
-          )
-        })}
+        {mobileItems
+          .filter((item) => !hiddenNavItemIds.has(item.id))
+          .map((item) => {
+            const locked = isLocked(item.id, devMode, progress.courseProgress)
+            const active = item.route === currentRoute
+            return (
+              <button
+                key={item.id}
+                type="button"
+                disabled={locked}
+                aria-current={active ? "page" : undefined}
+                onClick={() => activate(item)}
+              >
+                {designVersion === "ver3"
+                  ? fluentIcon(item.icon)
+                  : craftIcon(item.icon, 20)}
+                <span>
+                  {item.label.replace("전체 ", "").replace("3D ", "")}
+                </span>
+              </button>
+            )
+          })}
       </nav>
     </aside>
   )

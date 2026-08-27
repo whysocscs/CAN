@@ -15,7 +15,8 @@ export const badgeCatalog: BadgeDefinition[] = [
   {
     id: "course-can-basics",
     name: "CAN 기초 완료",
-    description: "CAN 프로토콜, 프레임, ECU와 Gateway 과정을 모두 완료했습니다.",
+    description:
+      "CAN 프로토콜, 프레임, ECU와 Gateway 과정을 모두 완료했습니다.",
     category: "course",
     symbol: "CAN",
     isEarned: (progress) =>
@@ -35,7 +36,7 @@ export const badgeCatalog: BadgeDefinition[] = [
   {
     id: "course-attacks",
     name: "공격 실습 완료",
-    description: "공격 실습의 네 가지 섹션을 모두 완료했습니다.",
+    description: "공격 실습의 세 가지 섹션을 모두 완료했습니다.",
     category: "course",
     symbol: "ATK",
     isEarned: (progress) =>
@@ -56,7 +57,8 @@ export const badgeCatalog: BadgeDefinition[] = [
     description: "CAN Spoofing 실습을 완료했습니다.",
     category: "attack",
     symbol: "SPF",
-    isEarned: (progress) => progress.completedItems.includes("attacks/spoofing"),
+    isEarned: (progress) =>
+      progress.completedItems.includes("attacks/spoofing"),
   },
   {
     id: "attack-replay",
@@ -65,13 +67,5 @@ export const badgeCatalog: BadgeDefinition[] = [
     category: "attack",
     symbol: "RPL",
     isEarned: (progress) => progress.completedItems.includes("attacks/replay"),
-  },
-  {
-    id: "attack-dos",
-    name: "DoS 방어자",
-    description: "CAN DoS 실습을 완료했습니다.",
-    category: "attack",
-    symbol: "DoS",
-    isEarned: (progress) => progress.completedItems.includes("attacks/dos"),
   },
 ]

@@ -87,15 +87,6 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
       { title: "비교 결과", description: "원본과 재생 트래픽 비교 영역" },
     ],
   },
-  "attacks/dos": {
-    title: "DoS",
-    description: "CAN 버스 부하 공격 실습을 위한 화면 구조입니다.",
-    slots: [
-      { title: "공격 조건", description: "CAN ID와 전송 빈도 입력 영역" },
-      { title: "버스 상태", description: "트래픽 부하와 지연 표시 영역" },
-      { title: "중지와 복구", description: "공격 중지와 정상화 확인 영역" },
-    ],
-  },
   "ids/unknown-id": {
     title: "Unknown ID",
     description: "허용되지 않은 CAN ID 탐지를 위한 화면 구조입니다.",
@@ -123,15 +114,6 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
       { title: "탐지 이벤트", description: "급변 경고 영역" },
     ],
   },
-  "ids/dos-detection": {
-    title: "DoS Detection",
-    description: "버스 과부하 탐지를 위한 화면 구조입니다.",
-    slots: [
-      { title: "트래픽 기준", description: "정상 처리량 기준 영역" },
-      { title: "임계값", description: "DoS 판단 조건 영역" },
-      { title: "대응 결과", description: "탐지와 차단 상태 영역" },
-    ],
-  },
   "ids/gateway": {
     title: "Gateway Policy",
     description: "게이트웨이 정책 검증을 위한 화면 구조입니다.",
@@ -157,15 +139,6 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
       { title: "모델 목록", description: "업로드된 모델 목록 영역" },
       { title: "버전 관리", description: "GLB 버전과 검증 상태 영역" },
       { title: "노드 매핑", description: "ECU와 차량 부품 연결 영역" },
-    ],
-  },
-  settings: {
-    title: "설정",
-    description: "학습 환경 설정을 위한 화면 구조입니다.",
-    slots: [
-      { title: "화면", description: "테마와 글꼴 설정 영역" },
-      { title: "학습 환경", description: "진행 방식 설정 영역" },
-      { title: "접근성", description: "모션과 표시 설정 영역" },
     ],
   },
   about: {

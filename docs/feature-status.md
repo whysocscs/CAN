@@ -17,12 +17,11 @@
 | `attacks/chain` | 구현 | `DoorAttackLabPage` | `/labs/door-blackbox` | door domain/API/page tests |
 | `attacks/spoofing` | 구현 | `BeginnerCanAttackLabPage` | `/labs/can-attacks/spoofing` | beginner domain/API/page tests |
 | `attacks/replay` | 구현 | `BeginnerCanAttackLabPage` | `/labs/can-attacks/replay` | beginner domain/API/page tests |
-| `attacks/dos` | 스캐폴드 | `AttackPracticePage` 정적 미리보기 | 없음 | build |
-| `ids/*` | 스캐폴드 | `ScaffoldPage` | 없음 | build |
+| `ids/unknown-id`, `ids/frequency`, `ids/payload-jump`, `ids/gateway` | 스캐폴드 | `ScaffoldPage` | 없음 | build |
 | `badges` | 로컬 UI | `BadgePage` | `AppContext` 메모리 | catalog/typecheck |
 | `profile` | 로컬 UI | `ProfilePage` | browser `localStorage` | typecheck, build |
 | `models` | 구현 | `ModelManagerPage` | `/can/*`, `/ws/can` | vehicle stream/store tests |
-| `results`, `settings`, `about` | 스캐폴드 | `ScaffoldPage` | 없음 | build |
+| `results`, `about` | 스캐폴드 | `ScaffoldPage` | 없음 | build |
 
 ## 정상 CAN 실습 계약
 

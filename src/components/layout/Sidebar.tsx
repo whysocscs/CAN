@@ -237,7 +237,6 @@ const navItems: NavItem[] = [
         icon: "shield",
         route: "attacks/replay",
       },
-      { id: "attacks/dos", label: "DoS", icon: "shield", route: "attacks/dos" },
     ],
   },
   {
@@ -264,12 +263,6 @@ const navItems: NavItem[] = [
         route: "ids/payload-jump",
       },
       {
-        id: "ids/dos-detection",
-        label: "DoS Detection",
-        icon: "alert",
-        route: "ids/dos-detection",
-      },
-      {
         id: "ids/gateway",
         label: "Gateway Policy",
         icon: "alert",
@@ -281,7 +274,6 @@ const navItems: NavItem[] = [
   { id: "badges", label: "배지", icon: "award", route: "badges" },
   { id: "profile", label: "프로필", icon: "award", route: "profile" },
   { id: "models", label: "3D 모델 관리", icon: "grid", route: "models" },
-  { id: "settings", label: "설정", icon: "grid", route: "settings" },
   { id: "about", label: "프로젝트 소개", icon: "book", route: "about" },
 ]
 
@@ -488,146 +480,148 @@ export default function Sidebar() {
           padding: "8px 0",
         }}
       >
-        {navItems.filter((item) => !hiddenNavItemIds.has(item.id)).map((item) => {
-          const locked = isLocked(
-            item.id,
-            devMode,
-            progress.completedItems,
-            progress.courseProgress,
-          )
-          const isActive = currentRoute === item.route
-          const visibleChildren = item.children?.filter(
-            (child) => !hiddenNavItemIds.has(child.id),
-          )
-          const hasChildren = visibleChildren && visibleChildren.length > 0
-          const isOpen = openGroups.includes(item.id)
+        {navItems
+          .filter((item) => !hiddenNavItemIds.has(item.id))
+          .map((item) => {
+            const locked = isLocked(
+              item.id,
+              devMode,
+              progress.completedItems,
+              progress.courseProgress,
+            )
+            const isActive = currentRoute === item.route
+            const visibleChildren = item.children?.filter(
+              (child) => !hiddenNavItemIds.has(child.id),
+            )
+            const hasChildren = visibleChildren && visibleChildren.length > 0
+            const isOpen = openGroups.includes(item.id)
 
-          return (
-            <div key={item.id}>
-              {/* Parent item */}
-              <button
-                onClick={(e) => {
-                  if (hasChildren) toggleGroup(item.id)
-                  else handleNavClick(item, e)
-                }}
-                title={collapsed ? item.label : undefined}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  padding: collapsed ? "9px 0" : "8px 12px",
-                  gap: 8,
-                  border: "none",
-                  cursor: "pointer",
-                  textAlign: "left",
-                  justifyContent: collapsed ? "center" : "flex-start",
-                  borderLeft: isActive
-                    ? "3px solid var(--brand-accent)"
-                    : "3px solid transparent",
-                  backgroundColor: isActive
-                    ? "var(--brand-accent-muted)"
-                    : "transparent",
-                  color: isActive
-                    ? "var(--brand-accent)"
-                    : locked
-                      ? "var(--text-disabled)"
-                      : "var(--text-primary)",
-                  fontWeight: isActive ? 600 : 400,
-                  fontSize: 13,
-                  borderRadius: collapsed ? 0 : "0 6px 6px 0",
-                  marginRight: collapsed ? 0 : 8,
-                  transition: "background-color 0.1s",
-                }}
-              >
-                <span style={{ flexShrink: 0 }}>{getIcon(item.icon)}</span>
-                {!collapsed && (
-                  <>
-                    <span
-                      style={{
-                        flex: 1,
-                        whiteSpace: "nowrap",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                      }}
-                    >
-                      {item.label}
-                    </span>
-                    {locked && <LockIcon />}
-                    {hasChildren && !locked && <ChevronDown open={isOpen} />}
-                  </>
-                )}
-              </button>
-
-              {/* Children */}
-              {hasChildren && isOpen && !collapsed && (
-                <div style={{ paddingLeft: 12 }}>
-                  {visibleChildren!.map((child) => {
-                    const childLocked = isLocked(
-                      child.id,
-                      devMode,
-                      progress.completedItems,
-                      progress.courseProgress,
-                    )
-                    const childActive = currentRoute === child.route
-                    const done = progress.completedItems.includes(child.id)
-                    return (
-                      <button
-                        key={child.id}
-                        onClick={(e) => handleNavClick(child, e)}
+            return (
+              <div key={item.id}>
+                {/* Parent item */}
+                <button
+                  onClick={(e) => {
+                    if (hasChildren) toggleGroup(item.id)
+                    else handleNavClick(item, e)
+                  }}
+                  title={collapsed ? item.label : undefined}
+                  style={{
+                    width: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: collapsed ? "9px 0" : "8px 12px",
+                    gap: 8,
+                    border: "none",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    justifyContent: collapsed ? "center" : "flex-start",
+                    borderLeft: isActive
+                      ? "3px solid var(--brand-accent)"
+                      : "3px solid transparent",
+                    backgroundColor: isActive
+                      ? "var(--brand-accent-muted)"
+                      : "transparent",
+                    color: isActive
+                      ? "var(--brand-accent)"
+                      : locked
+                        ? "var(--text-disabled)"
+                        : "var(--text-primary)",
+                    fontWeight: isActive ? 600 : 400,
+                    fontSize: 13,
+                    borderRadius: collapsed ? 0 : "0 6px 6px 0",
+                    marginRight: collapsed ? 0 : 8,
+                    transition: "background-color 0.1s",
+                  }}
+                >
+                  <span style={{ flexShrink: 0 }}>{getIcon(item.icon)}</span>
+                  {!collapsed && (
+                    <>
+                      <span
                         style={{
-                          width: "100%",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "7px 10px",
-                          border: "none",
-                          cursor: childLocked ? "not-allowed" : "pointer",
-                          textAlign: "left",
-                          fontSize: 12.5,
-                          borderLeft: childActive
-                            ? "2px solid var(--brand-accent)"
-                            : "2px solid transparent",
-                          backgroundColor: childActive
-                            ? "var(--brand-accent-muted)"
-                            : "transparent",
-                          color: childActive
-                            ? "var(--brand-accent)"
-                            : childLocked
-                              ? "var(--text-disabled)"
-                              : "var(--text-secondary)",
-                          fontWeight: childActive ? 600 : 400,
-                          borderRadius: "0 4px 4px 0",
-                          marginRight: 8,
+                          flex: 1,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
                         }}
                       >
-                        {done && !childLocked && (
-                          <svg
-                            width="10"
-                            height="10"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="var(--state-success)"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            style={{ flexShrink: 0 }}
-                          >
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        )}
-                        {childLocked && <LockIcon />}
-                        {!done && !childLocked && (
-                          <span style={{ width: 10 }} />
-                        )}
-                        <span style={{ flex: 1 }}>{child.label}</span>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+                        {item.label}
+                      </span>
+                      {locked && <LockIcon />}
+                      {hasChildren && !locked && <ChevronDown open={isOpen} />}
+                    </>
+                  )}
+                </button>
+
+                {/* Children */}
+                {hasChildren && isOpen && !collapsed && (
+                  <div style={{ paddingLeft: 12 }}>
+                    {visibleChildren!.map((child) => {
+                      const childLocked = isLocked(
+                        child.id,
+                        devMode,
+                        progress.completedItems,
+                        progress.courseProgress,
+                      )
+                      const childActive = currentRoute === child.route
+                      const done = progress.completedItems.includes(child.id)
+                      return (
+                        <button
+                          key={child.id}
+                          onClick={(e) => handleNavClick(child, e)}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
+                            padding: "7px 10px",
+                            border: "none",
+                            cursor: childLocked ? "not-allowed" : "pointer",
+                            textAlign: "left",
+                            fontSize: 12.5,
+                            borderLeft: childActive
+                              ? "2px solid var(--brand-accent)"
+                              : "2px solid transparent",
+                            backgroundColor: childActive
+                              ? "var(--brand-accent-muted)"
+                              : "transparent",
+                            color: childActive
+                              ? "var(--brand-accent)"
+                              : childLocked
+                                ? "var(--text-disabled)"
+                                : "var(--text-secondary)",
+                            fontWeight: childActive ? 600 : 400,
+                            borderRadius: "0 4px 4px 0",
+                            marginRight: 8,
+                          }}
+                        >
+                          {done && !childLocked && (
+                            <svg
+                              width="10"
+                              height="10"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="var(--state-success)"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              style={{ flexShrink: 0 }}
+                            >
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                          )}
+                          {childLocked && <LockIcon />}
+                          {!done && !childLocked && (
+                            <span style={{ width: 10 }} />
+                          )}
+                          <span style={{ flex: 1 }}>{child.label}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })}
       </nav>
 
       {/* Lock tooltip */}
