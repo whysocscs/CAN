@@ -238,3 +238,24 @@ def test_reset_increments_generation_clears_capture_and_never_reuses_opaque_ids(
     assert after_reset.code == "CAPTURE_REQUIRED"
     assert first_capture.capture_id != second_capture.capture_id
     assert first_attempt.attempt_id != second_attempt.attempt_id
+
+
+def test_evidence_keeps_the_newest_300_entries_while_attempt_count_stays_cumulative() -> None:
+    session = _session("spoofing")
+
+    session.execute_terminal("cansend vcan0 5A1#00")
+    for _ in range(299):
+        session.execute_terminal("cansend vcan0 5A1#02")
+    executed = session.execute_terminal("cansend vcan0 5A1#01")
+
+    evidence = executed.state["evidence"]
+    assert len(evidence) == 300
+    assert evidence[0] == {"kind": "attempt", "status": "STATE_INVALID"}
+    assert evidence[-1] == {"kind": "attempt", "status": "EXECUTED"}
+    assert executed.state["attemptCount"] == 301
+    assert executed.state["lastVerdict"] == "EXECUTED"
+
+    reset = session.reset()
+    assert reset["evidence"] == []
+    assert reset["attemptCount"] == 0
+    assert reset["lastVerdict"] is None

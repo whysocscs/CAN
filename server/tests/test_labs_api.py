@@ -268,7 +268,12 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
         "monitoring": {"idsObserved": True, "status": "NORMAL"},
-        "lab": {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
+        "lab": {
+            "labId": "door-blackbox-v1",
+            "sessionId": session_id,
+            "generation": 0,
+            "attemptId": attempts[0]["attemptId"],
+        },
     }
 
     reset = client.post(f"/labs/door-blackbox/sessions/{session_id}/reset")
@@ -285,6 +290,47 @@ def test_unknown_session_returns_not_found() -> None:
     response = client.get("/labs/door-blackbox/sessions/not-a-session")
 
     assert response.status_code == 404
+
+
+def test_door_session_storage_evicts_oldest_and_latest_session_stays_active() -> None:
+    original_sessions = labs._sessions.copy()
+    original_active = labs._active_correlation
+    original_frames = dict(can._last_frames)
+    emitted: list[dict[str, object]] = []
+
+    async def record_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record_emit
+    client = TestClient(app)
+    labs._sessions.clear()
+    labs._active_correlation = None
+    try:
+        created = [
+            client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+            for _ in range(129)
+        ]
+
+        assert len(labs._sessions) == 128
+        assert client.get(f"/labs/door-blackbox/sessions/{created[0]}").status_code == 404
+        assert client.get(f"/labs/door-blackbox/sessions/{created[-1]}").status_code == 200
+
+        latest = client.post(
+            f"/labs/door-blackbox/sessions/{created[-1]}/terminal",
+            json={"command": "cansend vcan0 456#000113B7"},
+        )
+        assert latest.json()["code"] == "EXECUTED"
+        assert len(emitted) == 1
+        assert emitted[0]["lab"]["sessionId"] == created[-1]
+    finally:
+        labs._sessions.clear()
+        labs._sessions.update(original_sessions)
+        labs._active_correlation = original_active
+        can._last_frames.clear()
+        can._last_frames.update(original_frames)
 
 
 def test_rejected_attempts_are_returned_but_never_emitted_as_vehicle_events() -> None:
@@ -308,6 +354,49 @@ def test_rejected_attempts_are_returned_but_never_emitted_as_vehicle_events() ->
     assert response.status_code == 200
     assert response.json()["attempts"][0]["verdict"] == "CHECKSUM_INVALID"
     assert emitted == []
+
+
+def test_right_door_frame_is_scope_rejected_without_trace_effect_or_event() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record_emit(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record_emit
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    rejected = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#010013B7"},
+    ).json()
+
+    assert rejected["code"] == "TARGET_SCOPE_REJECTED"
+    assert rejected["state"]["vehicleState"] == {
+        "leftDoor": "closed",
+        "rightDoor": "closed",
+    }
+    assert rejected["state"]["attemptCount"] == 0
+    assert rejected["idsStatus"] == "ALERT"
+    assert rejected["flowTraces"][0]["outcome"] == "REJECTED"
+    assert rejected["flowTraces"][0]["stoppedAt"] == "body"
+    assert rejected["flowTraces"][0]["effectTarget"] is None
+    assert rejected["flowTraces"][0]["effectApplied"] is False
+    assert emitted == []
+
+    accepted = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#000113B7"},
+    ).json()
+    assert accepted["code"] == "EXECUTED"
+    assert accepted["state"]["vehicleState"] == {
+        "leftDoor": "open",
+        "rightDoor": "closed",
+    }
+    assert len(emitted) == 1
 
 
 def test_reset_clears_accepted_door_snapshot_before_a_browser_reconnects() -> None:
@@ -378,7 +467,12 @@ def test_terminal_cansend_emits_an_accepted_toy_frame() -> None:
     assert payload["state"]["evidence"] == [{"kind": "attempt", "status": "recorded"}]
     assert len(emitted) == 1
     assert emitted[0]["processing"] == {"filterResult": "ACCEPT", "executionResult": "EXECUTED"}
-    assert emitted[0]["lab"] == {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0}
+    assert emitted[0]["lab"] == {
+        "labId": "door-blackbox-v1",
+        "sessionId": session_id,
+        "generation": 0,
+        "attemptId": payload["frames"][0]["attemptId"],
+    }
 
 
 def test_terminal_cansend_does_not_emit_a_blocked_toy_frame() -> None:
@@ -452,8 +546,14 @@ def test_run_emits_attempt_generation_even_when_session_resets_between_frames() 
 
     assert response.status_code == 200
     assert [event["lab"] for event in emitted] == [
-        {"labId": "door-blackbox-v1", "sessionId": session_id, "generation": 0},
-    ] * 3
+        {
+            "labId": "door-blackbox-v1",
+            "sessionId": session_id,
+            "generation": 0,
+            "attemptId": attempt["attemptId"],
+        }
+        for attempt in response.json()["attempts"]
+    ]
     assert client.get(f"/labs/door-blackbox/sessions/{session_id}").json()["generation"] == 1
 
 
@@ -763,6 +863,154 @@ def test_run_domain_mutation_waits_for_the_lifecycle_lock() -> None:
         assert state_while_lifecycle_is_blocked["completed"] is False
 
     asyncio.run(scenario())
+
+
+def test_door_results_expose_authoritative_flow_traces() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+
+    created = client.post("/labs/door-blackbox/sessions").json()
+    session_id = created["sessionId"]
+
+    local = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "pwd"},
+    ).json()
+    assert local["flowTraces"][0] == {
+        "traceId": "terminal:pwd",
+        "attemptId": None,
+        "sequence": 1,
+        "kind": "local",
+        "commandLabel": "pwd",
+        "commandIndex": None,
+        "canId": None,
+        "data": [],
+        "route": ["terminal"],
+        "stoppedAt": None,
+        "outcome": "LOCAL",
+        "ecuVerdict": None,
+        "idsVerdict": None,
+        "effectTarget": None,
+        "effectState": None,
+        "effectApplied": False,
+    }
+
+    rejected = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": "cansend vcan0 456#010110B5"},
+    ).json()
+    trace = rejected["flowTraces"][0]
+    assert trace["route"] == ["terminal", "obd", "ids", "gateway", "body"]
+    assert trace["stoppedAt"] == "body"
+    assert trace["outcome"] == "REJECTED"
+    assert trace["effectApplied"] is False
+
+    accepted = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={
+            "script": "interval_ms=100\n"
+            "cansend vcan0 456#000113B7\n"
+            "cansend vcan0 456#000114B0\n"
+            "cansend vcan0 456#000115B1"
+        },
+    ).json()
+    assert [item["sequence"] for item in accepted["flowTraces"]] == [1, 2, 3]
+    assert all(item["outcome"] == "EXECUTED" for item in accepted["flowTraces"])
+    assert accepted["flowTraces"][0]["route"][-2:] == ["body", "leftDoor"]
+    assert accepted["flowTraces"][0]["effectState"] == "open"
+    assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
+
+
+@pytest.mark.parametrize("command", ["cat missing.log", "candump vcan1"])
+def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str) -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": command},
+    ).json()
+
+    assert result["ok"] is False
+    assert result["code"] == "COMMAND_REJECTED"
+    assert result["flowTraces"] == [
+        {
+            "traceId": f"terminal:{command}",
+            "attemptId": None,
+            "sequence": 1,
+            "kind": "local",
+            "commandLabel": command,
+            "commandIndex": None,
+            "canId": None,
+            "data": [],
+            "route": ["terminal"],
+            "stoppedAt": "terminal",
+            "outcome": "REJECTED",
+            "ecuVerdict": "COMMAND_REJECTED",
+            "idsVerdict": None,
+            "effectTarget": None,
+            "effectState": None,
+            "effectApplied": False,
+        }
+    ]
+    assert result["state"]["vehicleState"] == {
+        "leftDoor": "closed",
+        "rightDoor": "closed",
+    }
+    assert emitted == []
+
+
+def test_terminal_flow_trace_normalizes_leading_whitespace_for_cansend() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+    command = "  cansend vcan0 456#000113B7"
+
+    response = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/terminal",
+        json={"command": command},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    frame = payload["frames"][0]
+    trace = payload["flowTraces"][0]
+    assert payload["code"] == "EXECUTED"
+    assert trace["traceId"] == frame["attemptId"]
+    assert trace["attemptId"] == frame["attemptId"]
+    assert trace["kind"] == "inject"
+    assert trace["commandLabel"] == command
+    assert trace["route"] == ["terminal", "obd", "ids", "gateway", "body", "leftDoor"]
+    assert trace["outcome"] == "EXECUTED"
+    assert trace["effectTarget"] == "leftDoor"
+    assert trace["effectState"] == "open"
+    assert trace["effectApplied"] is True
+    assert emitted[0]["lab"]["attemptId"] == trace["attemptId"]
 
 
 def test_terminal_domain_mutation_waits_for_the_lifecycle_lock() -> None:

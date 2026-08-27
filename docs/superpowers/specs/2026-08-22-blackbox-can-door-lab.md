@@ -41,7 +41,7 @@ CANLite의 `attacks/chain` 화면은 현재 정적 미리보기라서 학습자�
 | CAN ID | `0x456` |
 | DLC | `4` |
 | DATA[0] | left door: `00=open`, `01=closed` |
-| DATA[1] | right door: `00=open`, `01=closed` |
+| DATA[1] | target-scope guard: `01=right door closed`만 허용; `00`은 `TARGET_SCOPE_REJECTED` |
 | DATA[2] | 8-bit rolling counter |
 | DATA[3] | `DATA[0] XOR DATA[1] XOR DATA[2] XOR 0xA5` |
 
@@ -58,9 +58,11 @@ Toy Body ECU validation order:
 1. CAN ID가 다르면 `TARGET_ID_MISMATCH`.
 2. DLC가 4가 아니면 `LENGTH_INVALID`.
 3. hex byte가 잘못되면 `DATA_INVALID`.
-4. checksum이 다르면 `CHECKSUM_INVALID`.
-5. counter가 기대값과 다르면 `COUNTER_REJECTED`.
-6. 모두 맞으면 `EXECUTED`; counter와 door state를 갱신한다.
+4. DATA[0]/DATA[1]이 `00` 또는 `01`이 아니면 `DOOR_STATE_INVALID`; ECU, counter, evidence를 변경하지 않는다.
+5. 이 Left Door 실습 범위 밖인 DATA[1] != `01`이면 `TARGET_SCOPE_REJECTED`; right door, counter, evidence를 변경하지 않는다.
+6. checksum이 다르면 `CHECKSUM_INVALID`.
+7. counter가 기대값과 다르면 `COUNTER_REJECTED`.
+8. 모두 맞으면 `EXECUTED`; counter와 left door state를 갱신하고 right door는 closed로 유지한다.
 
 Toy IDS sequence rules:
 

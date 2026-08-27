@@ -42,6 +42,7 @@ export interface DoorLabTerminalResult {
   frames: DoorLabFrameAttempt[]
   state: DoorLabSessionState
   idsStatus: DoorLabIdsStatus | null
+  flowTraces?: unknown
 }
 
 export interface DoorLabScriptResult {
@@ -49,6 +50,7 @@ export interface DoorLabScriptResult {
   idsStatus: DoorLabIdsStatus
   state: DoorLabSessionState
   error: string | null
+  flowTraces?: unknown
 }
 
 /** A literal candump -L record parsed for the lab monitor. */

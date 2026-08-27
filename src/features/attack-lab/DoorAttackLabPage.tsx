@@ -22,6 +22,11 @@ import {
 } from "@phosphor-icons/react"
 import type { CanEvent } from "../can/events/types"
 import { useCanVehicleStream } from "../vehicle/useCanVehicleStream"
+import {
+  applyVehicleFlowEffect,
+  parseVehicleFlowTraces,
+} from "../vehicle/vehicleFlowTypes"
+import { useVehicleFlowPlayback } from "../vehicle/useVehicleFlowPlayback"
 import { vehicle } from "../vehicle/vehicleStore"
 import {
   createDoorLabSession,
@@ -95,6 +100,14 @@ interface CreateFlight {
   promise: Promise<void>
 }
 
+interface PendingDoorFlow {
+  runKey: string
+  sessionId: string
+  sessionGeneration: number
+  actionGeneration: number
+  state: DoorLabVehicleState
+}
+
 interface MonitorState {
   frames: MonitorFrame[]
   selectedKey: string | null
@@ -110,10 +123,9 @@ interface SelectMonitorAction {
   key: string
 }
 
-type MonitorAction =
-  | AppendMonitorAction
-  | SelectMonitorAction
-  | { type: "clear" }
+type MonitorAction = AppendMonitorAction | SelectMonitorAction | {
+  type: "clear"
+}
 
 const EMPTY_MONITOR: MonitorState = { frames: [], selectedKey: null }
 
@@ -253,9 +265,29 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
   const actionControllerRef = useRef<AbortController | null>(null)
   const busyRef = useRef<typeof busy>(null)
   const terminalEntryIdRef = useRef(0)
+  const pendingFlowRef = useRef<PendingDoorFlow | null>(null)
+  const flow = useVehicleFlowPlayback({
+    onEffect: applyVehicleFlowEffect,
+    onComplete: (runKey) => {
+      const pending = pendingFlowRef.current
+      if (
+        !mountedRef.current ||
+        !pending ||
+        pending.runKey !== runKey ||
+        pending.sessionId !== sessionIdRef.current ||
+        pending.sessionGeneration !== sessionGenerationRef.current ||
+        pending.actionGeneration !== actionGenerationRef.current
+      )
+        return
+      applyVehicleState(pending.state)
+      pendingFlowRef.current = null
+    },
+  })
 
   const loadSession = useCallback(() => {
     if (createFlightRef.current) return createFlightRef.current.promise
+    flow.clear()
+    pendingFlowRef.current = null
 
     const controller = new AbortController()
     const generation = lifecycleGenerationRef.current
@@ -294,7 +326,7 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
 
     createFlightRef.current = { controller, promise }
     return promise
-  }, [])
+  }, [flow.clear])
 
   useEffect(() => {
     mountedRef.current = true
@@ -305,13 +337,15 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
         if (mountedRef.current) return
         lifecycleGenerationRef.current += 1
         actionGenerationRef.current += 1
+        flow.cancel()
+        pendingFlowRef.current = null
         sessionIdRef.current = null
         sessionGenerationRef.current = null
         createFlightRef.current?.controller.abort()
         actionControllerRef.current?.abort()
       })
     }
-  }, [loadSession])
+  }, [flow.cancel, loadSession])
 
   const currentAcceptedEventPredicate = useCallback(
     (event: CanEvent) =>
@@ -333,9 +367,18 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
     [currentAcceptedEventPredicate],
   )
 
+  const currentReplayVehiclePredicate = useCallback(
+    (event: CanEvent) =>
+      event.replay === true &&
+      busyRef.current === null &&
+      pendingFlowRef.current === null &&
+      currentAcceptedEventPredicate(event),
+    [currentAcceptedEventPredicate],
+  )
+
   const streamStatus = useCanVehicleStream({
     onEvent: handleCanEvents,
-    vehicleEventPredicate: currentAcceptedEventPredicate,
+    vehicleEventPredicate: currentReplayVehiclePredicate,
   })
 
   const appendMonitorFrames = useCallback((incoming: MonitorFrame[]) => {
@@ -347,7 +390,16 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
   ): ActionRequest | null => {
     const sessionId = sessionIdRef.current
     const sessionGeneration = sessionGenerationRef.current
-    if (!sessionId || sessionGeneration === null || busyRef.current) return null
+    if (
+      !sessionId ||
+      sessionGeneration === null ||
+      (kind === "reset"
+        ? busyRef.current === "reset"
+        : busyRef.current !== null) ||
+      (kind !== "reset" && flow.isPlaying)
+    )
+      return null
+    if (kind === "reset") actionControllerRef.current?.abort()
     const controller = new AbortController()
     const generation = ++actionGenerationRef.current
     actionControllerRef.current = controller
@@ -379,6 +431,43 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
     setBusy(null)
   }
 
+  const playResult = (
+    actionKey: "run" | "terminal",
+    request: ActionRequest,
+    rawTraces: unknown,
+    finalState: DoorLabVehicleState,
+  ) => {
+    const traces = parseVehicleFlowTraces(rawTraces)
+    if (!traces) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(finalState)
+      setActionError(
+        "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+      )
+      return
+    }
+
+    const runKey = [
+      request.sessionId,
+      request.sessionGeneration,
+      actionKey,
+      request.generation,
+    ].join(":")
+    pendingFlowRef.current = {
+      runKey,
+      sessionId: request.sessionId,
+      sessionGeneration: request.sessionGeneration,
+      actionGeneration: request.generation,
+      state: finalState,
+    }
+    if (!flow.play({ runKey, traces })) {
+      flow.clear()
+      pendingFlowRef.current = null
+      applyVehicleState(finalState)
+    }
+  }
+
   const handleRun = async () => {
     const request = beginAction("run")
     if (!request) return
@@ -399,6 +488,7 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
       setLastRunAttempts(result.attempts)
       appendMonitorFrames(attemptsToMonitorFrames(result.attempts, "run"))
       if (result.error) setActionError(result.error)
+      playResult("run", request, result.flowTraces, result.state.vehicleState)
     } catch (error) {
       if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
@@ -409,6 +499,11 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
   const handleReset = async () => {
     const request = beginAction("reset")
     if (!request) return
+    const wasPlaying = flow.isPlaying
+    flow.cancel()
+    if (!wasPlaying) flow.clear()
+    pendingFlowRef.current = null
+    applyVehicleState({ leftDoor: "closed", rightDoor: "closed" })
     try {
       const next = await resetDoorLabSession(
         request.sessionId,
@@ -421,6 +516,7 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
       )
         return
       sessionGenerationRef.current = next.generation
+      flow.clear()
       applyVehicleState(next.vehicleState)
       setSession(next)
       dispatchMonitor({ type: "clear" })
@@ -489,6 +585,12 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
         )
       }
       appendMonitorFrames(incoming)
+      playResult(
+        "terminal",
+        request,
+        result.flowTraces,
+        result.state.vehicleState,
+      )
     } catch (error) {
       if (isActionCurrent(request)) setActionError(errorMessage(error))
     } finally {
@@ -597,7 +699,10 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
               교육용 논리 위치 · 실제 OEM 배치 아님
             </span>
           </header>
-          <DoorAttackVehicle currentStage={session?.stage} />
+          <DoorAttackVehicle
+            currentStage={session?.stage}
+            playback={flow.snapshot}
+          />
         </section>
 
         <section
@@ -621,13 +726,14 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
             value={script}
             onChange={(event) => setScript(event.target.value)}
             spellCheck={false}
+            disabled={flow.isPlaying}
           />
           <div className="door-attack-lab__editor-actions">
             <button
               type="button"
               className="is-secondary"
               onClick={() => void handleReset()}
-              disabled={!session || busy !== null}
+              disabled={!session || busy === "reset"}
             >
               <ArrowClockwise size={15} aria-hidden="true" />
               {busy === "reset" ? "초기화 중" : "실습 초기화"}
@@ -636,7 +742,7 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
               type="button"
               className="is-primary"
               onClick={() => void handleRun()}
-              disabled={!session || busy !== null}
+              disabled={!session || busy !== null || flow.isPlaying}
             >
               {busy === "run" ? (
                 <CircleNotch
@@ -784,11 +890,17 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
               onChange={(event) => setTerminalCommand(event.target.value)}
               onKeyDown={handleTerminalKeyDown}
               autoComplete="off"
+              disabled={!session || busy !== null || flow.isPlaying}
             />
             <button
               type="submit"
               aria-label="명령 실행"
-              disabled={!session || !terminalCommand.trim() || busy !== null}
+              disabled={
+                !session ||
+                !terminalCommand.trim() ||
+                busy !== null ||
+                flow.isPlaying
+              }
             >
               <CaretRight size={15} weight="bold" aria-hidden="true" />
             </button>

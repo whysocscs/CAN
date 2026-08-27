@@ -93,15 +93,15 @@ class DoorBlackboxSession:
         self._attempt_count = 0
         self._capture_seen = False
         self._contract_inferred = False
-        self._last_verdicts: list[str] = []
+        self._last_verdict: str | None = None
         self._completed = False
 
     def public_state(self) -> dict[str, object]:
         if self._completed:
             stage = "증거"
-        elif self._last_verdicts and self._last_verdicts[-1] == "COUNTER_REJECTED":
+        elif self._last_verdict == "COUNTER_REJECTED":
             stage = "Replay 실패"
-        elif self._last_verdicts and self._last_verdicts[-1] == "EXECUTED":
+        elif self._last_verdict == "EXECUTED":
             stage = "IDS 검증"
         elif self._attempt_count:
             stage = "프레임 제작"
@@ -217,6 +217,13 @@ class DoorBlackboxSession:
         left, right, counter, checksum = (int(part, 16) for part in normalized_data)
         if left not in (0, 1) or right not in (0, 1):
             return self._unrecorded_attempt(normalized_id, normalized_data, "DOOR_STATE_INVALID", timestamp)
+        if right != 1:
+            return self._unrecorded_attempt(
+                normalized_id,
+                normalized_data,
+                "TARGET_SCOPE_REJECTED",
+                timestamp,
+            )
 
         self._contract_inferred = True
         if checksum != (left ^ right ^ counter ^ 0xA5):
@@ -237,7 +244,7 @@ class DoorBlackboxSession:
         timestamp: int | None,
     ) -> FrameAttempt:
         self._attempt_count += 1
-        self._last_verdicts.append(verdict)
+        self._last_verdict = verdict
         self._attempt_sequence += 1
         return FrameAttempt(
             f"{self.session_id}-attempt-{self._attempt_sequence:06d}",
@@ -267,7 +274,8 @@ class DoorBlackboxSession:
         )
 
     def _evaluate_ids(self, attempts: tuple[FrameAttempt, ...], interval_ms: int) -> str:
-        if attempts and all(attempt.verdict == "DOOR_STATE_INVALID" for attempt in attempts):
+        safety_rejects = {"DOOR_STATE_INVALID", "TARGET_SCOPE_REJECTED"}
+        if attempts and all(attempt.verdict in safety_rejects for attempt in attempts):
             return "ALERT"
         complete = (
             len(attempts) == 3

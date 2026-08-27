@@ -13,6 +13,10 @@ import {
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import type { CanEvent } from "../can/events/types"
+import type {
+  VehicleFlowPlaybackSnapshot,
+  VehicleFlowTrace,
+} from "../vehicle/vehicleFlowTypes"
 import { vehicle } from "../vehicle/vehicleStore"
 import type {
   DoorLabScriptResult,
@@ -41,14 +45,58 @@ const stream = vi.hoisted(() => ({
   }>,
 }))
 
+const playbackHarness = vi.hoisted(() => ({
+  onComplete: undefined as ((runKey: string) => void) | undefined,
+  snapshots: [] as VehicleFlowPlaybackSnapshot[],
+  lastSignature: "",
+}))
+
 vi.mock("./doorLabApi", () => api)
 vi.mock("../can/events/backendProvider", () => ({
   connectCanStream: stream.connect,
 }))
+vi.mock("../vehicle/useVehicleFlowPlayback", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../vehicle/useVehicleFlowPlayback")>()
+  return {
+    ...actual,
+    useVehicleFlowPlayback: (
+      options: Parameters<typeof actual.useVehicleFlowPlayback>[0],
+    ) => {
+      playbackHarness.onComplete = options.onComplete
+      return actual.useVehicleFlowPlayback(options)
+    },
+  }
+})
 vi.mock("./DoorAttackVehicle", () => ({
-  default: ({ currentStage }: { currentStage?: string }) => (
-    <div aria-label="Toy Vehicle 3D view" data-current-stage={currentStage} />
-  ),
+  default: ({
+    currentStage,
+    playback,
+  }: {
+    currentStage?: string
+    playback?: VehicleFlowPlaybackSnapshot
+  }) => {
+    const signature = playback
+      ? [
+          playback.playbackId,
+          playback.phase,
+          playback.trace?.traceId ?? "none",
+          playback.traceIndex,
+          playback.segmentIndex,
+        ].join(":")
+      : "none"
+    if (playback && signature !== playbackHarness.lastSignature) {
+      playbackHarness.lastSignature = signature
+      playbackHarness.snapshots.push(playback)
+    }
+    return (
+      <div
+        aria-label="Toy Vehicle 3D view"
+        data-current-stage={currentStage}
+        data-playback-phase={playback?.phase ?? "missing"}
+      />
+    )
+  },
 }))
 
 import DoorAttackLabPage from "./DoorAttackLabPage"
@@ -68,6 +116,91 @@ const initialSession: DoorLabSessionState = {
 const resetSession: DoorLabSessionState = {
   ...initialSession,
   generation: 1,
+}
+
+const executedDoorTrace: VehicleFlowTrace = {
+  traceId: "attempt-1",
+  attemptId: "attempt-1",
+  sequence: 1,
+  kind: "inject",
+  commandLabel: "cansend vcan0 456#000113B7",
+  commandIndex: 1,
+  canId: "0x456",
+  data: ["00", "01", "13", "B7"],
+  route: ["terminal", "obd", "ids", "gateway", "body", "leftDoor"],
+  stoppedAt: null,
+  outcome: "EXECUTED",
+  ecuVerdict: "EXECUTED",
+  idsVerdict: "NORMAL",
+  effectTarget: "leftDoor",
+  effectState: "open",
+  effectApplied: true,
+}
+
+const rejectedDoorTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "attempt-rejected",
+  attemptId: "attempt-rejected",
+  data: ["01", "01", "10", "B5"],
+  route: ["terminal", "obd", "ids", "gateway", "body"],
+  stoppedAt: "body",
+  outcome: "REJECTED",
+  ecuVerdict: "COUNTER_REJECTED",
+  idsVerdict: "ALERT",
+  effectTarget: null,
+  effectState: null,
+  effectApplied: false,
+}
+
+const captureDoorTrace: VehicleFlowTrace = {
+  ...executedDoorTrace,
+  traceId: "capture-1",
+  attemptId: null,
+  kind: "capture",
+  commandLabel: "candump -L vcan0",
+  commandIndex: null,
+  canId: "0x2a0",
+  data: ["A5", "01"],
+  route: ["terminal", "obd", "monitor"],
+  outcome: "OBSERVED",
+  ecuVerdict: null,
+  idsVerdict: null,
+  effectTarget: null,
+  effectState: null,
+  effectApplied: false,
+}
+
+const localDoorTrace: VehicleFlowTrace = {
+  ...captureDoorTrace,
+  traceId: "terminal:pwd",
+  kind: "local",
+  commandLabel: "pwd",
+  canId: null,
+  data: [],
+  route: ["terminal"],
+  outcome: "LOCAL",
+}
+
+const acceptedRunResult: DoorLabScriptResult = {
+  attempts: [
+    {
+      attemptId: "attempt-1",
+      timestamp: MONITOR_TIMESTAMP,
+      canId: "0x456",
+      data: ["00", "01", "13", "B7"],
+      verdict: "EXECUTED",
+    },
+  ],
+  idsStatus: "NORMAL",
+  state: {
+    ...initialSession,
+    stage: "증거",
+    vehicleState: { leftDoor: "open", rightDoor: "closed" },
+    attemptCount: 1,
+    completed: true,
+  },
+  error: null,
+  flowTraces: [executedDoorTrace],
 }
 
 const captureResult: DoorLabTerminalResult = {
@@ -90,6 +223,7 @@ const captureResult: DoorLabTerminalResult = {
     evidence: [{ kind: "capture", status: "observed" }],
   },
   idsStatus: null,
+  flowTraces: [captureDoorTrace],
 }
 
 const acceptedTerminalResult: DoorLabTerminalResult = {
@@ -114,6 +248,18 @@ const acceptedTerminalResult: DoorLabTerminalResult = {
     attemptCount: 1,
   },
   idsStatus: "ALERT",
+  flowTraces: [
+    {
+      ...executedDoorTrace,
+      traceId: "session-1-attempt-terminal",
+      attemptId: "session-1-attempt-terminal",
+      commandIndex: null,
+      commandLabel: "cansend vcan0 555#0001",
+      canId: "0x555",
+      data: ["00", "01"],
+      idsVerdict: "ALERT",
+    },
+  ],
 }
 
 const blockedRun: DoorLabScriptResult = {
@@ -129,6 +275,7 @@ const blockedRun: DoorLabScriptResult = {
   idsStatus: "ALERT",
   state: { ...initialSession, stage: "Replay 실패", attemptCount: 1 },
   error: null,
+  flowTraces: [rejectedDoorTrace],
 }
 
 function deferred<T>() {
@@ -186,16 +333,34 @@ function latestConnection() {
   return connection
 }
 
+function stubReducedMotion(matches: boolean) {
+  vi.stubGlobal("matchMedia", () => ({
+    matches,
+    media: "(prefers-reduced-motion: reduce)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  }))
+}
+
 describe("DoorAttackLabPage", () => {
   afterEach(() => {
     cleanup()
+    vi.useRealTimers()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
   })
 
   beforeEach(() => {
-    vi.clearAllMocks()
+    vi.resetAllMocks()
     vehicle.reset()
+    playbackHarness.onComplete = undefined
+    playbackHarness.snapshots = []
+    playbackHarness.lastSignature = ""
+    stubReducedMotion(true)
     api.createDoorLabSession.mockResolvedValue(initialSession)
     api.resetDoorLabSession.mockResolvedValue(resetSession)
     api.runDoorLabCommand.mockResolvedValue(captureResult)
@@ -270,9 +435,7 @@ describe("DoorAttackLabPage", () => {
     expect(
       screen.getByText(/Terminal에서 로그와 프레임을 먼저 관찰/),
     ).toBeInTheDocument()
-    expect(
-      screen.getByText(/실행할 줄 앞의 #을 제거/),
-    ).toBeInTheDocument()
+    expect(screen.getByText(/실행할 줄 앞의 #을 제거/)).toBeInTheDocument()
     expect(
       screen.getByText(/interval_ms=<10\.\.2000>.*cansend/),
     ).toBeInTheDocument()
@@ -281,6 +444,368 @@ describe("DoorAttackLabPage", () => {
     const guide = screen.getByText("Script 사용법").closest("details")
     expect(guide).not.toBeNull()
     expect(guide).not.toHaveTextContent(/456#|000113B7|000114B0|000115B1/i)
+  })
+
+  it("keeps the accepted door closed until playback reaches the effect endpoint", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+    const runButton = await screen.findByRole("button", {
+      name: "스크립트 실행",
+    })
+
+    await user.click(runButton)
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(runButton).toBeDisabled()
+    expect(
+      screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+    ).toBeDisabled()
+    expect(screen.getByRole("button", { name: "실습 초기화" })).toBeEnabled()
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "playing",
+    )
+
+    act(() => vi.runAllTimers())
+
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "complete",
+    )
+  })
+
+  it("plays the complete authoritative trace array once in sequence order", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const observedSecond: VehicleFlowTrace = {
+      ...captureDoorTrace,
+      traceId: "capture-after-effect",
+      sequence: 2,
+    }
+    api.runDoorLabScript.mockResolvedValueOnce({
+      ...acceptedRunResult,
+      flowTraces: [observedSecond, executedDoorTrace],
+    })
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+    act(() => vi.advanceTimersByTime(1_100))
+    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.runAllTimers())
+
+    expect(
+      playbackHarness.snapshots
+        .filter(
+          (snapshot) =>
+            snapshot.phase === "playing" && snapshot.segmentIndex === 0,
+        )
+        .map((snapshot) => snapshot.trace?.traceId),
+    ).toEqual(["attempt-1", "capture-after-effect"])
+    expect(vehicle.isOpen("doorL")).toBe(true)
+  })
+
+  it("never applies effects for rejected, capture, or local traces", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const setPart = vi.spyOn(vehicle, "set")
+    api.runDoorLabScript.mockResolvedValueOnce({
+      ...blockedRun,
+      flowTraces: [
+        { ...localDoorTrace, sequence: 1 },
+        { ...captureDoorTrace, sequence: 2 },
+        { ...rejectedDoorTrace, sequence: 3 },
+      ],
+    })
+    render(<DoorAttackLabPage />)
+    await screen.findByRole("button", { name: "스크립트 실행" })
+    setPart.mockClear()
+
+    await user.click(screen.getByRole("button", { name: "스크립트 실행" }))
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.advanceTimersByTime(220))
+    act(() => vi.runAllTimers())
+
+    expect(
+      playbackHarness.snapshots
+        .filter(
+          (snapshot) =>
+            snapshot.phase === "playing" && snapshot.segmentIndex === 0,
+        )
+        .map((snapshot) => snapshot.trace?.traceId),
+    ).toEqual(["terminal:pwd", "capture-1", "attempt-rejected"])
+    expect(setPart).not.toHaveBeenCalledWith("doorL", 1)
+    expect(vehicle.isOpen("doorL")).toBe(false)
+  })
+
+  it("keeps normal live events monitor-only and restores safe replay snapshots", async () => {
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+    const monitor = screen.getByRole("region", { name: "Network monitor" })
+
+    act(() =>
+      latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
+    )
+    await flushCanEvents()
+
+    expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
+    expect(vehicle.isOpen("doorL")).toBe(false)
+
+    act(() =>
+      latestConnection().options.onEvent(
+        acceptedDoorEvent("session-1", 0, {
+          eventId: "authoritative-reconnect",
+          replay: true,
+        }),
+      ),
+    )
+    await flushCanEvents()
+
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(within(monitor).getAllByText("EXECUTED")).toHaveLength(1)
+  })
+
+  it("reset cancels a pending effect before awaiting the reset response", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const resetRequest = deferred<DoorLabSessionState>()
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    api.resetDoorLabSession.mockReturnValueOnce(resetRequest.promise)
+    render(<DoorAttackLabPage />)
+    const runButton = await screen.findByRole("button", {
+      name: "스크립트 실행",
+    })
+    await waitFor(() => expect(runButton).toBeEnabled())
+    await user.click(runButton)
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "실습 초기화" })).toBeEnabled(),
+    )
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "playing",
+    )
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalledOnce())
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "cancelled",
+    )
+    act(() => vi.runAllTimers())
+
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "cancelled",
+    )
+
+    await act(async () => resetRequest.resolve(resetSession))
+    await waitFor(() =>
+      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+        "data-playback-phase",
+        "idle",
+      ),
+    )
+    expect(vehicle.isOpen("doorL")).toBe(false)
+  })
+
+  it("immediately closes a completed attack and stays safe when reset fails", async () => {
+    const resetRequest = deferred<DoorLabSessionState>()
+    const user = userEvent.setup()
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    api.resetDoorLabSession.mockReturnValueOnce(resetRequest.promise)
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(vehicle.isOpen("doorL")).toBe(true))
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "complete",
+    )
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalledOnce())
+
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(vehicle.isOpen("doorR")).toBe(false)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "idle",
+    )
+
+    act(() => playbackHarness.onComplete?.("session-1:0:run:1"))
+    expect(vehicle.isOpen("doorL")).toBe(false)
+
+    await act(async () => resetRequest.reject(new Error("reset failed")))
+    expect(await screen.findByRole("alert")).toHaveTextContent("reset failed")
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "idle",
+    )
+
+    act(() => playbackHarness.onComplete?.("session-1:0:run:1"))
+    expect(vehicle.isOpen("doorL")).toBe(false)
+  })
+
+  it.each([
+    ["run", "스크립트 실행", "runDoorLabScript", acceptedRunResult],
+    ["terminal", "명령 실행", "runDoorLabCommand", acceptedTerminalResult],
+  ] as const)(
+    "reset supersedes an in-flight %s request before starting its own request",
+    async (kind, actionButtonName, apiName, lateResult) => {
+      const actionRequest =
+        deferred<DoorLabScriptResult | DoorLabTerminalResult>()
+      const resetRequest = deferred<DoorLabSessionState>()
+      let oldActionAbortedAtResetStart = false
+      api[apiName].mockReturnValueOnce(actionRequest.promise)
+      api.resetDoorLabSession.mockImplementationOnce(
+        (_sessionId: string, _signal: AbortSignal) => {
+          const oldSignal = api[apiName].mock.calls[0]?.[2] as AbortSignal
+          oldActionAbortedAtResetStart = oldSignal.aborted
+          return resetRequest.promise
+        },
+      )
+      const user = userEvent.setup()
+      render(<DoorAttackLabPage />)
+      await screen.findByText("BODY ECU")
+
+      if (kind === "terminal") {
+        await user.type(
+          screen.getByRole("textbox", { name: "제한 터미널 명령" }),
+          "cansend vcan0 555#0001",
+        )
+      }
+      const actionButton = screen.getByRole("button", {
+        name: actionButtonName,
+      })
+      await waitFor(() => expect(actionButton).toBeEnabled())
+      await user.click(actionButton)
+      await waitFor(() => expect(api[apiName]).toHaveBeenCalledOnce())
+      const oldSignal = api[apiName].mock.calls[0]?.[2] as AbortSignal
+      vehicle.openDoor("both")
+
+      const resetButton = screen.getByRole("button", { name: "실습 초기화" })
+      expect(resetButton).toBeEnabled()
+      await user.click(resetButton)
+      await waitFor(() =>
+        expect(api.resetDoorLabSession).toHaveBeenCalledOnce(),
+      )
+
+      expect(oldActionAbortedAtResetStart).toBe(true)
+      expect(oldSignal.aborted).toBe(true)
+      expect(vehicle.isOpen("doorL")).toBe(false)
+      expect(vehicle.isOpen("doorR")).toBe(false)
+      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+        "data-playback-phase",
+        "idle",
+      )
+      expect(screen.getByRole("button", { name: "초기화 중" })).toBeDisabled()
+
+      await act(async () => actionRequest.resolve(lateResult))
+      expect(vehicle.isOpen("doorL")).toBe(false)
+      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+        "data-playback-phase",
+        "idle",
+      )
+
+      await act(async () => resetRequest.resolve(resetSession))
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "실습 초기화" }),
+        ).toBeEnabled(),
+      )
+      expect(vehicle.isOpen("doorL")).toBe(false)
+    },
+  )
+
+  it("ignores a stale completion whose run key does not match the pending action", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() => expect(api.runDoorLabScript).toHaveBeenCalledOnce())
+
+    expect(playbackHarness.onComplete).toBeTypeOf("function")
+    act(() => playbackHarness.onComplete?.("session-1:0:run:stale-action"))
+    expect(vehicle.isOpen("doorL")).toBe(false)
+
+    act(() => vi.runAllTimers())
+    expect(vehicle.isOpen("doorL")).toBe(true)
+  })
+
+  it("warns and immediately reconciles authoritative state for malformed traces", async () => {
+    const user = userEvent.setup()
+    api.runDoorLabScript.mockResolvedValueOnce({
+      ...acceptedRunResult,
+      flowTraces: [
+        {
+          ...executedDoorTrace,
+          route: ["terminal", "unknown-node"],
+        },
+      ],
+    })
+    render(<DoorAttackLabPage />)
+
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+
+    expect(
+      await screen.findByText(
+        "공격 흐름을 표시하지 못해 최종 차량 상태만 동기화했습니다.",
+      ),
+    ).toBeInTheDocument()
+    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+      "data-playback-phase",
+      "idle",
+    )
+  })
+
+  it("clears a completed attack snapshot when reset succeeds", async () => {
+    const user = userEvent.setup()
+    api.runDoorLabScript.mockResolvedValueOnce(acceptedRunResult)
+    render(<DoorAttackLabPage />)
+    await user.click(
+      await screen.findByRole("button", { name: "스크립트 실행" }),
+    )
+    await waitFor(() =>
+      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+        "data-playback-phase",
+        "complete",
+      ),
+    )
+
+    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Toy Vehicle 3D view")).toHaveAttribute(
+        "data-playback-phase",
+        "idle",
+      ),
+    )
+    expect(vehicle.isOpen("doorL")).toBe(false)
   })
 
   it("shows an explicit offline error when session creation is rejected", async () => {
@@ -338,8 +863,10 @@ describe("DoorAttackLabPage", () => {
     )
   })
 
-  it("uses terminal state and IDS but leaves accepted vehicle and monitor ownership to the WebSocket", async () => {
-    const user = userEvent.setup()
+  it("uses terminal state and IDS while deferring the accepted effect to its trace", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubReducedMotion(false)
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
     api.runDoorLabCommand.mockResolvedValueOnce(acceptedTerminalResult)
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
@@ -364,15 +891,18 @@ describe("DoorAttackLabPage", () => {
     act(() =>
       latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
     )
-    await flushCanEvents()
+    await act(async () => vi.advanceTimersByTime(16))
 
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
     expect(within(monitor).getAllByText("EXECUTED")).toHaveLength(1)
     expect(
       within(monitor).getAllByRole("button", {
         name: /0x555 00 01 frame 선택/,
       }),
     ).toHaveLength(1)
+
+    act(() => vi.runAllTimers())
+    expect(vehicle.isOpen("doorL")).toBe(true)
   })
 
   it.each([
@@ -482,11 +1012,13 @@ describe("DoorAttackLabPage", () => {
     const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
     await user.type(input, "pwd")
     await user.click(screen.getByRole("button", { name: "명령 실행" }))
-    await waitFor(() => expect(api.runDoorLabCommand).toHaveBeenCalledWith(
-      "session-1",
-      "pwd",
-      expect.any(AbortSignal),
-    ))
+    await waitFor(() =>
+      expect(api.runDoorLabCommand).toHaveBeenCalledWith(
+        "session-1",
+        "pwd",
+        expect.any(AbortSignal),
+      ),
+    )
 
     await user.click(screen.getByRole("button", { name: "실습 초기화" }))
     await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalled())
@@ -550,14 +1082,23 @@ describe("DoorAttackLabPage", () => {
     await screen.findByText("BODY ECU")
     vehicle.openDoor("both")
 
-    await user.click(screen.getByRole("button", { name: "실습 초기화" }))
+    const resetButton = screen.getByRole("button", { name: "실습 초기화" })
+    await waitFor(() => expect(resetButton).toBeEnabled())
+    await user.click(resetButton)
+    await waitFor(() => expect(api.resetDoorLabSession).toHaveBeenCalledOnce())
     const signal = api.resetDoorLabSession.mock.calls[0]?.[1] as AbortSignal
     cleanup()
     await act(async () => undefined)
 
     expect(signal.aborted).toBe(true)
-    await act(async () => resetRequest.resolve(initialSession))
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    await act(async () =>
+      resetRequest.resolve({
+        ...initialSession,
+        vehicleState: { leftDoor: "open", rightDoor: "open" },
+      }),
+    )
+    expect(vehicle.isOpen("doorL")).toBe(false)
+    expect(vehicle.isOpen("doorR")).toBe(false)
   })
 
   it.each([
@@ -573,12 +1114,16 @@ describe("DoorAttackLabPage", () => {
       await screen.findByText("BODY ECU")
 
       if (kind === "terminal") {
-        await user.type(
-          screen.getByRole("textbox", { name: "제한 터미널 명령" }),
-          "pwd",
-        )
+        const input = screen.getByRole("textbox", {
+          name: "제한 터미널 명령",
+        })
+        await waitFor(() => expect(input).toBeEnabled())
+        await user.type(input, "pwd")
       }
-      await user.click(screen.getByRole("button", { name: buttonName }))
+      const actionButton = screen.getByRole("button", { name: buttonName })
+      await waitFor(() => expect(actionButton).toBeEnabled())
+      await user.click(actionButton)
+      await waitFor(() => expect(api[apiName]).toHaveBeenCalledOnce())
       const signalIndex = kind === "run" ? 2 : 2
       const signal = api[apiName].mock.calls[0]?.[signalIndex] as AbortSignal
       cleanup()
@@ -591,7 +1136,7 @@ describe("DoorAttackLabPage", () => {
     },
   )
 
-  it("uses the WebSocket as the canonical accepted row while retaining rejected REST attempts", async () => {
+  it("uses the WebSocket as the canonical accepted row without mutating the vehicle", async () => {
     const user = userEvent.setup()
     api.runDoorLabScript.mockResolvedValueOnce({
       attempts: [
@@ -637,7 +1182,7 @@ describe("DoorAttackLabPage", () => {
     const acceptedRow = within(monitor).getByText("EXECUTED").closest("tr")
     expect(acceptedRow).not.toBeNull()
     expect(within(acceptedRow!).getByText("07:13:20")).toBeInTheDocument()
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
   })
 
   it("renders the server epoch timestamp and preserves distinct attempt identities", async () => {
@@ -744,7 +1289,7 @@ describe("DoorAttackLabPage", () => {
     ).toHaveTextContent("11111110")
   }, 15_000)
 
-  it("rejects a non-replay old-session event from both monitor and vehicle", async () => {
+  it("rejects an old-session event and keeps current live events monitor-only", async () => {
     const secondSession = {
       ...initialSession,
       sessionId: "session-2",
@@ -761,7 +1306,7 @@ describe("DoorAttackLabPage", () => {
     act(() =>
       latestConnection().options.onEvent(acceptedDoorEvent("session-1", 0)),
     )
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
     firstView.unmount()
     await act(async () => undefined)
 
@@ -791,11 +1336,11 @@ describe("DoorAttackLabPage", () => {
       ),
     )
     await flushCanEvents()
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
     expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
   })
 
-  it("rejects a delayed pre-reset generation and accepts the current generation", async () => {
+  it("rejects a delayed pre-reset generation and observes the current generation", async () => {
     const user = userEvent.setup()
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
@@ -824,7 +1369,7 @@ describe("DoorAttackLabPage", () => {
       ),
     )
     await flushCanEvents()
-    expect(vehicle.isOpen("doorL")).toBe(true)
+    expect(vehicle.isOpen("doorL")).toBe(false)
     expect(within(monitor).getByText("EXECUTED")).toBeInTheDocument()
   })
 })

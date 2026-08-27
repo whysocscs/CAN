@@ -88,6 +88,104 @@ def test_create_get_reset_terminal_run_and_wrong_scenario_pair_contract() -> Non
     assert reset.json()["completed"] is False
 
 
+def test_spoofing_and_replay_results_expose_scenario_routes() -> None:
+    client = _client(emitted=[])
+
+    spoof = client.post("/labs/can-attacks/spoofing/sessions").json()
+    spoof_result = client.post(
+        f"/labs/can-attacks/spoofing/sessions/{spoof['sessionId']}/run",
+        json={"script": "cansend vcan0 5A1#01"},
+    ).json()
+    spoof_trace = spoof_result["flowTraces"][0]
+    assert spoof_trace["route"] == [
+        "terminal", "obd", "ids", "gateway", "rear", "tailgate"
+    ]
+    assert spoof_trace["effectTarget"] == "tailgate"
+    assert spoof_trace["effectState"] == "open"
+
+    replay = client.post("/labs/can-attacks/replay/sessions").json()
+    capture = client.post(
+        f"/labs/can-attacks/replay/sessions/{replay['sessionId']}/terminal",
+        json={"command": "candump -L vcan0 > capture.log"},
+    ).json()
+    assert capture["flowTraces"][0]["kind"] == "capture"
+    assert capture["flowTraces"][0]["effectApplied"] is False
+
+    replay_result = client.post(
+        f"/labs/can-attacks/replay/sessions/{replay['sessionId']}/run",
+        json={"script": "canplayer -I capture.log -l 1"},
+    ).json()
+    replay_trace = replay_result["flowTraces"][0]
+    assert replay_trace["route"] == [
+        "terminal", "obd", "ids", "gateway", "body", "leftDoor"
+    ]
+    assert replay_trace["effectTarget"] == "leftDoor"
+
+
+def test_replay_before_capture_stops_before_vehicle_effect() -> None:
+    client = _client(emitted=[])
+    state = client.post("/labs/can-attacks/replay/sessions").json()
+    result = client.post(
+        f"/labs/can-attacks/replay/sessions/{state['sessionId']}/run",
+        json={"script": "canplayer -I capture.log -l 1"},
+    ).json()
+    trace = result["flowTraces"][0]
+    assert trace["outcome"] == "REJECTED"
+    assert trace["stoppedAt"] == "body"
+    assert trace["effectApplied"] is False
+
+
+@pytest.mark.parametrize(
+    ("scenario", "command", "expected_code"),
+    [
+        ("replay", "cat missing.log", "COMMAND_REJECTED"),
+        (
+            "spoofing",
+            "candump -L vcan0 > capture.log",
+            "SCENARIO_COMMAND_UNSUPPORTED",
+        ),
+        ("spoofing", "candump vcan1", "COMMAND_REJECTED"),
+    ],
+)
+def test_failed_observation_like_commands_stop_at_the_beginner_terminal(
+    scenario: str,
+    command: str,
+    expected_code: str,
+) -> None:
+    emitted: list[dict[str, object]] = []
+    client = _client(emitted=emitted)
+    session_id = client.post(f"/labs/can-attacks/{scenario}/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/can-attacks/{scenario}/sessions/{session_id}/terminal",
+        json={"command": command},
+    ).json()
+
+    assert result["ok"] is False
+    assert result["code"] == expected_code
+    assert result["flowTraces"] == [
+        {
+            "traceId": f"result:{expected_code}",
+            "attemptId": None,
+            "sequence": 1,
+            "kind": "local",
+            "commandLabel": command,
+            "commandIndex": None,
+            "canId": None,
+            "data": [],
+            "route": ["terminal"],
+            "stoppedAt": "terminal",
+            "outcome": "REJECTED",
+            "ecuVerdict": expected_code,
+            "idsVerdict": None,
+            "effectTarget": None,
+            "effectState": None,
+            "effectApplied": False,
+        }
+    ]
+    assert emitted == []
+
+
 def test_storage_is_bounded_to_128_sessions_per_scenario() -> None:
     module = _router_module()
     client = _client(emitted=[])

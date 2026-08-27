@@ -216,6 +216,54 @@ def test_invalid_door_state_does_not_erase_existing_completion_evidence() -> Non
     assert result.state == before
 
 
+def test_right_door_open_frame_is_rejected_without_consuming_left_door_counter() -> None:
+    session = DoorBlackboxSession(session_id="test")
+    before = session.public_state()
+
+    outside_scope = session.run_script("cansend vcan0 456#010013B7")
+
+    assert outside_scope.attempts[0].verdict == "TARGET_SCOPE_REJECTED"
+    assert outside_scope.ids_status == "ALERT"
+    assert outside_scope.state == before
+
+    left_door_frame = session.run_script("cansend vcan0 456#000113B7")
+    assert left_door_frame.attempts[0].verdict == "EXECUTED"
+    assert left_door_frame.state["vehicleState"] == {
+        "leftDoor": "open",
+        "rightDoor": "closed",
+    }
+
+
+def test_target_scope_rejection_preserves_existing_completion_evidence() -> None:
+    session = DoorBlackboxSession(session_id="test")
+    session.run_script(valid_open_script())
+    before = session.public_state()
+
+    outside_scope = session.run_script("cansend vcan0 456#010016B2")
+
+    assert outside_scope.attempts[0].verdict == "TARGET_SCOPE_REJECTED"
+    assert outside_scope.ids_status == "ALERT"
+    assert outside_scope.state == before
+
+
+def test_door_session_keeps_only_the_latest_verdict_while_attempt_count_is_cumulative() -> None:
+    session = DoorBlackboxSession(session_id="test")
+
+    for _ in range(301):
+        session.run_script("cansend vcan0 456#00011300")
+    executed = session.run_script("cansend vcan0 456#000113B7")
+
+    assert executed.state["attemptCount"] == 302
+    assert executed.state["stage"] == "IDS 검증"
+    assert session._last_verdict == "EXECUTED"
+    assert "_last_verdicts" not in vars(session)
+
+    session.reset()
+    assert session.public_state()["attemptCount"] == 0
+    assert session.public_state()["evidence"] == []
+    assert session._last_verdict is None
+
+
 def test_script_attempt_metadata_is_unique_and_tracks_declared_interval() -> None:
     session = DoorBlackboxSession(session_id="test", clock_ms=lambda: 1_700_000_000_000)
 
