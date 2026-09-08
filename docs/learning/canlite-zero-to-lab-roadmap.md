@@ -45,16 +45,22 @@ CANLite에서 실행하는 명령은 **교육용 whitelist를 적용한 in-memor
 ### CANLite의 실제 학습 데이터 흐름
 
 ```text
+REST 실습 경로
 학습자 명령
-  → FastAPI whitelist parser
-  → Toy IDS / Toy Gateway / Toy ECU 판정
-  → authoritative educational flow trace
-  → WebSocket monitor event
-  → React state
-  → GLB 차량 효과
+  → FastAPI whitelist/session handler
+  → Toy session 평가(outcome + 교육용 flowTraces)
+  → REST response
+  → React staged playback
+  → 마지막 trace node에서 GLB 차량 효과
+
+Monitor 경로
+수락된 Toy session 결과
+  → virtual CAN event publish
+  → /ws/can WebSocket
+  → React Network monitor
 ```
 
-여기서 3D 하이라이트와 문 애니메이션은 **서버가 판정한 Toy 상태의 시각화**다. 물리 CAN wire telemetry나 실제 actuator의 증거가 아니다.
+현재 Toy IDS와 Toy Gateway 표시는 독립된 ECU process나 inline enforcement 장비를 통과했다는 wire-level 증거가 아니라, 서버가 만든 **교육용 trace/metadata**다. WebSocket monitor도 GLB 효과를 직접 구동하는 앞 단계가 아니라 별도의 관찰 경로다. 3D 하이라이트와 문 애니메이션은 Toy session 결과의 시각화이며, 물리 CAN telemetry나 실제 actuator의 증거가 아니다.
 
 `vcan`은 실제 CAN controller 없이 프레임 송수신을 연습하는 virtual local CAN interface다. 물리 계층의 전압, termination, 정확한 arbitration timing, ACK, error counter, bus-off를 그대로 재현하지 않는다. Linux 공식 문서는 `vcan`을 실제 controller hardware 없이 프레임을 송수신하는 가상 인터페이스로 설명한다: [Linux SocketCAN](https://docs.kernel.org/networking/can.html#the-virtual-can-driver-vcan).
 
@@ -67,7 +73,7 @@ CANLite에서 실행하는 명령은 **교육용 whitelist를 적용한 in-memor
 ### 핵심 정의
 
 - **PowerShell:** Windows 프로세스와 파일을 다루는 Shell. `PS>` 프롬프트에서 실행한다.
-- **WSL:** Windows 안에서 Linux 사용자 공간과 커널 환경을 제공한다.
+- **WSL 2:** Windows 안에서 실제 Linux kernel을 포함한 가상화 환경을 제공한다. WSL 1은 Linux system call을 변환하는 호환 계층이므로 동일하게 취급하지 않는다.
 - **Bash:** 주로 WSL/Linux에서 쓰는 Shell. `$` 프롬프트에서 실행한다.
 - **CANLite Virtual terminal:** 몇 개의 허용된 교육 명령만 해석하는 Toy 입력창이다.
 
@@ -87,6 +93,9 @@ Get-ChildItem
 Set-Location .\work\whysocscs-CAN-replay-lab
 Test-Path .\README.md
 Get-Content .\README.md -TotalCount 10
+$?
+try { Get-Content .\does-not-exist -ErrorAction Stop } catch { $_.Exception.Message }
+cmd /c exit 7
 $LASTEXITCODE
 Get-Process python, node -ErrorAction SilentlyContinue
 Get-NetTCPConnection -LocalPort 8010,8447 -ErrorAction SilentlyContinue
@@ -112,14 +121,23 @@ ss -lntp
 - `>>`: 표준출력을 파일 끝에 추가한다.
 - `|`: 앞 명령의 출력을 뒤 명령의 입력으로 연결한다.
 - `2>`: 표준오류(stderr)를 저장한다.
-- 종료 코드 `0`: 일반적으로 성공. 0 이외 값은 실패 또는 별도 상태다.
+- Bash에서 `echo $?`는 바로 앞 명령의 exit status를 보여준다. 일반적으로 `0`은 성공이고 0 이외 값은 실패 또는 별도 상태다.
+- PowerShell에서 `$?`는 바로 앞 PowerShell pipeline의 성공 여부를 Boolean으로 보여준다. `Test-Path`가 출력한 `False`와 명령 실행 자체의 성공 여부는 구분한다.
+- PowerShell의 `$LASTEXITCODE`는 마지막 **native executable**의 exit code다. `Get-Content` 같은 cmdlet의 결과를 나타내지 않는다.
 - PowerShell의 `&`: 문자열 또는 경로로 지정한 실행 파일을 호출하는 call operator다.
+
+| 환경 | 바로 앞 작업의 성공 확인 | 주의점 |
+|---|---|---|
+| PowerShell cmdlet | output, `$?`, 필요 시 `-ErrorAction Stop` + `try/catch` | `$LASTEXITCODE`를 쓰지 않는다. |
+| PowerShell에서 실행한 native program | `$LASTEXITCODE`와 stdout/stderr | 프로그램마다 non-zero 의미가 다를 수 있다. |
+| Bash/Linux command | 바로 뒤의 `echo $?`와 stdout/stderr | 다른 명령을 실행하면 `$?`가 덮어써진다. |
 
 ### 관찰할 증거
 
 - PowerShell과 WSL의 경로 표기가 다르다.
 - `cat`으로 출력한 내용과 파일 내용이 일치한다.
-- 정상 명령 뒤 종료 코드는 `0`이고, 존재하지 않는 파일을 읽으면 오류와 다른 종료 상태가 나타난다.
+- PowerShell cmdlet은 `$?`, output value, `-ErrorAction Stop`과 `try/catch`로 확인하고, native executable은 `$LASTEXITCODE`도 함께 확인한다.
+- Bash 명령은 실행 직후 `echo $?`로 exit status를 확인한다.
 
 ### 완료 기준
 
@@ -191,12 +209,12 @@ SocketCAN은 Linux 네트워크 스택과 socket API를 통해 CAN을 다루는 
 
 ### 직접 실습
 
-아래 명령은 **WSL/Linux/Ubuntu VM**에서 실행한다.
+아래 명령은 **WSL 2/Linux/Ubuntu VM**에서 실행한다. WSL 1은 이 실습 대상으로 가정하지 않는다.
 
 ```bash
 uname -r
-modinfo vcan
-sudo modprobe vcan
+modinfo vcan                 # module metadata 확인; 실패만으로 미지원 판정 금지
+sudo modprobe vcan           # module 방식일 때 선택적으로 load
 sudo ip link add dev vcan0 type vcan
 sudo ip link set dev vcan0 up
 ip -details -statistics link show vcan0
@@ -208,7 +226,7 @@ ip -details -statistics link show vcan0
 sudo ip link del dev vcan0
 ```
 
-WSL 커널에서 `vcan` module이 제공되는지는 WSL 및 커널 설정에 따라 달라질 수 있다. `modinfo vcan` 또는 `sudo modprobe vcan`이 실패하면 오류 원문과 `uname -r`을 기록한다. 지원되지 않는 커널을 억지로 가정하지 말고, `vcan`을 지원하는 Ubuntu VM이나 Docker/Linux 환경을 선택한다.
+WSL 커널에서 `vcan` 지원 여부는 WSL 및 커널 설정에 따라 달라질 수 있다. `vcan`이 kernel built-in이면 `modinfo`나 `modprobe`가 필요하지 않거나 기대와 다른 결과를 낼 수 있으므로, 두 명령의 실패만으로 미지원이라고 결론 내리지 않는다. 최종 capability 확인은 `ip link add ... type vcan`과 `ip link show vcan0`의 결과로 한다. `File exists`라면 기존 인터페이스를 먼저 확인한다. 실제 생성이 지원되지 않으면 오류 원문과 `uname -r`을 기록하고, `vcan`을 지원하는 Ubuntu VM이나 별도 Linux 환경을 선택한다.
 
 ### 관찰할 증거
 
@@ -364,6 +382,12 @@ def decode_toy_door(payload: bytes) -> str:
 
 ## 6. 위협 모델과 공격 유형
 
+### 목표
+
+같은 CAN frame이라도 공격자 위치, capture provenance, 신뢰 가정, 전송 시점에 따라 정상 통신·Spoofing·Replay가 달라질 수 있음을 설명하고, IDS의 관찰과 실제 enforcement를 구분한다.
+
+### 직접 실습
+
 실습을 만들기 전에 다음을 한 장으로 작성한다.
 
 - 보호할 자산(asset)
@@ -376,6 +400,19 @@ def decode_toy_door(payload: bytes) -> str:
 - 관찰·탐지 지점
 - 완화 방법
 - 실습이 입증하지 않는 것
+
+그다음 Replay 한 건과 차단된 입력 한 건을 아래 표로 비교한다.
+
+| 단계 | 관찰한 사실 | 판정 주체 | 관찰만 했나? 실제 차단했나? | 근거 로그/ID |
+|---|---|---|---|---|
+| 입력 제출 |  |  |  |  |
+| IDS metadata |  |  |  |  |
+| Gateway trace |  |  |  |  |
+| ECU verdict |  |  |  |  |
+| state transition |  |  |  |  |
+| GLB effect |  |  |  |  |
+
+freshness 학습에서는 같은 과거 frame과 새 정상 frame을 각각 vulnerable Toy mode와 freshness-aware Toy mode에 넣는다고 가정하고 예상 verdict를 먼저 적는다. 방어 모드가 과거 frame만 거부하고 새 정상 frame은 허용해야 한다는 회귀 조건도 포함한다.
 
 ### 6.1 Spoofing
 
@@ -410,6 +447,18 @@ IDS(Intrusion Detection System)는 기본적으로 관찰하고 경보를 만든
 ### 6.5 Freshness와 인증
 
 Replay 완화 후보에는 monotonic counter, nonce/challenge, timestamp/window, authenticated message/MAC가 있다. 단순 counter만 추가하면 wrap-around, reset, desynchronization, state storage 문제를 검토해야 한다. ID allowlist만으로는 같은 ID를 재생하는 공격을 인증하지 못한다.
+
+### 관찰할 증거
+
+- 입력 frame과 capture provenance
+- 교육용 IDS/Gateway trace와 실제 ECU verdict의 구분
+- state before/after와 effect 적용 여부
+- vulnerable/protected mode의 과거 frame 결과
+- protected mode에서 새 정상 frame이 여전히 허용되는 regression 결과
+
+### 완료 기준
+
+Spoofing·Replay·DoS의 보호 목표와 필수 증거를 각각 말하고, `OBSERVED`, `ALERTED`, `DROPPED`, `ACCEPTED`, `EXECUTED`, `EFFECT APPLIED` 중 어느 사건이 실제 차단 또는 상태 변경을 의미하는지 구분한다. 현재 CANLite의 Toy IDS/Gateway가 독립적인 inline enforcement 장치가 아니라 교육용 trace/metadata라는 한계도 함께 말해야 한다.
 
 ### 스스로 답할 질문
 
@@ -471,19 +520,19 @@ backend, frontend, 브라우저를 각각 종료·재시작하고, 어느 로그
 ### 직접 실습
 
 1. `공격 실습 → Replay`에서 **초보자용(Guided)**을 선택한다.
-2. 공격 스크립트에 먼저 `canplayer -I capture.log -l 1`을 실행해 `CAPTURE_REQUIRED`가 발생하는 negative route를 확인한다.
+2. 공격 스크립트에 먼저 `canplayer -I <CAPTURE_FILE> -l <COUNT>` 형식의 재생 명령을 구성해, 아직 캡처가 없을 때 `CAPTURE_REQUIRED`가 발생하는 negative route를 확인한다. `<...>`는 실제로 입력하는 문자가 아니라 학습자가 채울 placeholder다.
 3. 실습을 초기화한다.
 4. Virtual terminal에 다음을 입력한다.
 
 ```text
-candump -L vcan0 > capture.log
+candump -L vcan0 > <CAPTURE_FILE>
 ```
 
 5. `한 단계 진행`으로 `Lab Terminal → Training OBD-II → CAN Monitor`를 끝까지 확인한다.
 6. Virtual terminal에 다음을 입력한다.
 
 ```text
-cat capture.log
+cat <CAPTURE_FILE>
 ```
 
 7. Binary inspector와 monitor에서 capture의 ID·DLC·DATA를 기록한다.
@@ -491,7 +540,7 @@ cat capture.log
 9. Restricted lab script에 다음을 입력한다.
 
 ```text
-canplayer -I capture.log -l 1
+canplayer -I <CAPTURE_FILE> -l <COUNT>
 ```
 
 10. 한 번 클릭할 때 한 node만 진행되는지 확인한다.
@@ -514,8 +563,8 @@ Lab Terminal
 - capture: `CAPTURED`
 - 원본 확인: `OBSERVED`
 - 재생 제출: `EXECUTED`
-- Toy IDS: 이 시나리오의 실제 runtime verdict
-- Toy ECU: `ACCEPTED/EXECUTED` 또는 거부 이유
+- Toy IDS/Gateway: 서버가 만든 현재 session의 교육용 trace/metadata. 독립 장비의 wire-level 판정으로 해석하지 않는다.
+- Toy ECU/session outcome: `ACCEPTED/EXECUTED` 또는 거부 이유
 - 최종 node: `Left Door Effect · EFFECT APPLIED`
 - capture와 replay의 byte-identical 비교
 
@@ -523,12 +572,13 @@ Lab Terminal
 
 명령 세 줄을 보지 않고 다시 입력하는 것만으로는 부족하다. 다음 문장을 직접 완성해야 한다.
 
-> 나는 ______ 위치에서 ______를 캡처했고, 원본과 재생본의 ______가 일치했다. Toy IDS는 ______했고, Toy Gateway/Body ECU는 ______했다. freshness protection이 ______했기 때문에 재생이 수락됐다. GLB는 ______의 시각화이며 실제 차량 ______를 입증하지 않는다.
+> 나는 ______ 위치에서 ______를 캡처했고, 원본과 재생본의 ______가 일치했다. 교육용 IDS/Gateway trace는 ______였고, Toy ECU/session 결과는 ______였다. freshness protection이 ______했기 때문에 재생이 수락됐다. GLB는 ______의 시각화이며 실제 차량 ______를 입증하지 않는다.
 
 ### 흔한 오해
 
 - backend가 기술 결과를 먼저 계산해도 Guided 화면의 effect는 마지막 node에서 적용되어야 한다.
 - `NORMAL`은 “차량 전체가 안전함”이 아니라 해당 Toy rule에서 경보가 없었다는 뜻이다.
+- 현재 Toy IDS/Gateway node는 독립 process나 inline 차단 장비를 통과한 증거가 아니라 교육용 trace다.
 - 문 3D 효과는 실제 문 잠금장치가 움직였다는 증거가 아니다.
 
 ### 스스로 답할 질문
@@ -939,6 +989,12 @@ RF message의 Replay와 이미 차량 내부 CAN bus에서 캡처한 frame의 Re
 
 ## 19. 1-day 선정 기준
 
+### 목표
+
+흥미로운 CVE 이름이 아니라 재현 가능성, 공개 근거, 학습 가치, 격리 가능성을 기준으로 분석 대상 하나를 선택한다.
+
+### 직접 실습
+
 다음 조건을 모두 만족하는 공개 대상을 고른다.
 
 - 정확한 repository와 license
@@ -950,6 +1006,33 @@ RF message의 Replay와 이미 차량 내부 CAN bus에서 캡처한 frame의 Re
 - 수정 전후 비교와 정상 입력 regression test가 가능함
 
 파일 parser 취약점은 차량 관련 형식을 처리하더라도 곧바로 remote vehicle attack을 의미하지 않는다. 실제 도달 경로가 별도로 입증돼야 한다.
+
+후보마다 아래 표를 채우고, 비어 있는 핵심 칸이 있으면 구현 대상으로 확정하지 않는다.
+
+| 항목 | 후보 A | 후보 B |
+|---|---|---|
+| repository/license |  |  |
+| vulnerable commit/tag |  |  |
+| fixed commit/tag |  |  |
+| advisory/CVE/GHSA/patch |  |  |
+| local input entry point |  |  |
+| sanitizer/debug build |  |  |
+| 정상 baseline |  |  |
+| 격리 방법 |  |  |
+| 자동차 attack surface 연결 근거 |  |  |
+| 아직 입증되지 않은 주장 |  |  |
+
+### 관찰할 증거
+
+upstream commit URL, patch diff, build log, 정상 입력 결과, 공개 crash/PoC의 provenance, 라이선스, 네트워크·권한 전제조건.
+
+### 완료 기준
+
+다른 사람이 표의 링크와 commit으로 vulnerable/fixed 환경을 다시 만들 수 있고, “왜 교육용으로 적합한가”와 “왜 실제 차량 원격 공격을 아직 입증하지 않는가”를 함께 설명한다.
+
+### 스스로 답할 질문
+
+자동차 관련 parser에서 공개 crash를 재현했다는 사실과 실제 차량의 원격 attack surface가 입증됐다는 주장 사이에는 어떤 추가 근거가 필요한가?
 
 ## 20. ASan·GDB 기반 분석 절차
 
