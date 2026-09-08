@@ -491,10 +491,10 @@ $env:CANLITE_ENABLE_REAL_TERMINAL = "false"
 ```powershell
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"
 corepack pnpm@10.34.3 install --frozen-lockfile
-corepack pnpm@10.34.3 dev:ver4
+corepack pnpm@10.34.3 exec vite --host 127.0.0.1 --port 8447 --mode ver4
 ```
 
-브라우저에서 `http://127.0.0.1:8447`을 연다. 이 프로젝트에서 `dev:ver4`를 쓰는 이유는 backend origin allowlist와 맞는 포트로 실행하기 위해서다.
+브라우저에서 `http://127.0.0.1:8447`을 연다. 포트 `8447`은 backend origin allowlist와 맞추고, `--host 127.0.0.1`은 개발 서버가 LAN 전체에 노출되지 않게 한다. 현재 `package.json`의 `dev:ver4` script는 `0.0.0.0`을 지정하므로 격리된 로컬 학습에서는 위의 명시적 명령을 사용한다.
 
 ### 관찰할 증거
 

@@ -48,12 +48,12 @@ $env:CANLITE_CAN_MODE = "loopback"
 & .\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 ```
 
-다른 PowerShell에서 frontend를 실행한다. pnpm 버전을 명시해 Corepack의 자동 버전 선택을 피한다.
+다른 PowerShell에서 frontend를 실행한다. pnpm 버전을 명시하고 Vite를 `127.0.0.1`에만 bind한다.
 
 ```powershell
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"
 corepack pnpm@10.34.3 install --frozen-lockfile
-corepack pnpm@10.34.3 dev:ver4
+corepack pnpm@10.34.3 exec vite --host 127.0.0.1 --port 8447 --mode ver4
 ```
 
 개발 화면은 `http://127.0.0.1:8447`이다.
