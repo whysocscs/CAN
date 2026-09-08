@@ -31,6 +31,7 @@ docker compose down
 
 학습·검증 문서:
 
+- 학습자·개발자 로드맵(정답지 아님, Classical CAN frame 구조만 아는 학습자의 첫 시작점): [CANLite Zero-to-Lab 학습 로드맵](docs/learning/canlite-zero-to-lab-roadmap.md)
 - 학습자용(정답 없음): [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)
 - 학습자용(정답 없음): [CAN Spoofing·Replay 기초 실습 가이드](docs/labs/can-spoofing-replay-basics.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN 공격 실습 빠른 통과표](docs/instructors/can-attack-lab-quick-pass.md)
@@ -42,9 +43,9 @@ Python 3.12, Node.js 22, pnpm `10.34.3` 기준이다. 먼저 backend 환경을 �
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -r server\requirements.txt -r server\requirements-dev.txt
+& .\.venv\Scripts\python.exe -m pip install -r server\requirements.txt -r server\requirements-dev.txt
 $env:CANLITE_CAN_MODE = "loopback"
-.venv\Scripts\python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+& .\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 ```
 
 다른 PowerShell에서 frontend를 실행한다. pnpm 버전을 명시해 Corepack의 자동 버전 선택을 피한다.
@@ -66,8 +67,8 @@ corepack pnpm@10.34.3 dev:ver4
 ## 검사와 빌드
 
 ```powershell
-.venv\Scripts\python -m pytest server\tests -q
-.venv\Scripts\python -m compileall -q server
+& .\.venv\Scripts\python.exe -m pytest server\tests -q
+& .\.venv\Scripts\python.exe -m compileall -q server
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"
 corepack pnpm@10.34.3 test
 corepack pnpm@10.34.3 typecheck
