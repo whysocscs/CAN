@@ -6,6 +6,8 @@ import "@xterm/xterm/css/xterm.css"
 interface CanCommandTerminalProps {
   clearSignal: number
   onCommand: (command: string) => Promise<string[]>
+  pendingCommand?: string | null
+  onCommandHandled?: () => void
 }
 
 /**
@@ -17,18 +19,45 @@ interface CanCommandTerminalProps {
 export default function CanCommandTerminal({
   clearSignal,
   onCommand,
+  pendingCommand,
+  onCommandHandled,
 }: CanCommandTerminalProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Xterm | null>(null)
   const onCommandRef = useRef(onCommand)
+  const onCommandHandledRef = useRef(onCommandHandled)
 
   // 콜백이 바뀔 때마다 xterm을 재생성하면 입력 중인 줄과 스크롤이 사라진다.
   onCommandRef.current = onCommand
+  onCommandHandledRef.current = onCommandHandled
 
   useEffect(() => {
     terminalRef.current?.clear()
     terminalRef.current?.write("$ ")
   }, [clearSignal])
+
+  useEffect(() => {
+    if (!pendingCommand || !terminalRef.current) return
+
+    const cmd = pendingCommand.trim()
+    if (!cmd) return
+
+    const terminal = terminalRef.current
+    terminal.writeln(cmd)
+
+    void onCommandRef
+      .current(cmd)
+      .then((lines) => lines.forEach((line) => terminal.writeln(line)))
+      .catch(() =>
+        terminal.writeln(
+          "\x1b[31m[error] 명령 처리 중 오류가 발생했습니다.\x1b[0m",
+        ),
+      )
+      .finally(() => {
+        terminal.write("$ ")
+        onCommandHandledRef.current?.()
+      })
+  }, [pendingCommand])
 
   useEffect(() => {
     const mount = mountRef.current
