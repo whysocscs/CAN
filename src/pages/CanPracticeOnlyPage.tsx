@@ -4,6 +4,7 @@ import {
   useEffect,
   useRef,
   useState,
+  type CSSProperties,
   type ErrorInfo,
   type ReactNode,
 } from "react"
@@ -51,6 +52,37 @@ const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
 type EcuModuleId = CanNodeId
+type LayoutVersion = "v1" | "v2"
+
+function LayoutVersionSelector({
+  value,
+  onChange,
+}: {
+  value: LayoutVersion
+  onChange: (version: LayoutVersion) => void
+}) {
+  return (
+    <div className="canlab__layout-selector" aria-label="실습 버전 선택">
+      <span>실습 버전</span>
+      <button
+        type="button"
+        className={value === "v1" ? "is-active" : ""}
+        onClick={() => onChange("v1")}
+        title="버전 1: 설명 없이 바로 실습 화면으로 이동"
+      >
+        버전 1 · 바로 실습
+      </button>
+      <button
+        type="button"
+        className={value === "v2" ? "is-active" : ""}
+        onClick={() => onChange("v2")}
+        title="버전 2: 설명 페이지를 먼저 확인한 뒤 실습 화면으로 이동"
+      >
+        버전 2 · 설명 후 실습
+      </button>
+    </div>
+  )
+}
 
 const guideSteps: Array<{
   id: GuideStep
@@ -784,9 +816,13 @@ export default function CanPracticeOnlyPage() {
   const [showLabels, setShowLabels] = useState(true)
   const [showBus, setShowBus] = useState(true)
   const [autoRotate, setAutoRotate] = useState(false)
+  const [layoutVersion, setLayoutVersion] = useState<LayoutVersion>("v1")
+  const [v2IntroComplete, setV2IntroComplete] = useState(false)
+  const [vehiclePaneRatio, setVehiclePaneRatio] = useState(58)
   const [overviewRevision, setOverviewRevision] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
   const [terminalClearSignal, setTerminalClearSignal] = useState(0)
+  const [pendingTerminalCommand, setPendingTerminalCommand] = useState<string | null>(null)
   const [hintOpen, setHintOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({})
@@ -925,6 +961,11 @@ export default function CanPracticeOnlyPage() {
     setActiveTab("inspector")
   }
 
+  const handleLayoutVersionChange = (version: LayoutVersion) => {
+    setLayoutVersion(version)
+    if (version === "v2") setV2IntroComplete(false)
+  }
+
   const currentGuideStep = guideSteps.find((step) => step.id === activeStep)
   const inspectorEvent = selectedEvent
   const inspectorCatalogEntry = inspectorEvent?.frame.canId
@@ -933,64 +974,74 @@ export default function CanPracticeOnlyPage() {
 
   return (
     <main className="canlab canlab--embedded" aria-label="정상 CAN 메시지 송수신 실습">
-      <aside className="canlab__sidebar">
-        <div className="canlab__brand">
-          <strong>CANLite</strong>
-          <span>LOCAL LAB</span>
-        </div>
-        <div className="canlab__side-progress" aria-label="학습 진행률">
-          <i style={{ width: `${Math.max(progress, 25)}%` }} />
-          <span>{progress}%</span>
-        </div>
-        <nav className="canlab__nav" aria-label="CAN 실습 탐색">
-          <p>CAN 실습</p>
-          <a className="is-active" href="#practice">
-            <TerminalWindow size={18} />
-            정상 CAN 송수신
-          </a>
-          <a href="#terminal" onClick={() => setActiveTab("terminal")}>
-            <Code size={18} />
-            명령 입력
-          </a>
-          <a href="#monitor" onClick={() => setActiveTab("monitor")}>
-            <Monitor size={18} />
-            CAN Monitor
-          </a>
-          <a href="#topology">
-            <Network size={18} />
-            ECU 맵
-          </a>
-        </nav>
-        <div className="canlab__side-note">
-          <Keyboard size={18} />
-          <p>
-            <strong>Local CAN Adapter</strong>
-            Terminal의 제한 명령은 FastAPI로 CAN frame을 보내며 실제 셸을 실행하지 않습니다.
-          </p>
-        </div>
-      </aside>
-
       <section className="canlab__shell" id="practice">
-        <header className="canlab__header">
-          <div className="canlab__crumb">
-            <span>홈</span>
-            <CaretRight size={13} />
-            <span>CAN 실습</span>
-            <CaretRight size={13} />
-            <strong>정상 CAN 메시지 송수신</strong>
-          </div>
-          <div className="canlab__header-status">
-            <span>
-              <i /> {canStreamStatus === "open" ? "FastAPI 연결됨" : "CAN 연결 대기"}
-            </span>
-            <button type="button" aria-label="실습 메뉴">
-              <List size={19} />
-            </button>
-          </div>
-        </header>
+        {layoutVersion === "v2" && !v2IntroComplete ? (
+          <section className="canlab__intro-page" aria-labelledby="canlab-intro-title">
+            <div className="canlab__intro-header">
+              <span className="canlab__section-kicker">VERSION 2 · INTRODUCTION</span>
+              <h1 id="canlab-intro-title">정상 CAN 메시지 송수신</h1>
+              <p>
+                실습에 들어가기 전에 CAN 메시지가 차량 네트워크를 어떻게 통과하는지 먼저 확인합니다.
+                다음 화면에서 터미널 명령을 입력하고 3D 경로의 변화를 직접 관찰합니다.
+              </p>
+            </div>
 
-        <div className="canlab__layout">
-          <section className="canlab__workbench" aria-label="CAN 실습 작업 영역">
+            <div className="canlab__intro-grid">
+              <section className="canlab__intro-flow" aria-label="CAN 메시지 흐름">
+                <span className="canlab__intro-label">MESSAGE FLOW</span>
+                <div className="canlab__flow-track">
+                  <strong>Terminal</strong>
+                  <CaretRight size={18} />
+                  <strong>Gateway ECU</strong>
+                  <CaretRight size={18} />
+                  <strong>Target ECU</strong>
+                </div>
+                <p>
+                  CAN ID가 게이트웨이의 필터를 통과하면 해당 ECU로 전달되고, 같은 Event가 Monitor와 3D 경로에 표시됩니다.
+                </p>
+              </section>
+
+              <section className="canlab__intro-objectives" aria-labelledby="canlab-intro-objectives-title">
+                <span className="canlab__intro-label">LEARNING OBJECTIVES</span>
+                <h2 id="canlab-intro-objectives-title">이번 실습에서 확인할 것</h2>
+                <ol>
+                  <li>정상 프레임의 CAN ID, DLC, DATA를 구분합니다.</li>
+                  <li>Gateway ECU가 목적지 ECU로 메시지를 라우팅하는 구조를 이해합니다.</li>
+                  <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로에 공통 반영되는 것을 확인합니다.</li>
+                </ol>
+              </section>
+            </div>
+
+            <footer className="canlab__intro-footer">
+              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
+              <button className="canlab__intro-next" type="button" onClick={() => setV2IntroComplete(true)}>
+                실습 시작 <CaretRight size={16} weight="bold" />
+              </button>
+            </footer>
+          </section>
+        ) : (
+          <div className={`canlab__layout canlab__layout--${layoutVersion}`}>
+            <div className="canlab__workspace-tools">
+              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
+              <label className="canlab__pane-size-control">
+                <span>화면 비율</span>
+                <input
+                  type="range"
+                  min="40"
+                  max="70"
+                  step="1"
+                  value={vehiclePaneRatio}
+                  onChange={(event) => setVehiclePaneRatio(Number(event.target.value))}
+                  aria-label="차량 화면 너비"
+                />
+                <output>{vehiclePaneRatio}% 차량 · {100 - vehiclePaneRatio}% 터미널</output>
+              </label>
+            </div>
+            <section
+              className="canlab__workbench"
+              aria-label="CAN 실습 작업 영역"
+              style={{ "--vehicle-pane-width": `${vehiclePaneRatio}%` } as CSSProperties}
+            >
             <section className="canlab__vehicle-panel">
               <div className="canlab__panel-bar">
                 <div>
@@ -1034,7 +1085,7 @@ export default function CanPracticeOnlyPage() {
                 </div>
               </div>
 
-              <div className="canlab__vehicle-stage">
+              <div className="canlab__vehicle-stage canlab__vehicle-stage--large">
                 <VehicleCanvas
                   autoRotate={autoRotate && !reducedMotion}
                   overviewRevision={overviewRevision}
@@ -1047,6 +1098,7 @@ export default function CanPracticeOnlyPage() {
                   selectedModuleId={previewModuleId}
                   onSelectModule={handleSelectModule}
                 />
+
                 <div className="canlab__vehicle-badge">
                   <Cube size={14} /> 교육용 Toy Car · GLB
                 </div>
@@ -1090,305 +1142,337 @@ export default function CanPracticeOnlyPage() {
               </div>
             </section>
 
-            <section className="canlab__console" id="terminal" aria-label="CAN 터미널">
-              <div className="canlab__tabs" id="monitor" role="tablist" aria-label="실습 결과 보기">
-                {consoleTabs.map(({ id, label, icon: Icon }) => (
-                  <button
-                    aria-selected={activeTab === id}
-                    aria-controls={`canlab-panel-${id}`}
-                    className={activeTab === id ? "is-active" : ""}
-                    id={`canlab-tab-${id}`}
-                    key={id}
-                    onClick={() => setActiveTab(id)}
-                    role="tab"
-                    type="button"
-                  >
-                    <Icon size={15} /> {label}
-                  </button>
-                ))}
-              </div>
-
-              {activeTab === "terminal" && (
-                <div
-                  aria-labelledby="canlab-tab-terminal"
-                  className="canlab__terminal-pane"
-                  id="canlab-panel-terminal"
-                  role="tabpanel"
-                >
-                  <div className="canlab__console-toolbar">
-                    <strong>Terminal</strong>
-                    <span className={`canlab__terminal-status is-${canStreamStatus === "open" ? "connected" : "connecting"}`}>
-                      <i />
-                      {canStreamStatus === "open" ? "CAN 이벤트 스트림 연결됨" : "CAN 이벤트 스트림 연결 중"}
-                    </span>
-                    <button type="button" onClick={() => setTerminalClearSignal((value) => value + 1)}>
-                      화면 비우기
+            {/* 2열 실습 화면: 차량은 왼쪽, 터미널은 오른쪽에 고정한다. */}
+            <div className="canlab__bottom-row">
+              <section className="canlab__console" id="terminal" aria-label="CAN 터미널">
+                <div className="canlab__tabs" id="monitor" role="tablist" aria-label="실습 결과 보기">
+                  {consoleTabs.map(({ id, label, icon: Icon }) => (
+                    <button
+                      aria-selected={activeTab === id}
+                      aria-controls={`canlab-panel-${id}`}
+                      className={activeTab === id ? "is-active" : ""}
+                      id={`canlab-tab-${id}`}
+                      key={id}
+                      onClick={() => setActiveTab(id)}
+                      role="tab"
+                      type="button"
+                    >
+                      <Icon size={15} /> {label}
                     </button>
-                  </div>
-
-                  <CanCommandTerminal
-                    clearSignal={terminalClearSignal}
-                    onCommand={submitTerminalCommand}
-                  />
+                  ))}
                 </div>
-              )}
 
-              {activeTab === "monitor" && (
-                <div
-                  aria-labelledby="canlab-tab-monitor"
-                  className="canlab__data-pane"
-                  id="canlab-panel-monitor"
-                  role="tabpanel"
-                >
-                  <div>
-                    <strong>vcan0 Recent Frames</strong>
-                    <span>{activeVisualization.busStatus}</span>
-                  </div>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Time</th>
-                        <th>Source</th>
-                        <th>CAN ID</th>
-                        <th>DLC</th>
-                        <th>DATA</th>
-                        <th>Target ECU</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {monitorFrames.map((event) => {
-                        const frame = getFrameSummary(event)
-                        return (
-                          <tr
-                            key={event.eventId}
-                            className={`canlab__monitor-row${selectedEventId === event.eventId ? " is-selected" : ""}`}
-                            onClick={() => handleSelectEvent(event.eventId)}
-                          >
-                            <td>{frame.time}</td>
-                            <td>{frame.source}</td>
-                            <td>{frame.canId}</td>
-                            <td>{frame.dlc}</td>
-                            <td>{frame.data}</td>
-                            <td>{frame.target}</td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                  {monitorFrames.length === 0 && (
-                    <p className="canlab__empty-state">
-                      아직 생성된 CAN Event가 없습니다. Terminal 탭의 Mock 명령을 실행해 이벤트를 추가하세요.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "inspector" && (
-                <div
-                  aria-labelledby="canlab-tab-inspector"
-                  className="canlab__data-pane canlab__inspector-pane"
-                  id="canlab-panel-inspector"
-                  role="tabpanel"
-                >
-                  {inspectorEvent ? (
-                    <>
-                      <header className="canlab__inspector-header">
-                        <strong>Frame {inspectorEvent.frame.canId}</strong>
-                        <span>{getEventUi(inspectorEvent)?.ui.title ?? "Selected CAN Event"}</span>
-                      </header>
-                      <section className="canlab__inspector-section canlab__inspector-frame">
-                        <h3>CAN Frame</h3>
-                        <div className="canlab__inspector-summary" aria-label="CAN frame summary">
-                          <div><span>CAN ID</span><strong>{inspectorEvent.frame.canId}</strong></div>
-                          <div><span>DLC</span><strong>{inspectorEvent.frame.dlc}</strong></div>
-                          <div><span>DATA</span><strong>{formatData(inspectorEvent.frame.data)}</strong></div>
-                          <div><span>Channel</span><strong>{inspectorEvent.channel}</strong></div>
-                        </div>
-                        <div className="canlab__frame-layout" aria-label="Classical CAN Frame structure">
-                          <span>SOF</span>
-                          <strong>{inspectorEvent.frame.canId}</strong>
-                          <span>RTR</span>
-                          <span>IDE</span>
-                          <strong>{inspectorEvent.frame.dlc}</strong>
-                          <strong>{formatData(inspectorEvent.frame.data)}</strong>
-                          <span>CRC</span>
-                          <span>ACK</span>
-                          <span>EOF</span>
-                        </div>
-                      </section>
-                      <section className="canlab__inspector-section canlab__inspector-context">
-                        <h3>Simulation Context</h3>
-                        <div className="canlab__route-diagram">
-                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.source)}</div>
-                          <div className="canlab__route-link"><span>CAN Bus</span></div>
-                          <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.target)}</div>
-                        </div>
-                        <div className="canlab__route-action">
-                          <strong>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</strong>
-                          <span>{inspectorEvent.context.meaning ?? "-"} · {inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</span>
-                        </div>
-                      </section>
-                      <section className="canlab__inspector-section canlab__inspector-processing">
-                        <h3>Processing</h3>
-                        <div className="canlab__processing-status">
-                          <span>Filter <strong>{inspectorEvent.processing?.filterResult ?? "-"}</strong></span>
-                          <span>IDS <strong>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</strong></span>
-                          <span>Result <strong>{inspectorEvent.processing?.executionResult ?? "-"}</strong></span>
-                          <span>Origin <strong>{inspectorEvent.origin}</strong></span>
-                        </div>
-                      </section>
-                    </>
-                  ) : (
-                    <div className="canlab__inspector-placeholder">
-                      <strong>선택된 CAN Event가 없습니다.</strong>
-                      <p>
-                        Terminal에서 이벤트를 생성하거나 CAN Monitor에서 행을 클릭하면 같은 Event 객체를 기준으로
-                        Inspector와 3D highlight가 함께 바뀝니다.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </section>
-          </section>
-
-          <aside className="canlab__guide" aria-label="실습 안내">
-            <button
-              type="button"
-              className="canlab__guide-top"
-              aria-expanded={guideOpen}
-              onClick={() => setGuideOpen((value) => !value)}
-            >
-              <span>
-                <strong>정상 CAN 메시지 송수신(중앙 집중형 게이트웨이 아키텍처)</strong>
-                <small>다음 단계 · {currentGuideStep?.title}</small>
-              </span>
-              <CaretDown size={16} />
-            </button>
-
-            <div className="canlab__guide-body" hidden={!guideOpen}>
-              <div className="canlab__guide-progress">
-                <span>진행률</span>
-                <b>{progress}%</b>
-                <i><em style={{ width: `${progress}%` }} /></i>
-              </div>
-
-              <section className="canlab__objectives">
-                <h1>학습 목표</h1>
-                <ol>
-                  <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로 강조에 공통으로 반영되는 구조를 이해한다.</li>
-                  <li>정상 프레임의 CAN ID, DLC, DATA를 확인한다.</li>
-                  <li>어떤 ECU에서 어떤 ECU로 전달되는지 3D 차량 경로에서 확인한다.</li>
-                </ol>
-              </section>
-
-              <section className="canlab__steps" aria-label="단계별 지시사항">
-                <h2>단계별 지시사항</h2>
-                {guideSteps.map((step) => {
-                  const done = completedSteps.includes(step.id)
-                  const current = activeStep === step.id && !done
-
-                  return (
-                    <article className={current ? "is-current" : done ? "is-done" : ""} key={step.id}>
-                      <button type="button" onClick={() => setActiveStep(step.id)}>
-                        <span>{done ? <Check size={13} weight="bold" /> : step.label}</span>
-                        <strong>{step.title}</strong>
-                        <CaretRight size={14} />
+                {activeTab === "terminal" && (
+                  <div
+                    aria-labelledby="canlab-tab-terminal"
+                    className="canlab__terminal-pane"
+                    id="canlab-panel-terminal"
+                    role="tabpanel"
+                  >
+                    <div className="canlab__console-toolbar">
+                      <div className="canlab__window-dots" aria-hidden="true">
+                        <span className="dot red" />
+                        <span className="dot yellow" />
+                        <span className="dot green" />
+                      </div>
+                      <strong>Terminal (vcan0)</strong>
+                      <span className={`canlab__terminal-status is-${canStreamStatus === "open" ? "connected" : "connecting"}`}>
+                        <i />
+                        {canStreamStatus === "open" ? "CAN 스트림 연결됨" : "CAN 스트림 연결 중"}
+                      </span>
+                      <button type="button" onClick={() => setTerminalClearSignal((value) => value + 1)}>
+                        화면 비우기
                       </button>
-                      {current && step.id !== "5" && (
-                        <div>
-                          <p>{step.body}</p>
-                          <small>성공 조건: 같은 Event가 Monitor, Inspector, 3D highlight에 공통으로 반영됩니다.</small>
-                          <button type="button" onClick={() => completeStep(step.id)}>
-                            단계 완료 <CaretRight size={13} weight="bold" />
-                          </button>
-                        </div>
-                      )}
-                      {current && step.id === "5" && (
-                        <div>
-                          <p>{step.body}</p>
-                          <small>퀴즈 2문제를 모두 맞히면 마지막 단계가 완료됩니다.</small>
-                          <button type="button" onClick={() => completeStep(step.id)}>
-                            퀴즈 시작 <CaretRight size={13} weight="bold" />
-                          </button>
-                        </div>
-                      )}
-                    </article>
-                  )
-                })}
-              </section>
+                    </div>
 
-              <section className="canlab__status-box">
-                <h2>현재 상태</h2>
-                <dl>
-                  <div><dt>차량 상태</dt><dd>{activeVisualization.vehicleStatus}</dd></div>
-                  <div><dt>CAN Bus</dt><dd>{activeVisualization.busStatus}</dd></div>
-                </dl>
-              </section>
+                    <div className="canlab__quick-chips" aria-label="빠른 명령 실행">
+                      <span className="canlab__quick-chip-title">빠른 명령:</span>
+                      <button
+                        type="button"
+                        className="canlab__quick-chip"
+                        onClick={() => setPendingTerminalCommand("ip link show vcan0")}
+                      >
+                        ip link show vcan0
+                      </button>
+                      <button
+                        type="button"
+                        className="canlab__quick-chip"
+                        onClick={() => setPendingTerminalCommand("candump vcan0")}
+                      >
+                        candump vcan0
+                      </button>
+                      <button
+                        type="button"
+                        className="canlab__quick-chip"
+                        onClick={() => setPendingTerminalCommand("cansend vcan0 101#00")}
+                      >
+                        cansend 101#00 (Body)
+                      </button>
+                      <button
+                        type="button"
+                        className="canlab__quick-chip"
+                        onClick={() => setPendingTerminalCommand("cansend vcan0 200#01")}
+                      >
+                        cansend 200#01 (Rear)
+                      </button>
+                    </div>
 
-              <section className="canlab__hint">
-                <h2>힌트</h2>
-                <button type="button" aria-expanded={hintOpen} onClick={() => setHintOpen((value) => !value)}>
-                  {hintOpen ? "힌트 숨기기" : "힌트 보기 (-10점)"}
-                </button>
-                {hintOpen && (
-                  <p>
-                    먼저 <code>ip link show vcan0</code>와 <code>candump vcan0</code>로 준비 상태를 확인한 뒤,
-                    허용된 <code>cansend</code> frame을 Terminal에서 전송해 보세요.
-                  </p>
+                    <CanCommandTerminal
+                      clearSignal={terminalClearSignal}
+                      onCommand={submitTerminalCommand}
+                      pendingCommand={pendingTerminalCommand}
+                      onCommandHandled={() => setPendingTerminalCommand(null)}
+                    />
+                  </div>
+                )}
+
+                {activeTab === "monitor" && (
+                  <div
+                    aria-labelledby="canlab-tab-monitor"
+                    className="canlab__data-pane"
+                    id="canlab-panel-monitor"
+                    role="tabpanel"
+                  >
+                    <div>
+                      <strong>vcan0 Recent Frames</strong>
+                      <span>{activeVisualization.busStatus}</span>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Time</th>
+                          <th>Source</th>
+                          <th>CAN ID</th>
+                          <th>DLC</th>
+                          <th>DATA</th>
+                          <th>Target ECU</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monitorFrames.map((event) => {
+                          const frame = getFrameSummary(event)
+                          return (
+                            <tr
+                              key={event.eventId}
+                              className={`canlab__monitor-row${selectedEventId === event.eventId ? " is-selected" : ""}`}
+                              onClick={() => handleSelectEvent(event.eventId)}
+                            >
+                              <td>{frame.time}</td>
+                              <td>{frame.source}</td>
+                              <td>{frame.canId}</td>
+                              <td>{frame.dlc}</td>
+                              <td>{frame.data}</td>
+                              <td>{frame.target}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {monitorFrames.length === 0 && (
+                      <p className="canlab__empty-state">
+                        아직 생성된 CAN Event가 없습니다. Terminal 탭의 Mock 명령을 실행해 이벤트를 추가하세요.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === "inspector" && (
+                  <div
+                    aria-labelledby="canlab-tab-inspector"
+                    className="canlab__data-pane canlab__inspector-pane"
+                    id="canlab-panel-inspector"
+                    role="tabpanel"
+                  >
+                    {inspectorEvent ? (
+                      <>
+                        <header className="canlab__inspector-header">
+                          <strong>Frame {inspectorEvent.frame.canId}</strong>
+                          <span>{getEventUi(inspectorEvent)?.ui.title ?? "Selected CAN Event"}</span>
+                        </header>
+                        <section className="canlab__inspector-section canlab__inspector-frame">
+                          <h3>CAN Frame</h3>
+                          <div className="canlab__inspector-summary" aria-label="CAN frame summary">
+                            <div><span>CAN ID</span><strong>{inspectorEvent.frame.canId}</strong></div>
+                            <div><span>DLC</span><strong>{inspectorEvent.frame.dlc}</strong></div>
+                            <div><span>DATA</span><strong>{formatData(inspectorEvent.frame.data)}</strong></div>
+                            <div><span>Channel</span><strong>{inspectorEvent.channel}</strong></div>
+                          </div>
+                          <div className="canlab__frame-layout" aria-label="Classical CAN Frame structure">
+                            <span>SOF</span>
+                            <strong>{inspectorEvent.frame.canId}</strong>
+                            <span>RTR</span>
+                            <span>IDE</span>
+                            <strong>{inspectorEvent.frame.dlc}</strong>
+                            <strong>{formatData(inspectorEvent.frame.data)}</strong>
+                            <span>CRC</span>
+                            <span>ACK</span>
+                            <span>EOF</span>
+                          </div>
+                        </section>
+                        <section className="canlab__inspector-section canlab__inspector-context">
+                          <h3>Simulation Context</h3>
+                          <div className="canlab__route-diagram">
+                            <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.source)}</div>
+                            <div className="canlab__route-link"><span>CAN Bus</span></div>
+                            <div className="canlab__route-node">{getNodeLabel(inspectorEvent.context.target)}</div>
+                          </div>
+                          <div className="canlab__route-action">
+                            <strong>{inspectorEvent.context.action ?? inspectorCatalogEntry?.action ?? "-"}</strong>
+                            <span>{inspectorEvent.context.meaning ?? "-"} · {inspectorEvent.context.route?.map(getNodeLabel).join(" -> ") ?? "-"}</span>
+                          </div>
+                        </section>
+                        <section className="canlab__inspector-section canlab__inspector-processing">
+                          <h3>Processing</h3>
+                          <div className="canlab__processing-status">
+                            <span>Filter <strong>{inspectorEvent.processing?.filterResult ?? "-"}</strong></span>
+                            <span>IDS <strong>{inspectorEvent.monitoring?.status ?? "NOT_MONITORED"}</strong></span>
+                            <span>Result <strong>{inspectorEvent.processing?.executionResult ?? "-"}</strong></span>
+                            <span>Origin <strong>{inspectorEvent.origin}</strong></span>
+                          </div>
+                        </section>
+                      </>
+                    ) : (
+                      <div className="canlab__inspector-placeholder">
+                        <strong>선택된 CAN Event가 없습니다.</strong>
+                        <p>
+                          Terminal에서 이벤트를 생성하거나 CAN Monitor에서 행을 클릭하면 같은 Event 객체를 기준으로
+                          Inspector와 3D highlight가 함께 바뀝니다.
+                        </p>
+                      </div>
+                    )}
+                  </div>
                 )}
               </section>
 
-              {quizOpen && (
-                <section className="canlab__quiz-popup" role="dialog" aria-modal="true" aria-labelledby="canlab-quiz-title">
-                  <div className="canlab__quiz-card">
-                    <div className="canlab__quiz-header">
-                      <strong id="canlab-quiz-title">5단계 마무리 퀴즈</strong>
-                      <button type="button" onClick={() => setQuizOpen(false)}>
-                        닫기
-                      </button>
-                    </div>
-                    <div className="canlab__quiz-body">
-                      {quizQuestions.map((question, index) => (
-                        <fieldset key={question.id} className="canlab__quiz-question">
-                          <legend>{index + 1}. {question.prompt}</legend>
-                          {question.options.map((option) => (
-                            <label key={option}>
-                              <input
-                                type="radio"
-                                name={question.id}
-                                checked={quizAnswers[question.id] === option}
-                                onChange={() =>
-                                  setQuizAnswers((current) => ({
-                                    ...current,
-                                    [question.id]: option,
-                                  }))
-                                }
-                              />
-                              <span>{option}</span>
-                            </label>
-                          ))}
-                        </fieldset>
-                      ))}
-                    </div>
-                    <div className="canlab__quiz-footer">
-                      {quizSubmitted && (
-                        <p className={quizPassed ? "is-success" : "is-warning"}>
-                          {quizPassed
-                            ? "정답입니다. 5단계가 완료되었습니다."
-                            : `정답 ${quizScore}/${quizQuestions.length}. 다시 확인해보세요.`}
-                        </p>
-                      )}
-                      <button type="button" onClick={submitQuiz}>
-                        퀴즈 제출
-                      </button>
-                    </div>
-                  </div>
+              <aside className="canlab__bottom-guide" aria-hidden="true">
+                <div className="canlab__guide-progress">
+                  <span>진행률</span>
+                  <b>{progress}%</b>
+                  <i><em style={{ width: `${progress}%` }} /></i>
+                </div>
+
+                {/* 버전 1: 학습 목표와 단계 지시사항을 한 패널에 함께 표시 */}
+                {layoutVersion === "v1" && (
+                  <section className="canlab__objectives">
+                    <h1>학습 목표</h1>
+                    <ol>
+                      <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로 강조에 공통 반영되는 구조를 이해한다.</li>
+                      <li>정상 프레임의 CAN ID, DLC, DATA를 확인한다.</li>
+                      <li>어떤 ECU에서 어떤 ECU로 전달되는지 3D 차량 경로에서 확인한다.</li>
+                    </ol>
+                  </section>
+                )}
+
+                {/* 단계별 지시사항 (버전 1 & 버전 2 공통) */}
+                <section className="canlab__steps" aria-label="단계별 지시사항">
+                  <h2>{layoutVersion === "v2" ? `단계별 지시사항 (미션 ${activeStep}/5)` : "단계별 지시사항"}</h2>
+                  {guideSteps.map((step) => {
+                    const done = completedSteps.includes(step.id)
+                    const current = activeStep === step.id && !done
+
+                    return (
+                      <article className={current ? "is-current" : done ? "is-done" : ""} key={step.id}>
+                        <button type="button" onClick={() => setActiveStep(step.id)}>
+                          <span>{done ? <Check size={13} weight="bold" /> : step.label}</span>
+                          <strong>{step.title}</strong>
+                          <CaretRight size={14} />
+                        </button>
+                        {current && step.id !== "5" && (
+                          <div>
+                            <p>{step.body}</p>
+                            <small>성공 조건: 같은 Event가 Monitor, Inspector, 3D highlight에 공통 반영됩니다.</small>
+                            <button type="button" onClick={() => completeStep(step.id)}>
+                              단계 완료 <CaretRight size={13} weight="bold" />
+                            </button>
+                          </div>
+                        )}
+                        {current && step.id === "5" && (
+                          <div>
+                            <p>{step.body}</p>
+                            <small>퀴즈 2문제를 모두 맞히면 마지막 단계가 완료됩니다.</small>
+                            <button type="button" onClick={() => completeStep(step.id)}>
+                              퀴즈 시작 <CaretRight size={13} weight="bold" />
+                            </button>
+                          </div>
+                        )}
+                      </article>
+                    )
+                  })}
                 </section>
-              )}
+
+                <section className="canlab__status-box">
+                  <h2>현재 상태</h2>
+                  <dl>
+                    <div><dt>차량 상태</dt><dd>{activeVisualization.vehicleStatus}</dd></div>
+                    <div><dt>CAN Bus</dt><dd>{activeVisualization.busStatus}</dd></div>
+                  </dl>
+                </section>
+
+                <section className="canlab__hint">
+                  <h2>힌트</h2>
+                  <button type="button" aria-expanded={hintOpen} onClick={() => setHintOpen((value) => !value)}>
+                    {hintOpen ? "힌트 숨기기" : "힌트 보기 (-10점)"}
+                  </button>
+                  {hintOpen && (
+                    <p>
+                      먼저 <code>ip link show vcan0</code>와 <code>candump vcan0</code>로 준비 상태를 확인한 뒤,
+                      허용된 <code>cansend</code> frame을 Terminal에서 전송해 보세요.
+                    </p>
+                  )}
+                </section>
+
+                {quizOpen && (
+                  <section className="canlab__quiz-popup" role="dialog" aria-modal="true" aria-labelledby="canlab-quiz-title">
+                    <div className="canlab__quiz-card">
+                      <div className="canlab__quiz-header">
+                        <strong id="canlab-quiz-title">5단계 마무리 퀴즈</strong>
+                        <button type="button" onClick={() => setQuizOpen(false)}>
+                          닫기
+                        </button>
+                      </div>
+                      <div className="canlab__quiz-body">
+                        {quizQuestions.map((question, index) => (
+                          <fieldset key={question.id} className="canlab__quiz-question">
+                            <legend>{index + 1}. {question.prompt}</legend>
+                            {question.options.map((option) => (
+                              <label key={option}>
+                                <input
+                                  type="radio"
+                                  name={question.id}
+                                  checked={quizAnswers[question.id] === option}
+                                  onChange={() =>
+                                    setQuizAnswers((current) => ({
+                                      ...current,
+                                      [question.id]: option,
+                                    }))
+                                  }
+                                />
+                                <span>{option}</span>
+                              </label>
+                            ))}
+                          </fieldset>
+                        ))}
+                      </div>
+                      <div className="canlab__quiz-footer">
+                        {quizSubmitted && (
+                          <p className={quizPassed ? "is-success" : "is-warning"}>
+                            {quizPassed
+                              ? "정답입니다. 5단계가 완료되었습니다."
+                              : `정답 ${quizScore}/${quizQuestions.length}. 다시 확인해보세요.`}
+                          </p>
+                        )}
+                        <button type="button" onClick={submitQuiz}>
+                          퀴즈 제출
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+                )}
+              </aside>
             </div>
-          </aside>
-        </div>
+          </section>
+          </div>
+        )}
       </section>
     </main>
   )
