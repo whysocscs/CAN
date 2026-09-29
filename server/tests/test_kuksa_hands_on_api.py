@@ -127,6 +127,7 @@ def test_shutdown_closes_child(api, monkeypatch):
 
     _, fake = api
     monkeypatch.setattr(kuksa_hands_on, "manager", fake)
+    monkeypatch.setattr(main, "kuksa_hands_on_manager", fake)
     with TestClient(main.app) as client:
         response = client.post("/labs/repro/kuksa/session", json={"variant": "vulnerable"})
         assert response.status_code == 201
