@@ -731,7 +731,10 @@ function VehicleCanvas({
   }, [cameraView, orbitCommand])
 
   return (
-    <SharedVehicleCanvas>
+    <SharedVehicleCanvas
+      background={cameraView ? "#d1d5db" : undefined}
+      fog={!cameraView}
+    >
       <VehicleLoadBoundary>
         <Suspense
           fallback={
@@ -1021,22 +1024,24 @@ export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPage
                   <small>RIDGEX · V7.01 GLB</small>
                 </div>
                 <div className="canlab__vehicle-controls" aria-label="차량 보기 제어">
-                  <button
-                    className={showLabels ? "is-active" : ""}
-                    type="button"
-                    aria-pressed={showLabels}
-                    onClick={() => setShowLabels((value) => !value)}
-                  >
-                    <Eye size={14} /> ECU Name
-                  </button>
-                  <button
-                    className={showBus ? "is-active" : ""}
-                    type="button"
-                    aria-pressed={showBus}
-                    onClick={() => setShowBus((value) => !value)}
-                  >
-                    <Network size={14} /> CAN Bus
-                  </button>
+                  {idsScenario !== "rule-based" && <>
+                    <button
+                      className={showLabels ? "is-active" : ""}
+                      type="button"
+                      aria-pressed={showLabels}
+                      onClick={() => setShowLabels((value) => !value)}
+                    >
+                      <Eye size={14} /> ECU Name
+                    </button>
+                    <button
+                      className={showBus ? "is-active" : ""}
+                      type="button"
+                      aria-pressed={showBus}
+                      onClick={() => setShowBus((value) => !value)}
+                    >
+                      <Network size={14} /> CAN Bus
+                    </button>
+                  </>}
                   <button
                     className={autoRotate ? "is-active" : ""}
                     type="button"
@@ -1062,12 +1067,12 @@ export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPage
                   autoRotate={autoRotate && !reducedMotion}
                   overviewRevision={overviewRevision}
                   orbitCommand={orbitCommand}
-                  showLabels={showLabels}
-                  showBus={showBus}
-                  networkActive={Boolean(activeConnections.length)}
-                  activeConnections={activeConnections}
-                  activeModules={activeVisualization.activeModules}
-                  selectedModuleId={previewModuleId}
+                  showLabels={idsScenario !== "rule-based" && showLabels}
+                  showBus={idsScenario !== "rule-based" && showBus}
+                  networkActive={idsScenario !== "rule-based" && Boolean(activeConnections.length)}
+                  activeConnections={idsScenario === "rule-based" ? [] : activeConnections}
+                  activeModules={idsScenario === "rule-based" ? [] : activeVisualization.activeModules}
+                  selectedModuleId={idsScenario === "rule-based" ? null : previewModuleId}
                   onSelectModule={handleSelectModule}
                   cameraView={idsScenario === "rule-based" ? RULE_BASED_IDS_CAMERA_VIEW : undefined}
                 />

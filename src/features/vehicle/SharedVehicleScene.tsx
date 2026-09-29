@@ -155,7 +155,15 @@ export function vehicleLocalPointToWorld(
 }
 
 /** 정상 실습과 공격 실습이 공유하는 카메라·조명·렌더러 경계다. */
-export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
+export function SharedVehicleCanvas({
+  children,
+  background,
+  fog = true,
+}: {
+  children: ReactNode
+  background?: string
+  fog?: boolean
+}) {
   const camera = useMemo(
     () => ({
       position: [...NORMAL_CAN_SCENE_PRESET.camera.position] as [
@@ -187,9 +195,16 @@ export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
     >
       <color
         attach="background"
-        args={[NORMAL_CAN_SCENE_PRESET.scene.background]}
+        args={[background ?? NORMAL_CAN_SCENE_PRESET.scene.background]}
       />
-      <fog attach="fog" args={[...NORMAL_CAN_SCENE_PRESET.scene.fog]} />
+      {fog && (
+        <fog
+          attach="fog"
+          args={background
+            ? [background, NORMAL_CAN_SCENE_PRESET.scene.fog[1], NORMAL_CAN_SCENE_PRESET.scene.fog[2]]
+            : [...NORMAL_CAN_SCENE_PRESET.scene.fog]}
+        />
+      )}
       <ambientLight intensity={NORMAL_CAN_SCENE_PRESET.lights.ambient} />
       <hemisphereLight
         args={[...NORMAL_CAN_SCENE_PRESET.lights.hemisphere]}
