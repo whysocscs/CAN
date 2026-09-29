@@ -9,12 +9,22 @@ import AttackPracticePage, { type AttackRoute } from "./AttackPracticePage"
 vi.mock("../features/attack-lab/DoorAttackLabPage", () => ({
   default: () => <div>Door Attack Workbench</div>,
 }))
+vi.mock("../features/cve-labs/KuksaLabPage", () => ({ default: () => <div>KUKSA Learning Lab</div> }))
+vi.mock("../features/cve-labs/SwupdateLabPage", () => ({ default: () => <div>SWUpdate Learning Lab</div> }))
 vi.mock("../features/attack-lab/BeginnerCanAttackLabPage", () => ({
   default: ({ scenario }: { scenario: string }) => <div data-testid="beginner-lab">{scenario} interactive lab</div>,
 }))
 
 describe("AttackPracticePage route switch", () => {
   afterEach(() => cleanup())
+
+  it.each([["attacks/kuksa", "KUKSA Learning Lab"], ["attacks/swupdate", "SWUpdate Learning Lab"]] as const)("renders the dedicated %s page", (route, title) => {
+    render(<AppProvider><AttackPracticePage route={route} /></AppProvider>)
+    expect(screen.getByText(title)).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "KUKSA 권한" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "SWUpdate 업로드" })).toBeInTheDocument()
+    expect(screen.queryByText("정적 UI 미리보기")).not.toBeInTheDocument()
+  })
 
   it.each([
     ["attacks/spoofing", "spoofing interactive lab"],

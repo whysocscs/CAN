@@ -11,6 +11,8 @@ import {
 import { useApp, type Route } from "@/context/AppContext"
 import BeginnerCanAttackLabPage from "@/features/attack-lab/BeginnerCanAttackLabPage"
 import DoorAttackLabPage from "@/features/attack-lab/DoorAttackLabPage"
+import KuksaLabPage from "@/features/cve-labs/KuksaLabPage"
+import SwupdateLabPage from "@/features/cve-labs/SwupdateLabPage"
 
 export type AttackRoute = Extract<Route, `attacks/${string}`>
 
@@ -45,9 +47,11 @@ const attackTabs: Array<{ route: AttackRoute; label: string }> = [
   { route: "attacks/spoofing", label: "Spoofing" },
   { route: "attacks/replay", label: "Replay" },
   { route: "attacks/dos", label: "DoS" },
+  { route: "attacks/kuksa", label: "KUKSA 권한" },
+  { route: "attacks/swupdate", label: "SWUpdate 업로드" },
 ]
 
-const scenarios: Record<AttackRoute, AttackScenario> = {
+const scenarios: Record<Exclude<AttackRoute, "attacks/kuksa" | "attacks/swupdate">, AttackScenario> = {
   "attacks/chain": {
     title: "전체 공격 체인",
     description:
@@ -532,6 +536,12 @@ function EvidenceLedger({ scenario }: { scenario: AttackScenario }) {
 }
 
 export default function AttackPracticePage({ route }: { route: AttackRoute }) {
+  if (route === "attacks/kuksa" || route === "attacks/swupdate") {
+    return <main className="attack-preview attack-preview--door-lab">
+      <ScenarioTabs current={route} />
+      {route === "attacks/kuksa" ? <KuksaLabPage key={route} /> : <SwupdateLabPage key={route} />}
+    </main>
+  }
   if (route === "attacks/chain") {
     return (
       <main className="attack-preview attack-preview--door-lab">

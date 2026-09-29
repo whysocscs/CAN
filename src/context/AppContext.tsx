@@ -8,7 +8,7 @@ import {
 } from "react"
 import { designVersion } from "../design/version"
 
-export type Route = "courses" | "dashboard" | "can-basics/protocol" | "can-basics/frame" | "can-basics/ecu" | "practice/normal" | "practice/sender" | "practice/monitor" | "attacks/chain" | "attacks/spoofing" | "attacks/replay" | "attacks/dos" | "ids/unknown-id" | "ids/frequency" | "ids/payload-jump" | "ids/dos-detection" | "ids/gateway" | "results" | "badges" | "profile" | "models" | "settings" | "about"
+export type Route = "courses" | "dashboard" | "can-basics/protocol" | "can-basics/frame" | "can-basics/ecu" | "practice/normal" | "practice/sender" | "practice/monitor" | "attacks/chain" | "attacks/spoofing" | "attacks/replay" | "attacks/dos" | "attacks/kuksa" | "attacks/swupdate" | "ids/unknown-id" | "ids/frequency" | "ids/payload-jump" | "ids/dos-detection" | "ids/gateway" | "results" | "badges" | "profile" | "models" | "settings" | "about"
 
 export interface BadgeInfo {
   id: string

@@ -127,6 +127,8 @@ const navItems: NavItem[] = [
         route: "attacks/replay",
       },
       { id: "attacks/dos", label: "DoS", icon: "attack", route: "attacks/dos" },
+      { id: "attacks/kuksa", label: "KUKSA 권한", icon: "attack", route: "attacks/kuksa" },
+      { id: "attacks/swupdate", label: "SWUpdate 업로드", icon: "attack", route: "attacks/swupdate" },
     ],
   },
   {
@@ -376,7 +378,7 @@ export default function DesignedSidebar() {
         />
         {item.children && expanded && (
           <div className="designed-nav__children">
-            {item.children.map((child) => (
+            {item.children.filter(child => designVersion === "ver4" || (child.id !== "attacks/kuksa" && child.id !== "attacks/swupdate")).map((child) => (
               <NavButton
                 key={child.id}
                 item={child}
