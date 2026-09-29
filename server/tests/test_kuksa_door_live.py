@@ -74,6 +74,16 @@ def test_stdout_is_one_event_per_command():
         )
 
 
+def test_client_stdout_reader_bounds_a_single_line():
+    import io
+    import queue
+    from repro.kuksa_door_session import MAX_PROTOCOL_LINE, _relay_client_stdout
+
+    output = queue.Queue(maxsize=2)
+    _relay_client_stdout(io.StringIO("X" * (MAX_PROTOCOL_LINE + 20) + "\n"), output)
+    assert len(output.get_nowait()) == MAX_PROTOCOL_LINE + 1
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows Path conversion is the subject")
 def test_wsl_root_remains_posix_at_process_boundary(monkeypatch):
     from repro import kuksa_door_session

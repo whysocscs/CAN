@@ -130,6 +130,27 @@ def _drain_lines(stream, destination) -> None:
         stream.close()
 
 
+def _relay_client_stdout(stream, output: queue.Queue[str | None]) -> None:
+    """Do not let an untrusted client line grow without a limit in the host."""
+    try:
+        while True:
+            line = stream.readline(MAX_PROTOCOL_LINE + 1)
+            if not line:
+                break
+            try:
+                output.put(line, timeout=1)
+            except queue.Full:
+                break
+            if len(line) > MAX_PROTOCOL_LINE or not line.endswith("\n"):
+                break
+    finally:
+        stream.close()
+        try:
+            output.put(None, timeout=1)
+        except queue.Full:
+            pass
+
+
 def _stop_owned(process: subprocess.Popen | None) -> None:
     if process is None or process.poll() is not None:
         return
@@ -232,13 +253,7 @@ def serve(root: Path, variant: str) -> None:
         )
         assert client.stdout is not None and client.stderr is not None
 
-        def enqueue(line: str) -> None:
-            try:
-                output.put(line[:MAX_PROTOCOL_LINE + 1], timeout=1)
-            except queue.Full:
-                pass
-
-        threading.Thread(target=_drain_lines, args=(client.stdout, enqueue), daemon=True).start()
+        threading.Thread(target=_relay_client_stdout, args=(client.stdout, output), daemon=True).start()
         threading.Thread(target=_drain_lines, args=(client.stderr, client_error.add), daemon=True).start()
         ready = output.get(timeout=10)
         if ready != "READY\n":
