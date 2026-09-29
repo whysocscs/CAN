@@ -35,6 +35,7 @@ import {
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
+import RestrictedIdsTerminal from "@/pages/IDS_IPS_practice/RestrictedIdsTerminal"
 import { useCanVehicleStream } from "@/features/vehicle"
 import {
   SharedVehicleCanvas,
@@ -51,6 +52,13 @@ const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
 type EcuModuleId = CanNodeId
+
+// Vehicle coordinates: -X is the vehicle's left side and -Z is its rear.
+const RULE_BASED_IDS_CAMERA_VIEW = {
+  // Radius 11, azimuth 45° in the -X/-Z quadrant, elevation 30°.
+  position: [-6.74, 5.5, -6.74] as const,
+  target: [0, 0, 0] as const,
+}
 
 const guideSteps: Array<{
   id: GuideStep
@@ -697,6 +705,7 @@ function VehicleCanvas({
   activeModules,
   selectedModuleId,
   onSelectModule,
+  cameraView,
 }: {
   autoRotate: boolean
   overviewRevision: number
@@ -708,17 +717,18 @@ function VehicleCanvas({
   activeModules: EcuModuleId[]
   selectedModuleId: EcuModuleId | null
   onSelectModule: (id: EcuModuleId) => void
+  cameraView?: typeof RULE_BASED_IDS_CAMERA_VIEW
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
 
   useEffect(() => {
-    if (orbitCommand.id === 0 || !controlsRef.current) return
+    if (cameraView || orbitCommand.id === 0 || !controlsRef.current) return
     const controls = controlsRef.current
     const offset = controls.object.position.clone().sub(controls.target)
     offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), orbitCommand.angle)
     controls.object.position.copy(controls.target.clone().add(offset))
     controls.update()
-  }, [orbitCommand])
+  }, [cameraView, orbitCommand])
 
   return (
     <SharedVehicleCanvas>
@@ -733,9 +743,13 @@ function VehicleCanvas({
             </Html>
           }
         >
-          <SharedVehicleScene xray={showLabels || showBus}>
+          <SharedVehicleScene
+            xray={showLabels || showBus}
+            fixedCamera={Boolean(cameraView)}
+          >
             <SharedVehicleOverviewController
               resetRevision={overviewRevision}
+              cameraView={cameraView}
             />
             {(showLabels || showBus) && (
               <EcuVehicleNetwork
@@ -755,9 +769,13 @@ function VehicleCanvas({
       <SharedVehicleOrbitControls
         controlsRef={controlsRef}
         makeDefault
-        autoRotate={autoRotate}
+        autoRotate={cameraView ? false : autoRotate}
         autoRotateSpeed={0.64}
         enableDamping={false}
+        enabled={!cameraView}
+        enableRotate={!cameraView}
+        enableZoom={!cameraView}
+        enablePan={!cameraView}
       />
     </SharedVehicleCanvas>
   )
@@ -777,7 +795,12 @@ function useReducedMotion() {
   return reducedMotion
 }
 
-export default function CanPracticeOnlyPage() {
+interface CanPracticeOnlyPageProps {
+  idsScenario?: "rule-based" | "period-based" | "counter-status"
+  title?: string
+}
+
+export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPageProps = {}) {
   const [activeStep, setActiveStep] = useState<GuideStep>("1")
   const [completedSteps, setCompletedSteps] = useState<GuideStep[]>([])
   const [activeTab, setActiveTab] = useState<ConsoleTab>("terminal")
@@ -1046,6 +1069,7 @@ export default function CanPracticeOnlyPage() {
                   activeModules={activeVisualization.activeModules}
                   selectedModuleId={previewModuleId}
                   onSelectModule={handleSelectModule}
+                  cameraView={idsScenario === "rule-based" ? RULE_BASED_IDS_CAMERA_VIEW : undefined}
                 />
                 <div className="canlab__vehicle-badge">
                   <Cube size={14} /> 교육용 Toy Car · GLB
@@ -1126,10 +1150,14 @@ export default function CanPracticeOnlyPage() {
                     </button>
                   </div>
 
-                  <CanCommandTerminal
-                    clearSignal={terminalClearSignal}
-                    onCommand={submitTerminalCommand}
-                  />
+                  {idsScenario ? (
+                    <RestrictedIdsTerminal scenario={idsScenario} />
+                  ) : (
+                    <CanCommandTerminal
+                      clearSignal={terminalClearSignal}
+                      onCommand={submitTerminalCommand}
+                    />
+                  )}
                 </div>
               )}
 
@@ -1297,7 +1325,7 @@ export default function CanPracticeOnlyPage() {
                       </button>
                       {current && step.id !== "5" && (
                         <div>
-                          <p>{step.body}</p>
+                          <p>{idsScenario ? "" : step.body}</p>
                           <small>성공 조건: 같은 Event가 Monitor, Inspector, 3D highlight에 공통으로 반영됩니다.</small>
                           <button type="button" onClick={() => completeStep(step.id)}>
                             단계 완료 <CaretRight size={13} weight="bold" />
@@ -1306,7 +1334,7 @@ export default function CanPracticeOnlyPage() {
                       )}
                       {current && step.id === "5" && (
                         <div>
-                          <p>{step.body}</p>
+                          <p>{idsScenario ? "" : step.body}</p>
                           <small>퀴즈 2문제를 모두 맞히면 마지막 단계가 완료됩니다.</small>
                           <button type="button" onClick={() => completeStep(step.id)}>
                             퀴즈 시작 <CaretRight size={13} weight="bold" />

@@ -219,6 +219,10 @@ interface SharedVehicleOrbitControlsProps {
   enableDamping?: boolean
   dampingFactor?: number
   makeDefault?: boolean
+  enabled?: boolean
+  enableRotate?: boolean
+  enableZoom?: boolean
+  enablePan?: boolean
 }
 
 export function SharedVehicleOrbitControls({
@@ -228,6 +232,10 @@ export function SharedVehicleOrbitControls({
   enableDamping,
   dampingFactor,
   makeDefault,
+  enabled = true,
+  enableRotate,
+  enableZoom,
+  enablePan,
 }: SharedVehicleOrbitControlsProps) {
   return (
     <OrbitControls
@@ -238,6 +246,10 @@ export function SharedVehicleOrbitControls({
       enableDamping={enableDamping}
       dampingFactor={dampingFactor}
       makeDefault={makeDefault}
+      enabled={enabled}
+      enableRotate={enableRotate}
+      enableZoom={enableZoom}
+      enablePan={enablePan}
     />
   )
 }
@@ -245,9 +257,14 @@ export function SharedVehicleOrbitControls({
 export function SharedVehicleOverviewController({
   active = true,
   resetRevision,
+  cameraView,
 }: {
   active?: boolean
   resetRevision: number
+  cameraView?: {
+    position: readonly [number, number, number]
+    target: readonly [number, number, number]
+  }
 }) {
   const camera = useThree((state) => state.camera)
   const controls = useThree(
@@ -260,8 +277,8 @@ export function SharedVehicleOverviewController({
     if (!active) return
     // 이미 overview인 상태에서도 Reset 버튼은 다시 fit되어야 한다. 그래서 boolean
     // 상태 대신 호출할 때마다 증가하는 resetRevision을 effect 경계로 사용한다.
-    const position = NORMAL_CAN_SCENE_PRESET.camera.position
-    const target = NORMAL_CAN_SCENE_PRESET.camera.target
+    const position = cameraView?.position ?? NORMAL_CAN_SCENE_PRESET.camera.position
+    const target = cameraView?.target ?? NORMAL_CAN_SCENE_PRESET.camera.target
     camera.position.set(...position)
     if (controls) {
       controls.target.set(...target)
@@ -269,14 +286,15 @@ export function SharedVehicleOverviewController({
     } else {
       camera.lookAt(...target)
     }
-    bounds.refresh().reset().fit()
-  }, [active, bounds, camera, controls, resetRevision])
+    if (!cameraView) bounds.refresh().reset().fit()
+  }, [active, bounds, camera, cameraView, controls, resetRevision])
 
   return null
 }
 
 interface SharedVehicleSceneProps {
   xray: boolean
+  fixedCamera?: boolean
   children?: ReactNode
   onCentered?: () => void
   onSelectEffect?: (effectId: VehicleEffectTargetId) => void
@@ -286,7 +304,7 @@ export const SharedVehicleScene = forwardRef<
   THREE.Group,
   SharedVehicleSceneProps
 >(function SharedVehicleScene(
-  { xray, children, onCentered, onSelectEffect },
+  { xray, fixedCamera = false, children, onCentered, onSelectEffect },
   rootRef,
 ) {
   const gltf = useGLTF(SHARED_VEHICLE_MODEL_PATH)
@@ -327,7 +345,7 @@ export const SharedVehicleScene = forwardRef<
   )
 
   return (
-    <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds}>
+    <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds} fit={!fixedCamera}>
       <Center onCentered={onCentered} cacheKey={resource?.revision ?? 0}>
         <primitive object={coordinateRoot} name={coordinateRoot.name}>
           {resource && (
