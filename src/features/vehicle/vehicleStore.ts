@@ -54,7 +54,7 @@ function doorIds(side: DoorSide): PartId[] {
  *
  * 프레임 규격 (server/routers/can.py와 짝을 이룹니다)
  *   0x101  도어    data[0] 왼쪽 상태, data[1] 오른쪽 상태   (00=열림 01=닫힘)
- *   0x200  트렁크  data[0] 상태                             (01=열림 00=닫힘)
+ *   0x200  트렁크  data[0] 상태                             (00=열림 01=닫힘)
  *
  * 프레임은 명령이 아니라 상태를 싣습니다. 프레임 하나가 항상 전체 상태를
  * 담고 있어야 재접속 시 복원이 정확합니다.
@@ -69,17 +69,16 @@ const COMMAND_BINDINGS: Partial<Record<CanCommand, (
   data: string[],
 ) => boolean>> = {
   DOOR_LOCK: (data) => {
-    if (data.length !== 1 && data.length !== 2 && data.length !== 4)
-      return false
+    if (data.length !== 1) return false
     // 1바이트 구형 프레임은 양쪽 같은 값으로 해석합니다.
-    const leftDoor = openRatio(data[0])
-    const rightDoor = openRatio(data.length >= 2 ? data[1] : data[0])
-    if (leftDoor === null || rightDoor === null) return false
-    setParts({ doorL: leftDoor, doorR: rightDoor })
+    const door = openRatio(data[0])
+    if (door === null) return false
+    setParts({ doorL: door, doorR: door })
     return true
   },
   TRUNK_OPEN: (data) => {
-    setPart("tailgate", data[0] === "01" ? 1 : 0)
+    if (data.length !== 1 || (data[0] !== "00" && data[0] !== "01")) return false
+    setPart("tailgate", data[0] === "00" ? 1 : 0)
     return true
   },
 }
@@ -184,7 +183,7 @@ export const vehicle = {
     return handler(normalizeData(event.frame.data))
   },
 
-  /** 원시 프레임용. vehicle.applyFrame({ canId: "0x200", data: ["01"] }) */
+  /** 원시 프레임용. vehicle.applyFrame({ canId: "0x200", data: ["00"] }) */
   applyFrame(frame: { canId: string | number; data?: readonly string[] | string }): boolean {
     const canId = normalizeCanId(frame.canId)
     if (!canId) return false
@@ -198,7 +197,7 @@ export const vehicle = {
     return handler(normalizeData(frame.data))
   },
 
-  /** `cansend vcan0 200#01` 문자열을 그대로 받는 편의 함수 */
+  /** `cansend vcan0 200#00` 문자열을 그대로 받는 편의 함수 */
   applyCansend(line: string): boolean {
     const match = line.trim().match(/([0-9a-fA-F]{3,8})#([0-9a-fA-F]*)/)
     if (!match) return false

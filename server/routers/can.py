@@ -749,7 +749,7 @@ async def pump() -> None:
 # 프레임 규격 (프론트 vehicleStore.ts와 짝을 이룹니다)
 #
 #   0x101  도어    data[0] 왼쪽 상태, data[1] 오른쪽 상태   (00=열림 01=닫힘)
-#   0x200  트렁크  data[0] 상태                             (01=열림 00=닫힘)
+#   0x200  트렁크  data[0] 상태                             (00=열림 01=닫힘)
 #
 # 명령("왼쪽을 열어라")이 아니라 상태("왼쪽 열림, 오른쪽 닫힘")를 싣습니다.
 # 프레임 하나가 항상 전체 상태를 담고 있어야, ID별 마지막 프레임만 기억하는
@@ -809,19 +809,14 @@ async def control_door(command: DoorCommand) -> CommandResult:
     반대쪽은 직전 상태를 그대로 유지합니다.
     """
     value = _OPEN if command.action == "open" else _CLOSED
-    left, right = current_door_state()
-    if command.side in ("both", "L"):
-        left = value
-    if command.side in ("both", "R"):
-        right = value
-    data = [left, right]
+    data = [value]
     return _result(await emit(CAN_ID_DOOR, data), CAN_ID_DOOR, data)
 
 
 @router.post("/can/trunk", response_model=CommandResult, tags=["vehicle"])
 async def control_trunk(command: TrunkCommand) -> CommandResult:
     """트렁크(리프트게이트)를 여닫습니다."""
-    data = ["01" if command.action == "open" else "00"]
+    data = ["00" if command.action == "open" else "01"]
     return _result(await emit(CAN_ID_TRUNK, data), CAN_ID_TRUNK, data)
 
 

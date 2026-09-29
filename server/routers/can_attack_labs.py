@@ -95,9 +95,10 @@ def _session_or_404(scenario: str, session_id: str) -> BeginnerCanAttackSession:
 
 
 def _clear_scenario_snapshot(scenario: str) -> None:
-    from server.routers.can import clear_frame_snapshot
-
-    clear_frame_snapshot(SCENARIO_SPECS[scenario].target_can_id)
+    # Spoofing and replay now intentionally use the genuine 0x101 door ID.
+    # A lab lifecycle action must not erase an unrelated, legitimate door
+    # observation that shares that ID.
+    _ = scenario
 
 
 def _attempt_response(attempt: FrameAttempt) -> dict[str, object]:

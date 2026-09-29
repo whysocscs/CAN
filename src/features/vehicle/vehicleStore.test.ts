@@ -6,8 +6,8 @@ const doorEvent = (
   processing: CanEvent["processing"],
   frame: CanEvent["frame"] = {
     canId: "0x101",
-    dlc: 4,
-    data: ["00", "01", "13", "B7"],
+    dlc: 1,
+    data: ["00"],
   },
 ): CanEvent => ({
   eventId: "door-state",
@@ -34,10 +34,10 @@ describe("vehicle.applyCanEvent", () => {
 
   it("applies an executed 0x101 door state frame", () => {
     expect(vehicle.applyCanEvent(doorEvent({ executionResult: "EXECUTED" }))).toBe(true)
-    expect(vehicle.getState()).toEqual({ doorL: 1, doorR: 0, tailgate: 0 })
+    expect(vehicle.getState()).toEqual({ doorL: 1, doorR: 1, tailgate: 0 })
   })
 
-  it("rejects an invalid right-door state without partially opening the left door", () => {
+  it("rejects a non-single-byte state without mutation", () => {
     const before = vehicle.getState()
     const listener = vi.fn()
     const unsubscribe = vehicle.subscribe(listener)
@@ -48,7 +48,7 @@ describe("vehicle.applyCanEvent", () => {
           doorEvent({ executionResult: "EXECUTED" }, {
             canId: "0x101",
             dlc: 2,
-            data: ["00", "02"],
+            data: ["00", "01"],
           }),
         ),
       ).toBe(false)
@@ -88,11 +88,6 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
 
   it.each([
     { data: ["00"], expected: { doorL: 1, doorR: 1, tailgate: 0 } },
-    { data: ["00", "01"], expected: { doorL: 1, doorR: 0, tailgate: 0 } },
-    {
-      data: ["00", "01", "13", "B7"],
-      expected: { doorL: 1, doorR: 0, tailgate: 0 },
-    },
   ])("accepts the documented $data.length-byte shape", ({ data, expected }) => {
     expect(vehicle.applyFrame({ canId: "0x101", data })).toBe(true)
     expect(vehicle.getState()).toEqual(expected)
@@ -107,8 +102,8 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
 
   it.each([
     { label: "empty", data: [] },
-    { label: "three-byte", data: ["00", "01", "13"] },
-    { label: "five-byte", data: ["00", "01", "13", "B7", "00"] },
+    { label: "two-byte", data: ["00", "01"] },
+    { label: "four-byte", data: ["00", "01", "13", "B7"] },
   ])("rejects a $label payload without mutation", ({ data }) => {
     const before = vehicle.getState()
     const listener = vi.fn()
@@ -125,8 +120,8 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
 
   it.each([
     { label: "legacy", data: ["02"] },
-    { label: "public", data: ["00", "02"] },
-    { label: "Toy", data: ["00", "02", "13", "B7"] },
+    { label: "two-byte", data: ["00", "02"] },
+    { label: "four-byte", data: ["00", "02", "13", "B7"] },
   ])(
     "rejects an invalid state byte in a $label payload atomically",
     ({ data }) => {
@@ -145,12 +140,12 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
     },
   )
 
-  it("commits a two-door update once with only the coherent final snapshot", () => {
+  it("commits the single-byte state to both doors once", () => {
     const listener = vi.fn()
     const unsubscribe = vehicle.subscribe(listener)
 
     try {
-      expect(vehicle.applyFrame({ canId: "0x101", data: ["00", "00"] })).toBe(
+      expect(vehicle.applyFrame({ canId: "0x101", data: ["00"] })).toBe(
         true,
       )
       expect(listener).toHaveBeenCalledTimes(1)
@@ -162,5 +157,24 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
     } finally {
       unsubscribe()
     }
+  })
+})
+
+describe("vehicle.applyFrame TRUNK_OPEN validation", () => {
+  beforeEach(() => vehicle.reset())
+
+  it("uses 00 for open and 01 for closed", () => {
+    expect(vehicle.applyFrame({ canId: "0x200", data: ["00"] })).toBe(true)
+    expect(vehicle.getState().tailgate).toBe(1)
+
+    expect(vehicle.applyFrame({ canId: "0x200", data: ["01"] })).toBe(true)
+    expect(vehicle.getState().tailgate).toBe(0)
+  })
+
+  it("rejects malformed trunk payloads", () => {
+    expect(vehicle.applyFrame({ canId: "0x200", data: [] })).toBe(false)
+    expect(vehicle.applyFrame({ canId: "0x200", data: ["02"] })).toBe(false)
+    expect(vehicle.applyFrame({ canId: "0x200", data: ["00", "00"] })).toBe(false)
+    expect(vehicle.getState().tailgate).toBe(0)
   })
 })
