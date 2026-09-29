@@ -9,7 +9,7 @@ CANLite는 자동차 보안 입문자가 CAN 프레임과 ECU 흐름을 학습�
 - FastAPI 기반 loopback CAN event stream
 - in-memory Toy ECU/Toy IDS 기반 Door, Spoofing, Replay 실습
 - 제한 명령만 해석하는 공격 실습용 virtual terminal
-- KUKSA 권한·3D 계기판 / SWUpdate 길이 계산 교육 모델 (실제 제품 PoC 아님)
+- KUKSA 원본 gRPC 권한 실습·3D 계기판, SWUpdate 원본 multipart 요청 비교·3D 업로드 모듈 (로컬 WSL 빌드 필요)
 - localhost 전용 Docker Compose 패키징
 
 SQLite, 사용자 인증/진도 영속화, 실제 차량·물리 CAN 검증, OEM IDS, RCE/LPE 실습은 현재 범위에 포함되지 않는다.
@@ -35,7 +35,9 @@ docker compose down
 - 학습자·개발자 로드맵(정답지 아님, Classical CAN frame 구조만 아는 학습자의 첫 시작점): [CANLite Zero-to-Lab 학습 로드맵](docs/learning/canlite-zero-to-lab-roadmap.md)
 - 학습자용(정답 없음): [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)
 - 학습자용(정답 없음): [CAN Spoofing·Replay 기초 실습 가이드](docs/labs/can-spoofing-replay-basics.md)
-- 구현·검증 기록: [KUKSA / SWUpdate 교육 실습](docs/labs/cve-education-labs.md)
+- 현재 실습 순서: [KUKSA 문 신호](docs/labs/kuksa-hands-on.md), [SWUpdate multipart](docs/labs/swupdate-hands-on.md)
+- 초기 구현·검증 이력: [KUKSA / SWUpdate 교육 모델](docs/labs/cve-education-labs.md)
+- 원본 소스부터 재준비: [WSL KUKSA·SWUpdate 빌드 절차](docs/labs/cve-upstream-build.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN 공격 실습 빠른 통과표](docs/instructors/can-attack-lab-quick-pass.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN Attack Lab 검증 가이드](docs/instructors/can-attack-lab-validation.md)
 
@@ -61,10 +63,10 @@ corepack pnpm@10.34.3 exec vite --host 127.0.0.1 --port 8447 --mode ver4
 개발 화면은 `http://127.0.0.1:8447`이다.
 
 ver4의 **공격 실습 → KUKSA 권한 / SWUpdate 업로드**에서 새 실습을 실행한다.
-두 실습에는 실제 터미널이 필요 없다. 서버 실행 전
+현재 두 화면은 원본 프로그램에 제한된 요청을 직접 보내는 실습이다. WSL에 KUKSA·SWUpdate 원본/패치 빌드와 해당 환경 변수 설정이 필요하며, Docker Compose 기본 실행에는 이 빌드가 없어 실물 실습은 준비 오류를 표시한다. [원본 빌드 절차](docs/labs/cve-upstream-build.md)와 각 실습 문서를 따른다. 웹 기반 가상 터미널은 필요 없다. 서버 실행 전
 `$env:CANLITE_ENABLE_REAL_TERMINAL = "false"`, 프론트 실행 전
 `$env:VITE_ENABLE_REAL_TERMINAL = "false"`를 지정한다.
-세션은 메모리에만 저장되며 서버 재시작·페이지 이동 후 새로 시작한다.
+KUKSA 세션은 서버 메모리에만 있고 SWUpdate는 요청마다 별도 프로세스를 실행·종료한다. 두 화면 모두 실제 차량·물리 CAN에는 연결하지 않는다.
 
 ## 터미널 두 종류
 
