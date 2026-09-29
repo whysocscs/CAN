@@ -1042,23 +1042,25 @@ export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPage
                       <Network size={14} /> CAN Bus
                     </button>
                   </>}
-                  <button
-                    className={autoRotate ? "is-active" : ""}
-                    type="button"
-                    aria-pressed={autoRotate}
-                    disabled={reducedMotion}
-                    onClick={() => setAutoRotate((value) => !value)}
-                  >
-                    <Play size={13} weight="fill" /> {reducedMotion ? "회전 없음" : "회전"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setOverviewRevision((revision) => revision + 1)
-                    }
-                  >
-                    <ArrowClockwise size={15} /> Reset View
-                  </button>
+                  {idsScenario !== "rule-based" && <>
+                    <button
+                      className={autoRotate ? "is-active" : ""}
+                      type="button"
+                      aria-pressed={autoRotate}
+                      disabled={reducedMotion}
+                      onClick={() => setAutoRotate((value) => !value)}
+                    >
+                      <Play size={13} weight="fill" /> {reducedMotion ? "회전 없음" : "회전"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOverviewRevision((revision) => revision + 1)
+                      }
+                    >
+                      <ArrowClockwise size={15} /> Reset View
+                    </button>
+                  </>}
                 </div>
               </div>
 
@@ -1079,7 +1081,7 @@ export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPage
                 <div className="canlab__vehicle-badge">
                   <Cube size={14} /> 교육용 Toy Car · GLB
                 </div>
-                <div className="canlab__orbit-buttons" aria-label="모델 회전">
+                {idsScenario !== "rule-based" && <div className="canlab__orbit-buttons" aria-label="모델 회전">
                   <button
                     type="button"
                     aria-label="모델을 왼쪽으로 회전"
@@ -1104,15 +1106,15 @@ export default function CanPracticeOnlyPage({ idsScenario }: CanPracticeOnlyPage
                   >
                     <ArrowClockwise size={16} />
                   </button>
-                </div>
-                <div className="canlab__vehicle-actions" aria-live="polite">
+                </div>}
+                {idsScenario !== "rule-based" && <div className="canlab__vehicle-actions" aria-live="polite">
                   <strong>{activeVisualization.title}</strong>
                   <ul>
                     {activeVisualization.effects.map((effect) => (
                       <li key={effect}>{effect}</li>
                     ))}
                   </ul>
-                </div>
+                </div>}
                 <div className="canlab__vehicle-state canlab__vehicle-state--dynamic">
                   <i /> {activeVisualization.vehicleStatus}
                 </div>
