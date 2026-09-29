@@ -11,6 +11,7 @@ from server.routers.can_attack_labs import router as can_attack_labs_router
 from server.routers.cve_labs import router as cve_labs_router
 from server.routers.kuksa_hands_on import manager as kuksa_hands_on_manager, router as kuksa_hands_on_router
 from server.routers.labs import router as labs_router
+from server.routers.swupdate_repro import router as swupdate_repro_router
 from server.routers.terminal import ALLOWED_ORIGINS, router as terminal_router
 
 
@@ -39,3 +40,4 @@ app.include_router(labs_router)
 app.include_router(can_attack_labs_router)
 app.include_router(cve_labs_router)
 app.include_router(kuksa_hands_on_router)
+app.include_router(swupdate_repro_router)
