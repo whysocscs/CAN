@@ -36,7 +36,11 @@ import {
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import { useCanVehicleStream } from "@/features/vehicle"
+import {
+  useCanVehicleStream,
+  useSelectedVehicleModel,
+  VehicleModelSelector,
+} from "@/features/vehicle"
 import {
   SharedVehicleCanvas,
   SharedVehicleOverviewController,
@@ -52,37 +56,6 @@ const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
 type EcuModuleId = CanNodeId
-type LayoutVersion = "v1" | "v2"
-
-function LayoutVersionSelector({
-  value,
-  onChange,
-}: {
-  value: LayoutVersion
-  onChange: (version: LayoutVersion) => void
-}) {
-  return (
-    <div className="canlab__layout-selector" aria-label="실습 버전 선택">
-      <span>실습 버전</span>
-      <button
-        type="button"
-        className={value === "v1" ? "is-active" : ""}
-        onClick={() => onChange("v1")}
-        title="버전 1: 설명 없이 바로 실습 화면으로 이동"
-      >
-        버전 1 · 바로 실습
-      </button>
-      <button
-        type="button"
-        className={value === "v2" ? "is-active" : ""}
-        onClick={() => onChange("v2")}
-        title="버전 2: 설명 페이지를 먼저 확인한 뒤 실습 화면으로 이동"
-      >
-        버전 2 · 설명 후 실습
-      </button>
-    </div>
-  )
-}
 
 const guideSteps: Array<{
   id: GuideStep
@@ -816,7 +789,6 @@ export default function CanPracticeOnlyPage() {
   const [showLabels, setShowLabels] = useState(true)
   const [showBus, setShowBus] = useState(true)
   const [autoRotate, setAutoRotate] = useState(false)
-  const [layoutVersion, setLayoutVersion] = useState<LayoutVersion>("v1")
   const [v2IntroComplete, setV2IntroComplete] = useState(false)
   const [vehiclePaneRatio, setVehiclePaneRatio] = useState(58)
   const [overviewRevision, setOverviewRevision] = useState(0)
@@ -834,6 +806,7 @@ export default function CanPracticeOnlyPage() {
     () => typeof window === "undefined" || window.innerWidth > 800,
   )
   const reducedMotion = useReducedMotion()
+  const selectedModel = useSelectedVehicleModel()
 
   const progress = Math.round((completedSteps.length / guideSteps.length) * 100)
   const selectedEvent = events.find((event) => event.eventId === selectedEventId) ?? null
@@ -961,11 +934,6 @@ export default function CanPracticeOnlyPage() {
     setActiveTab("inspector")
   }
 
-  const handleLayoutVersionChange = (version: LayoutVersion) => {
-    setLayoutVersion(version)
-    if (version === "v2") setV2IntroComplete(false)
-  }
-
   const currentGuideStep = guideSteps.find((step) => step.id === activeStep)
   const inspectorEvent = selectedEvent
   const inspectorCatalogEntry = inspectorEvent?.frame.canId
@@ -975,7 +943,7 @@ export default function CanPracticeOnlyPage() {
   return (
     <main className="canlab canlab--embedded" aria-label="정상 CAN 메시지 송수신 실습">
       <section className="canlab__shell" id="practice">
-        {layoutVersion === "v2" && !v2IntroComplete ? (
+        {!v2IntroComplete ? (
           <section className="canlab__intro-page" aria-labelledby="canlab-intro-title">
             <div className="canlab__intro-header">
               <span className="canlab__section-kicker">VERSION 2 · INTRODUCTION</span>
@@ -1013,16 +981,14 @@ export default function CanPracticeOnlyPage() {
             </div>
 
             <footer className="canlab__intro-footer">
-              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
               <button className="canlab__intro-next" type="button" onClick={() => setV2IntroComplete(true)}>
                 실습 시작 <CaretRight size={16} weight="bold" />
               </button>
             </footer>
           </section>
         ) : (
-          <div className={`canlab__layout canlab__layout--${layoutVersion}`}>
+          <div className="canlab__layout canlab__layout--v2">
             <div className="canlab__workspace-tools">
-              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
               <label className="canlab__pane-size-control">
                 <span>화면 비율</span>
                 <input
@@ -1046,9 +1012,10 @@ export default function CanPracticeOnlyPage() {
               <div className="canlab__panel-bar">
                 <div>
                   <span>Vehicle Viewport</span>
-                  <small>RIDGEX · V7.01 GLB</small>
+                  <small>{selectedModel.title} GLB</small>
                 </div>
                 <div className="canlab__vehicle-controls" aria-label="차량 보기 제어">
+                  <VehicleModelSelector compact />
                   <button
                     className={showLabels ? "is-active" : ""}
                     type="button"
@@ -1351,21 +1318,8 @@ export default function CanPracticeOnlyPage() {
                   <i><em style={{ width: `${progress}%` }} /></i>
                 </div>
 
-                {/* 버전 1: 학습 목표와 단계 지시사항을 한 패널에 함께 표시 */}
-                {layoutVersion === "v1" && (
-                  <section className="canlab__objectives">
-                    <h1>학습 목표</h1>
-                    <ol>
-                      <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로 강조에 공통 반영되는 구조를 이해한다.</li>
-                      <li>정상 프레임의 CAN ID, DLC, DATA를 확인한다.</li>
-                      <li>어떤 ECU에서 어떤 ECU로 전달되는지 3D 차량 경로에서 확인한다.</li>
-                    </ol>
-                  </section>
-                )}
-
-                {/* 단계별 지시사항 (버전 1 & 버전 2 공통) */}
                 <section className="canlab__steps" aria-label="단계별 지시사항">
-                  <h2>{layoutVersion === "v2" ? `단계별 지시사항 (미션 ${activeStep}/5)` : "단계별 지시사항"}</h2>
+                  <h2>{`단계별 지시사항 (미션 ${activeStep}/5)`}</h2>
                   {guideSteps.map((step) => {
                     const done = completedSteps.includes(step.id)
                     const current = activeStep === step.id && !done

@@ -3882,52 +3882,6 @@ html[data-design-version='ver4'] .frame-application .frame-comparison__diagram >
   letter-spacing: .08em;
 }
 
-.canlab__layout-selector {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 4px;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  background: #f8fafc;
-  margin-right: 6px;
-  flex-shrink: 0;
-}
-
-.canlab__layout-selector span {
-  color: #64748b;
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 0 4px;
-  white-space: nowrap;
-}
-
-.canlab__layout-selector button {
-  padding: 3px 7px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: transparent;
-  color: #64748b;
-  font-size: 10px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.canlab__layout-selector button:hover {
-  background: #fff;
-  color: #1e293b;
-}
-
-.canlab__layout-selector button.is-active {
-  background: #2563eb;
-  color: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.3);
-}
-
 .canlab__vehicle-panel {
   border-bottom: 1px solid var(--lab-line);
 }
@@ -3961,18 +3915,47 @@ html[data-design-version='ver4'] .frame-application .frame-comparison__diagram >
   font-size: 10px;
 }
 
-.canlab__panel-bar .canlab__layout-selector span {
-  color: #64748b;
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 700;
-}
-
 .canlab__vehicle-controls {
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 4px;
+}
+
+.vehicle-model-selector {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vehicle-model-selector > span {
+  white-space: nowrap;
+}
+
+.vehicle-model-selector select {
+  min-width: 154px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  background: var(--surface-default);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.vehicle-model-selector select:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+.vehicle-model-selector--compact select {
+  max-width: 182px;
 }
 
 .canlab__vehicle-controls button {

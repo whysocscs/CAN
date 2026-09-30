@@ -43,6 +43,7 @@ import type {
 import { formatFrameData, frameBits, parseTerminalFrames } from "./doorLabUtils"
 import DoorAttackVehicle from "./DoorAttackVehicle"
 import LabScriptGuide from "./LabScriptGuide"
+import VehicleModelSelector from "../vehicle/VehicleModelSelector"
 import "./doorAttackLab.css"
 
 const STAGES = [
@@ -695,6 +696,7 @@ export default function DoorAttackLabPage({ onComplete }: { onComplete?: () => v
                 <small>Toy Body ECU → Left Door</small>
               </span>
             </div>
+            <VehicleModelSelector compact />
             <span className="door-attack-lab__truth-qualifier">
               교육용 논리 위치 · 실제 OEM 배치 아님
             </span>

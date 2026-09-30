@@ -29,48 +29,13 @@ import {
 import * as THREE from "three"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import {
+  VehicleModelSelector,
   useCanVehicleStream,
+  useSelectedVehicleModel,
   useVehicleRig,
   useVehicleState,
   vehicle,
 } from "../features/vehicle"
-
-type ModelId = "ridgex" | "canlite-s3"
-
-interface VehicleModelOption {
-  id: ModelId
-  title: string
-  path: string
-  fileName: string
-  formatVersion: string
-  sizeLabel: string
-  description: string
-  supportsVehicleControls: boolean
-}
-
-const MODEL_OPTIONS: readonly VehicleModelOption[] = [
-  {
-    id: "ridgex",
-    title: "RIDGEX · V7.01",
-    path: "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb",
-    fileName: "RIDGEX_ROCKER_CLEANUP_V7_01.glb",
-    formatVersion: "V7.01",
-    sizeLabel: "4.0 MB",
-    description: "기존 CANLite 교육 흐름과 문·트렁크 제어가 연결된 모델입니다.",
-    supportsVehicleControls: true,
-  },
-  {
-    id: "canlite-s3",
-    title: "CANLite · S3 Sedan",
-    path: "/models/CANLITE_S3_DETAILED_SEDAN.glb",
-    fileName: "CANLITE_S3_DETAILED_SEDAN.glb",
-    formatVersion: "S3 상세 세단",
-    sizeLabel: "8.6 MB",
-    description:
-      "새로 추가한 상세 세단 프리뷰 모델입니다. 현재는 시각화용으로 연결됩니다.",
-    supportsVehicleControls: false,
-  },
-]
 
 const mappingTargets = [
   ["Body ECU", "도어 · 조명 · 잠금 상태"],
@@ -252,20 +217,16 @@ function useReducedMotion() {
 }
 
 export default function ModelManagerPage() {
-  const [selectedModelId, setSelectedModelId] = useState<ModelId>("ridgex")
   const [autoRotate, setAutoRotate] = useState(false)
   const [viewKey, setViewKey] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
   const reducedMotion = useReducedMotion()
-  const selectedModel =
-    MODEL_OPTIONS.find((model) => model.id === selectedModelId) ??
-    MODEL_OPTIONS[0]
+  const selectedModel = useSelectedVehicleModel()
 
-  const handleModelChange = (modelId: ModelId) => {
-    setSelectedModelId(modelId)
+  useEffect(() => {
     setViewKey((value) => value + 1)
     setOrbitCommand({ id: 0, angle: 0 })
-  }
+  }, [selectedModel.id])
 
   useEffect(() => {
     if (reducedMotion) setAutoRotate(false)
@@ -380,22 +341,7 @@ export default function ModelManagerPage() {
               <Cube size={18} aria-hidden="true" />
               <h2>차량 모델 선택</h2>
             </div>
-            <label className="model-manager__model-picker">
-              <span>프리셋</span>
-              <select
-                aria-label="차량 모델 선택"
-                value={selectedModel.id}
-                onChange={(event) =>
-                  handleModelChange(event.currentTarget.value as ModelId)
-                }
-              >
-                {MODEL_OPTIONS.map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <VehicleModelSelector />
             <p className="model-manager__selection-description">
               {selectedModel.description}
             </p>

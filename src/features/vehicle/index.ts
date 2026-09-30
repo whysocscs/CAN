@@ -4,6 +4,15 @@ export { useVehicleState } from "./useVehicle"
 export { useVehicleRig } from "./useVehicleRig"
 export { useCanVehicleStream } from "./useCanVehicleStream"
 export {
+  getSelectedVehicleModel,
+  setSelectedVehicleModel,
+  useSelectedVehicleModel,
+  VEHICLE_MODEL_OPTIONS,
+  type VehicleModelId,
+  type VehicleModelOption,
+} from "./vehicleModelCatalog"
+export { default as VehicleModelSelector } from "./VehicleModelSelector"
+export {
   DEFAULT_CAN_STREAM_URL,
   connectCanStream,
   type CanStreamStatus,
