@@ -27,6 +27,8 @@ def test_live_same_bytes_vulnerable_and_patched(real_results):
     patched = real_results["patched"]
     for part in ("firstChunkHex", "finalChunkHex", "declaredContentLength", "actualBodyLength"):
         assert vulnerable["request"][part] == patched["request"][part]
+    assert vulnerable["request"]["transmissionComplete"] is True
+    assert patched["request"]["transmissionComplete"] is True
     assert vulnerable["request"]["declaredContentLength"] == 125
     assert vulnerable["request"]["finalChunkHex"] == b"\r\n--ABC--".hex()
     assert vulnerable["sourceCommit"] == "e3b3c977e200283c4eaacb7aa70b28f0cfbde704"

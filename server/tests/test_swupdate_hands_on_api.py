@@ -53,6 +53,7 @@ def _fake_result(variant="vulnerable"):
             "declaredContentLength": LENGTH, "actualBodyLength": LENGTH,
             "httpResponse": "HTTP/1.1 200 OK\r\n\r\nOk, probe.swu - -2 bytes.",
             "serverAcceptsNewConnections": True,
+            "transmissionComplete": True,
         },
         "observation": {
             "ipcBadAddress": True, "reportedBytes": -2,
@@ -161,3 +162,17 @@ def test_timeout_releases_lock(monkeypatch):
     with pytest.raises(RuntimeError, match="could not run"):
         swupdate_repro.run_custom_repro_process(**params)
     assert swupdate_repro.run_custom_repro_process(**params)["evidenceKind"] == "actual_process"
+
+
+def test_rejects_incomplete_transmission_even_with_expected_hex(monkeypatch):
+    from server.labs import swupdate_repro
+
+    incomplete = _fake_result()
+    incomplete["request"]["transmissionComplete"] = False
+    monkeypatch.setattr(swupdate_repro.subprocess, "run", lambda command, **kwargs:
+                        subprocess.CompletedProcess(command, 0, json.dumps(incomplete), ""))
+    with pytest.raises(RuntimeError, match="incomplete"):
+        swupdate_repro.run_custom_repro_process(
+            root="/tmp/builds", distro="Ubuntu-22.04", variant="vulnerable",
+            boundary=BOUNDARY, terminal_chunk_escaped=FINAL, declared_content_length=LENGTH,
+        )

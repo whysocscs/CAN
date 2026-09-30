@@ -82,3 +82,28 @@ def test_probe_custom_sends_exact_bytes_and_reports_hex(monkeypatch):
     assert trace["firstChunkHex"] == sent[0].hex()
     assert trace["finalChunkHex"] == sent[1].hex()
     assert trace["declaredContentLength"] == trace["actualBodyLength"] == request.actual_body_length
+    assert trace["transmissionComplete"] is True
+
+
+def test_partial_final_send_is_not_reported_as_complete(monkeypatch):
+    from repro import swupdate_http_probe as probe_module
+
+    class PartialConnection:
+        sends = 0
+        def __enter__(self): return self
+        def __exit__(self, *_): return None
+        def settimeout(self, *_): pass
+        def sendall(self, data):
+            self.sends += 1
+            if self.sends == 2:
+                raise OSError("final chunk was only partly sent")
+
+    monkeypatch.setattr(probe_module.socket, "create_connection", lambda *_args, **_kwargs: PartialConnection())
+    monkeypatch.setattr(probe_module.time, "sleep", lambda *_args: None)
+    request = probe_module.build_request(
+        boundary="ABC", terminal_chunk_escaped=r"\r\n--ABC--",
+        declared_content_length=len(PREFIX) + len(b"\r\n--ABC--"),
+    )
+    trace = probe_module.probe_custom(port=18085, request=request)
+    assert trace["transmissionComplete"] is False
+    assert "partly sent" in trace["socketError"]

@@ -102,12 +102,15 @@ def probe_custom(*, port: int, request: RequestParts) -> dict[str, object]:
     mode = "complete" if final_chunk.endswith(b"\r\n") else "truncated"
     response = b""
     socket_error = None
+    transmission_complete = False
     with socket.create_connection(("127.0.0.1", port), timeout=2) as connection:
         connection.settimeout(1)
         connection.sendall(first_chunk)
         time.sleep(0.35)
         try:
             connection.sendall(final_chunk)
+            # sendall returning confirms both chunks were accepted by the local socket.
+            transmission_complete = True
             time.sleep(0.35)
             response = read_http_response(connection)
         except (OSError, TimeoutError) as exc:
@@ -126,6 +129,7 @@ def probe_custom(*, port: int, request: RequestParts) -> dict[str, object]:
         "finalChunk": final_chunk.decode("ascii"),
         "firstChunkHex": first_chunk.hex(),
         "finalChunkHex": final_chunk.hex(),
+        "transmissionComplete": transmission_complete,
         "declaredContentLength": request.declared_content_length,
         "actualBodyLength": request.actual_body_length,
         "pauseMilliseconds": 350,

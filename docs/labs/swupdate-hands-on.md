@@ -30,6 +30,8 @@
 
 `-2 bytes`는 HTTP 응답에 **표시된 숫자**이지 실제 업로드 길이, 파서 내부 `io->len`, 메모리 읽기 위치의 직접 계측값이 아니다. 마지막 **송신 조각 길이** 9/11바이트와 소스의 `B+6`/`B+8` 계산을 동일한 런타임 값으로 부르지 않는다. 이 관찰만으로 Out-of-bounds read(경계 밖 읽기), 버퍼 오버플로 쓰기, 서비스 거부, 코드 실행, 업데이트 설치를 입증할 수 없다. 새 연결이 수락된 실행에서 지속적 DoS가 있었다고 적어서는 안 된다.
 
+화면의 송신 hex는 로컬 소켓의 `sendall()`이 두 조각 모두에 대해 반환됐을 때만 결과로 표시한다. 이는 로컬 송신 완료 확인이지, 상대 프로세스가 모든 바이트를 처리했다는 증명은 아니다. 전송이 중간에 실패하면 서버가 결과를 거부하고, 재실행이 실패하면 화면에 이전 응답을 현재 결과처럼 남기지 않는다.
+
 재현 가능 여부는 다음처럼 확인한다. 환경 변수와 전체 빌드 절차는 [원본 준비 문서](cve-upstream-build.md)를 따른다.
 
 ```powershell
@@ -37,7 +39,7 @@ $env:CANLITE_SWUPDATE_REPRO_ROOT = "/home/dddd/.cache/cangraph-swupdate-repro"
 & .\.venv\Scripts\python.exe -m pytest -q server/tests/test_swupdate_hands_on_live.py
 ```
 
-위 환경에서 결과는 `3 passed, 0 skipped`였다. 백엔드 전체는 KUKSA·SWUpdate 실물 검증을 포함해 `275 passed`였다. 브라우저에서도 입력 오류 차단, 취약 `-2`, 수정 `0`, 완전 종료 `0`, 390px 화면 가로 넘침 없음까지 확인했다. 프론트 기본 병렬 실행은 기존 Spoofing/Replay·Door 사례 3건이 간헐 실패했으나, 해당 두 파일 단독은 `83 passed`, 작업자 1개·10초 제한의 전체 재검증은 `40 files, 361 passed`였다. 따라서 **기본 병렬 명령까지 안정적으로 통과한다고 주장하지 않는다.**
+위 환경에서 결과는 `3 passed, 0 skipped`였다. 백엔드 전체는 KUKSA·SWUpdate 실물 검증을 포함해 `277 passed`였다. 브라우저에서도 입력 오류 차단, 취약 `-2`, 수정 `0`, 완전 종료 `0`, 390px 화면 가로 넘침 없음까지 확인했다. 프론트 기본 병렬 실행은 기존 Spoofing/Replay·Door 사례 3건이 간헐 실패했으나, 해당 두 파일 단독은 `83 passed`, 작업자 1개·10초 제한의 전체 재검증은 `40 files, 362 passed`였다. 따라서 **기본 병렬 명령까지 안정적으로 통과한다고 주장하지 않는다.**
 
 ```powershell
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"

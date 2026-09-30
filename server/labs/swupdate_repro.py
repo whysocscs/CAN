@@ -56,6 +56,8 @@ def _execute(command: list[str], *, variant: str, expected_hex: tuple[str, str] 
             raise ValueError("missing SWUpdate observation")
         if expected_hex is not None:
             request = result["request"]
+            if request.get("transmissionComplete") is not True:
+                raise ValueError("incomplete SWUpdate request transmission")
             if (request["firstChunkHex"], request["finalChunkHex"]) != expected_hex:
                 raise ValueError("SWUpdate runner sent bytes different from the validated request")
             if request["declaredContentLength"] != request["actualBodyLength"]:
