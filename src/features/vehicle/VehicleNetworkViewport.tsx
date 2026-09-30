@@ -39,6 +39,7 @@ import type {
   VehicleFlowPlaybackSnapshot,
 } from "./vehicleFlowTypes"
 import {
+  VEHICLE_TOPOLOGY,
   VEHICLE_TOPOLOGY_BY_ID,
   type VehicleEffectTargetId,
   type VehicleLogicalNodeId,
@@ -146,6 +147,32 @@ function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
   const node = VEHICLE_TOPOLOGY_BY_ID.get(id)
   if (!node) throw new Error(`Unknown vehicle topology node: ${id}`)
   return node
+}
+
+function getVehicleTopologyNode(
+  id: VehicleTopologyNodeId,
+  vehicleRoot: THREE.Group | null,
+): VehicleTopologyNode {
+  const node = getTopologyNode(id)
+  if (!vehicleRoot) return node
+
+  const objectName =
+    id === "leftDoor"
+      ? "HINGE_doorL"
+      : id === "tailgate"
+        ? "HINGE_trunkLid"
+        : `ANCHOR_${id}`
+  const anchorObject =
+    vehicleRoot.getObjectByName(objectName) ??
+    (id === "tailgate"
+      ? vehicleRoot.getObjectByName("HINGE_tailgate")
+      : undefined)
+  if (!anchorObject) return node
+
+  vehicleRoot.updateWorldMatrix(true, true)
+  const anchor = anchorObject.getWorldPosition(new THREE.Vector3())
+  vehicleRoot.worldToLocal(anchor)
+  return { ...node, anchor: anchor.toArray() as [number, number, number] }
 }
 
 function isVehicleTopologyNodeId(
@@ -554,6 +581,7 @@ function FlowPacket({
 
 function TopologyOverlay({
   nodes,
+  allNodes,
   flowRoute,
   playback,
   accent,
@@ -567,6 +595,7 @@ function TopologyOverlay({
   onSelect,
 }: {
   nodes: readonly VehicleTopologyNode[]
+  allNodes: readonly VehicleTopologyNode[]
   flowRoute: readonly VehicleRouteNode[]
   playback: VehicleFlowPlaybackSnapshot
   accent: string
@@ -593,7 +622,7 @@ function TopologyOverlay({
       ? [flowRoute[activeEdgeIndex], flowRoute[activeEdgeIndex + 1]]
       : undefined
   const activeNode = activeNodeId
-    ? VEHICLE_TOPOLOGY_BY_ID.get(activeNodeId)
+    ? allNodes.find((node) => node.id === activeNodeId)
     : undefined
 
   return (
@@ -729,20 +758,48 @@ export default function VehicleNetworkViewport({
     () => playbackSnapshotForRendering(playback ?? IDLE_PLAYBACK),
     [playback],
   )
-  const routeNodes = useMemo(() => route.map(getTopologyNode), [route])
+  const vehicleRootRef = useRef<THREE.Group>(null)
+  const [rootTransformVersion, setRootTransformVersion] = useState(0)
+  const handleVehicleCentered = useCallback(
+    () => setRootTransformVersion((version) => version + 1),
+    [],
+  )
+  const allNodes = useMemo(
+    () =>
+      VEHICLE_TOPOLOGY.map((node) =>
+        getVehicleTopologyNode(node.id, vehicleRootRef.current),
+      ),
+    [rootTransformVersion],
+  )
+  const nodesById = useMemo(
+    () =>
+      new Map<VehicleTopologyNodeId, VehicleTopologyNode>(
+        allNodes.map((node) => [node.id, node]),
+      ),
+    [allNodes],
+  )
+  const routeNodes = useMemo(
+    () => route.map((id) => nodesById.get(id) ?? getTopologyNode(id)),
+    [nodesById, route],
+  )
   const flowRoute = useMemo<VehicleRouteNode[]>(() => {
     if (!playbackState.trace) {
       return routeNodes.map((node, traceIndex) => ({ node, traceIndex }))
     }
     return playbackState.trace.route.flatMap((nodeId, traceIndex) =>
       isVehicleTopologyNodeId(nodeId)
-        ? [{ node: getTopologyNode(nodeId), traceIndex }]
+        ? [
+            {
+              node: nodesById.get(nodeId) ?? getTopologyNode(nodeId),
+              traceIndex,
+            },
+          ]
         : [],
     )
-  }, [playbackState.trace, routeNodes])
+  }, [nodesById, playbackState.trace, routeNodes])
   const sourceNode = routeNodes[0]
-  const targetNode = getTopologyNode(targetId)
-  const effectNode = getTopologyNode(effectId)
+  const targetNode = nodesById.get(targetId) ?? getTopologyNode(targetId)
+  const effectNode = nodesById.get(effectId) ?? getTopologyNode(effectId)
   const [cameraFocus, setCameraFocus] = useState<CameraFocus>(() =>
     focusedNodeId
       ? cameraFocusForNode(focusedNodeId, route, targetId, effectId)
@@ -753,12 +810,6 @@ export default function VehicleNetworkViewport({
     phase: IDLE_PLAYBACK.phase,
     playbackId: IDLE_PLAYBACK.playbackId,
   })
-  const vehicleRootRef = useRef<THREE.Group>(null)
-  const [rootTransformVersion, setRootTransformVersion] = useState(0)
-  const handleVehicleCentered = useCallback(
-    () => setRootTransformVersion((version) => version + 1),
-    [],
-  )
   const cameraPresets = useMemo(
     () =>
       createCameraPresets(
@@ -836,11 +887,12 @@ export default function VehicleNetworkViewport({
     () =>
       cameraFocus.view === "node"
         ? createNodeCameraPreset(
-            getTopologyNode(cameraFocus.nodeId),
+            nodesById.get(cameraFocus.nodeId) ??
+              getTopologyNode(cameraFocus.nodeId),
             vehicleRootRef.current,
           )
         : cameraPresets[cameraFocus.view],
-    [cameraFocus, cameraPresets, rootTransformVersion],
+    [cameraFocus, cameraPresets, nodesById, rootTransformVersion],
   )
   const cameraPresetName =
     cameraFocus.view === "node"
@@ -959,6 +1011,7 @@ export default function VehicleNetworkViewport({
                 <VehicleRigAttachment immediate={reducedMotion} />
                 <TopologyOverlay
                   nodes={routeNodes}
+                  allNodes={allNodes}
                   flowRoute={flowRoute}
                   playback={playbackState}
                   accent={accent}

@@ -30,6 +30,16 @@ import {
 
 export const SHARED_VEHICLE_MODEL_PATH =
   VEHICLE_MODEL_OPTIONS[0].path
+const CANLITE_ECU_MODEL_PATH = "/models/CANLITE_E04_ECU_KIT.glb"
+
+const CANLITE_ECU_ATTACHMENTS = [
+  { anchor: "obd", model: "TRAINING_OBD_INTERFACE" },
+  { anchor: "dashboard", model: "ECU_dashboard" },
+  { anchor: "gateway", model: "ECU_gateway" },
+  { anchor: "body", model: "ECU_body" },
+  { anchor: "ids", model: "ECU_ids" },
+  { anchor: "rear", model: "ECU_rear" },
+] as const
 
 export const NORMAL_CAN_SCENE_PRESET = Object.freeze({
   camera: Object.freeze({
@@ -87,9 +97,17 @@ function createVehicleResource(
   sourceScene: THREE.Group,
   xray: boolean,
   revision: number,
+  replaceEmbeddedEcus: boolean,
 ): VehicleResource {
   const scene = sourceScene.clone(true) as THREE.Group
   const clonedMaterials: THREE.Material[] = []
+
+  if (replaceEmbeddedEcus) {
+    const ecuVisuals = scene.getObjectByName("ECU_VISUALS")
+    const ecuAnchors = scene.getObjectByName("ECU_ANCHORS_PROVISIONAL")
+    if (ecuVisuals) ecuVisuals.visible = false
+    if (ecuAnchors) ecuAnchors.visible = false
+  }
 
   scene.traverse((object) => {
     const mesh = object as THREE.Mesh
@@ -123,6 +141,37 @@ function createVehicleResource(
   return { scene, clonedMaterials, revision }
 }
 
+function VehicleEcuAttachments({ vehicleScene }: { vehicleScene: THREE.Group }) {
+  const ecuKit = useGLTF(CANLITE_ECU_MODEL_PATH)
+
+  useLayoutEffect(() => {
+    const attachments = new THREE.Group()
+    attachments.name = "canlite-e04-ecu-attachments"
+    vehicleScene.updateWorldMatrix(true, true)
+
+    for (const item of CANLITE_ECU_ATTACHMENTS) {
+      const asset = ecuKit.scene.getObjectByName(item.model)
+      const anchor = vehicleScene.getObjectByName(`ANCHOR_${item.anchor}`)
+      if (!asset || !anchor) continue
+
+      const position = anchor.getWorldPosition(new THREE.Vector3())
+      vehicleScene.worldToLocal(position)
+      const instance = asset.clone(true)
+      instance.name = `CANLITE_E04_${item.anchor}`
+      instance.position.copy(position)
+      instance.userData.vehicleAnchorId = item.anchor
+      attachments.add(instance)
+    }
+
+    vehicleScene.add(attachments)
+    return () => {
+      vehicleScene.remove(attachments)
+    }
+  }, [ecuKit.scene, vehicleScene])
+
+  return null
+}
+
 export function useSharedVehicleClone(): THREE.Group {
   const scene = useContext(SharedVehicleCloneContext)
   if (!scene) {
@@ -141,7 +190,12 @@ export function effectTargetFromVehicleObject(
     current = current.parent
   ) {
     if (current.name === "HINGE_doorL") return "leftDoor"
-    if (current.name === "HINGE_tailgate") return "tailgate"
+    if (
+      current.name === "HINGE_tailgate" ||
+      current.name === "HINGE_trunkLid"
+    ) {
+      return "tailgate"
+    }
   }
   return undefined
 }
@@ -281,6 +335,7 @@ export function SharedVehicleOverviewController({
 
 interface SharedVehicleSceneProps {
   xray: boolean
+  showEcuModels?: boolean
   children?: ReactNode
   onCentered?: () => void
   onSelectEffect?: (effectId: VehicleEffectTargetId) => void
@@ -290,7 +345,7 @@ export const SharedVehicleScene = forwardRef<
   THREE.Group,
   SharedVehicleSceneProps
 >(function SharedVehicleScene(
-  { xray, children, onCentered, onSelectEffect },
+  { xray, showEcuModels = true, children, onCentered, onSelectEffect },
   rootRef,
 ) {
   const selectedModel = useSelectedVehicleModel()
@@ -313,12 +368,13 @@ export const SharedVehicleScene = forwardRef<
       gltf.scene,
       xray,
       resourceRevision.current,
+      selectedModel.id === "canlite-s3",
     )
     setResource(nextResource)
     return () => {
       nextResource.clonedMaterials.forEach((material) => material.dispose())
     }
-  }, [gltf.scene, xray])
+  }, [gltf.scene, selectedModel.id, xray])
 
   const handleClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
@@ -338,6 +394,9 @@ export const SharedVehicleScene = forwardRef<
           {resource && (
             <SharedVehicleCloneContext.Provider value={resource.scene}>
               <primitive object={resource.scene} onClick={handleClick} />
+              {showEcuModels && selectedModel.id === "canlite-s3" ? (
+                <VehicleEcuAttachments vehicleScene={resource.scene} />
+              ) : null}
               {children}
             </SharedVehicleCloneContext.Provider>
           )}
@@ -348,3 +407,4 @@ export const SharedVehicleScene = forwardRef<
 })
 
 VEHICLE_MODEL_OPTIONS.forEach((model) => useGLTF.preload(model.path))
+useGLTF.preload(CANLITE_ECU_MODEL_PATH)

@@ -2,6 +2,7 @@ import {
   Component,
   Suspense,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -46,6 +47,7 @@ import {
   SharedVehicleOverviewController,
   SharedVehicleOrbitControls,
   SharedVehicleScene,
+  useSharedVehicleClone,
 } from "@/features/vehicle/SharedVehicleScene"
 
 const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
@@ -606,13 +608,32 @@ function EcuVehicleNetwork({
   selectedModuleId: EcuModuleId | null
   onSelectModule: (id: EcuModuleId) => void
 }) {
+  const vehicleScene = useSharedVehicleClone()
+  const modules = useMemo(
+    () =>
+      ecuModules.map((module) => {
+        const anchor = vehicleScene.getObjectByName(`ANCHOR_${module.id}`)
+        if (!anchor) return module
+
+        vehicleScene.updateWorldMatrix(true, true)
+        const position = anchor.getWorldPosition(new THREE.Vector3())
+        vehicleScene.worldToLocal(position)
+        const localPosition = position.toArray() as [number, number, number]
+        return {
+          ...module,
+          anchorPosition: localPosition,
+          position: localPosition,
+        }
+      }),
+    [vehicleScene],
+  )
   const modulesById = Object.fromEntries(
-    ecuModules.map((module) => [module.id, module]),
+    modules.map((module) => [module.id, module]),
   ) as Record<EcuModuleId, EcuModule>
 
   return (
     <group>
-      {ecuModules.map((module) => {
+      {modules.map((module) => {
         const visible = activeModules.length === 0 || activeModules.includes(module.id)
         const emphasized = visible && (selectedModuleId === module.id || activeModules.includes(module.id))
 
@@ -746,6 +767,7 @@ function VehicleCanvas({
   onSelectModule: (id: EcuModuleId) => void
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
+  const selectedModel = useSelectedVehicleModel()
 
   useEffect(() => {
     if (orbitCommand.id === 0 || !controlsRef.current) return
@@ -769,14 +791,17 @@ function VehicleCanvas({
             </Html>
           }
         >
-          <SharedVehicleScene xray={showLabels || showBus}>
+          <SharedVehicleScene
+            xray={showLabels || showBus}
+            showEcuModels={showBus}
+          >
             <SharedVehicleOverviewController
               resetRevision={overviewRevision}
             />
             {(showLabels || showBus) && (
               <EcuVehicleNetwork
                 showLabels={showLabels}
-                showHardware={showBus}
+                showHardware={showBus && selectedModel.id !== "canlite-s3"}
                 showBus={showBus}
                 active={networkActive}
                 activeConnections={activeConnections}

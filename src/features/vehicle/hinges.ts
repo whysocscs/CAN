@@ -69,7 +69,9 @@ export function buildHinges(scene: THREE.Object3D): Record<PartId, THREE.Group> 
   for (const id of PART_IDS) {
     const spec = HINGES[id]
     const name = `HINGE_${id}`
-    const found = scene.getObjectByName(name)
+    const found =
+      scene.getObjectByName(name) ??
+      (id === "tailgate" ? scene.getObjectByName("HINGE_trunkLid") : null)
 
     let pivot: THREE.Group
     if (found instanceof THREE.Group) {

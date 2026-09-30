@@ -32,8 +32,8 @@ export const VEHICLE_MODEL_OPTIONS: readonly VehicleModelOption[] = [
     formatVersion: "S3 상세 세단",
     sizeLabel: "8.6 MB",
     description:
-      "새로 추가한 상세 세단 프리뷰 모델입니다. 현재는 시각화용으로 연결됩니다.",
-    supportsVehicleControls: false,
+      "상세 세단과 E04 ECU 모델을 표시합니다. 문·트렁크 동작은 교육용 시각화입니다.",
+    supportsVehicleControls: true,
   },
 ]
 

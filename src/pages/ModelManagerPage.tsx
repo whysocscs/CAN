@@ -2,20 +2,12 @@ import {
   Component,
   Suspense,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import { Canvas } from "@react-three/fiber"
-import {
-  Bounds,
-  Center,
-  Html,
-  OrbitControls,
-  useGLTF,
-} from "@react-three/drei"
+import { Html } from "@react-three/drei"
 import {
   ArrowsOutSimple,
   ArrowCounterClockwise,
@@ -36,31 +28,27 @@ import {
   useVehicleState,
   vehicle,
 } from "../features/vehicle"
+import {
+  SharedVehicleCanvas,
+  SharedVehicleOrbitControls,
+  SharedVehicleOverviewController,
+  SharedVehicleScene,
+  useSharedVehicleClone,
+} from "../features/vehicle/SharedVehicleScene"
 
 const mappingTargets = [
   ["Body ECU", "도어 · 조명 · 잠금 상태"],
   ["Gateway ECU", "CAN 버스 정책 경로"],
   ["Dashboard ECU", "속도 · 경고등 상태"],
   ["IDS ECU", "탐지 이벤트 위치"],
+  ["Rear ECU", "후방 센서 · 구동 상태"],
+  ["OBD 인터페이스", "진단 · 실습 장치"],
 ]
 
-function VehicleModel({ modelPath }: { modelPath: string }) {
-  const gltf = useGLTF(modelPath)
-  const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
-
+function VehicleRigAttachment() {
+  const scene = useSharedVehicleClone()
   useVehicleRig(scene)
-
-  useMemo(() => {
-    scene.traverse((object) => {
-      const mesh = object as THREE.Mesh
-      if (!mesh.isMesh) return
-      mesh.castShadow = true
-      mesh.receiveShadow = true
-      mesh.frustumCulled = false
-    })
-  }, [scene])
-
-  return <primitive object={scene} />
+  return null
 }
 
 function VehicleControls({
@@ -149,12 +137,12 @@ class ModelLoadErrorBoundary extends Component<
 }
 
 function ModelCanvas({
-  modelPath,
   autoRotate,
+  resetRevision,
   orbitCommand,
 }: {
-  modelPath: string
   autoRotate: boolean
+  resetRevision: number
   orbitCommand: { id: number; angle: number }
 }) {
   const controlsRef = useRef<OrbitControlsImpl | null>(null)
@@ -169,36 +157,24 @@ function ModelCanvas({
   }, [orbitCommand])
 
   return (
-    <Canvas
-      shadows
-      dpr={[1, 1.5]}
-      camera={{ position: [5.8, 3.8, 7.6], fov: 38 }}
-      gl={{ alpha: true, antialias: true, toneMapping: THREE.ACESFilmicToneMapping }}
-    >
-      <ambientLight intensity={1.05} />
-      <hemisphereLight args={["#e1f0e9", "#18251f", 1.15]} />
-      <directionalLight castShadow position={[6, 8, 5]} intensity={3.05} shadow-mapSize={[2048, 2048]} />
-      <spotLight position={[-5, 4, -3]} angle={0.52} penumbra={0.72} intensity={1.1} color="#90afa4" />
+    <SharedVehicleCanvas>
       <ModelLoadErrorBoundary>
         <Suspense fallback={<ModelLoading />}>
-          <Bounds fit clip observe margin={1.18}>
-            <Center>
-              <VehicleModel modelPath={modelPath} />
-            </Center>
-          </Bounds>
+          <SharedVehicleScene xray={false}>
+            <VehicleRigAttachment />
+            <SharedVehicleOverviewController resetRevision={resetRevision} />
+          </SharedVehicleScene>
         </Suspense>
       </ModelLoadErrorBoundary>
-      <OrbitControls
-        ref={controlsRef}
+      <SharedVehicleOrbitControls
+        controlsRef={controlsRef}
+        makeDefault
         autoRotate={autoRotate}
         autoRotateSpeed={0.7}
         enableDamping
         dampingFactor={0.075}
-        enablePan={false}
-        minDistance={1.3}
-        maxDistance={20}
       />
-    </Canvas>
+    </SharedVehicleCanvas>
   )
 }
 
@@ -316,8 +292,8 @@ export default function ModelManagerPage() {
           >
             <ModelCanvas
               key={`${selectedModel.id}-${viewKey}`}
-              modelPath={selectedModel.path}
               autoRotate={autoRotate && !reducedMotion}
+              resetRevision={viewKey}
               orbitCommand={orbitCommand}
             />
             <div className="model-manager__canvas-note" id="model-view-help">
@@ -374,7 +350,9 @@ export default function ModelManagerPage() {
               <h2>ECU 노드 매핑</h2>
             </div>
             <p className="model-manager__mapping-intro">
-              교육 실습에서 강조할 위치를 정하는 단계입니다. 현재는 모델만 연결되어 있습니다.
+              {selectedModel.id === "canlite-s3"
+                ? "CANLite E04 ECU 킷의 GLB 노드를 차량 앵커에 연결했습니다."
+                : "선택한 차량에는 CANLite E04 ECU 킷이 표시되지 않습니다."}
             </p>
             <ul className="model-manager__mapping-list">
               {mappingTargets.map(([name, description]) => (
@@ -383,7 +361,9 @@ export default function ModelManagerPage() {
                     <strong>{name}</strong>
                     <span>{description}</span>
                   </div>
-                  <small>매핑 대기</small>
+                  <small>
+                    {selectedModel.id === "canlite-s3" ? "연결됨" : "대기"}
+                  </small>
                 </li>
               ))}
             </ul>
