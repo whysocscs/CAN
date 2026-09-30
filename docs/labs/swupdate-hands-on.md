@@ -39,7 +39,7 @@ $env:CANLITE_SWUPDATE_REPRO_ROOT = "/home/dddd/.cache/cangraph-swupdate-repro"
 & .\.venv\Scripts\python.exe -m pytest -q server/tests/test_swupdate_hands_on_live.py
 ```
 
-위 환경에서 결과는 `3 passed, 0 skipped`였다. 백엔드 전체는 KUKSA·SWUpdate 실물 검증을 포함해 `277 passed`였다. 브라우저에서도 입력 오류 차단, 취약 `-2`, 수정 `0`, 완전 종료 `0`, 390px 화면 가로 넘침 없음까지 확인했다. 프론트 기본 병렬 실행은 기존 Spoofing/Replay·Door 사례 3건이 간헐 실패했으나, 해당 두 파일 단독은 `83 passed`, 작업자 1개·10초 제한의 전체 재검증은 `40 files, 362 passed`였다. 따라서 **기본 병렬 명령까지 안정적으로 통과한다고 주장하지 않는다.**
+위 환경에서 결과는 `3 passed, 0 skipped`였다. 백엔드 전체는 KUKSA·SWUpdate 실물 검증을 포함해 `279 passed`였다. 브라우저에서도 입력 오류 차단, 취약 `-2`, 수정 `0`, 완전 종료 `0`, 390px 화면 가로 넘침 없음까지 확인했다. 프론트 기본 병렬 실행은 기존 Spoofing/Replay·Door 사례 3건이 간헐 실패했으나, 해당 두 파일 단독은 `83 passed`, 작업자 1개·10초 제한의 전체 재검증은 `40 files, 362 passed`였다. 따라서 **기본 병렬 명령까지 안정적으로 통과한다고 주장하지 않는다.**
 
 ```powershell
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"

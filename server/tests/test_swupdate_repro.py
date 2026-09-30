@@ -1,5 +1,6 @@
 """A real SWUpdate process and its log determine the observed effect."""
 
+import json
 import os
 import re
 import subprocess
@@ -60,6 +61,7 @@ def test_real_multipart_parser_before_and_after_fix(variant, mode, expected_repo
     )
 
     assert result["evidenceKind"] == "actual_process"
+    assert result["request"]["transmissionComplete"] is True
     assert result["observation"]["reportedBytes"] == expected_reported_bytes
     assert result["observation"]["negativeReportedLength"] is (expected_reported_bytes < 0)
     assert result["observation"]["ipcBadAddress"] is False
@@ -73,6 +75,26 @@ def test_real_multipart_parser_before_and_after_fix(variant, mode, expected_repo
 def test_swupdate_rejects_unbounded_boundary_before_starting_process():
     with pytest.raises(ValueError, match="boundary"):
         run_repro_process(root="/tmp/swupdate", distro="Ubuntu-22.04", variant="vulnerable", boundary="ABC; exit", mode="truncated")
+
+
+@pytest.mark.parametrize("transmission_complete", (False, None))
+def test_fixed_mode_rejects_incomplete_or_unverified_send(monkeypatch, transmission_complete):
+    from server.labs import swupdate_repro
+
+    request = {} if transmission_complete is None else {"transmissionComplete": False}
+    result = {
+        "evidenceKind": "actual_process", "variant": "patched", "request": request,
+        "serverLog": "local test log",
+        "observation": {
+            "reportedBytes": None, "ipcBadAddress": False,
+            "negativeReportedLength": False,
+        },
+    }
+    monkeypatch.setattr(swupdate_repro.subprocess, "run", lambda command, **kwargs:
+                        subprocess.CompletedProcess(command, 0, json.dumps(result), ""))
+    with pytest.raises(RuntimeError, match="incomplete"):
+        run_repro_process(root="/tmp/swupdate", distro="Ubuntu-22.04",
+                          variant="patched", boundary="ABC", mode="complete")
 
 
 def test_swupdate_does_not_claim_a_modified_tracked_upstream_as_pinned(tmp_path):
