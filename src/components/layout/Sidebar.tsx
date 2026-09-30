@@ -281,7 +281,6 @@ const hiddenNavItemIds = new Set([
   "practice/monitor",
   "ids",
   "results",
-  "models",
   "about",
 ])
 
