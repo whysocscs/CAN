@@ -22,6 +22,7 @@ import ProtocolPage from "@/pages/can-basics/ProtocolPage"
 import RuleBasedIDSPage from "@/pages/IDS_IPS_practice/RuleBasedIDSPage"
 import PeriodBasedIDSPage from "@/pages/IDS_IPS_practice/PeriodBasedIDSPage"
 import CounterStatusCheckIDSPage from "@/pages/IDS_IPS_practice/CounterStatusCheckIDSPage"
+import IpsBlockingPage from "@/pages/IDS_IPS_practice/IpsBlockingPage"
 
 const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "practice/normal": {
@@ -321,6 +322,7 @@ function Router() {
     if (currentRoute === "ids/rule-based") return <RuleBasedIDSPage />
     if (currentRoute === "ids/period-based") return <PeriodBasedIDSPage />
     if (currentRoute === "ids/counter-status") return <CounterStatusCheckIDSPage />
+    if (currentRoute === "ids/ips-blocking") return <IpsBlockingPage />
 
     if (designVersion === "ver4" && currentRoute.startsWith("attacks/")) {
       return <AttackPracticePage route={currentRoute as AttackRoute} />

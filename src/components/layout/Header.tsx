@@ -49,9 +49,11 @@ export const pageTitles: Partial<Record<Route, string>> = {
 breadcrumbMap["ids/rule-based"] = ["홈", "IDS/IPS 실습", "Rule-based IDS"]
 breadcrumbMap["ids/period-based"] = ["홈", "IDS/IPS 실습", "Period-based IDS"]
 breadcrumbMap["ids/counter-status"] = ["홈", "IDS/IPS 실습", "Counter/Status Check IDS"]
+breadcrumbMap["ids/ips-blocking"] = ["홈", "IDS/IPS 실습", "IPS 차단"]
 pageTitles["ids/rule-based"] = "Rule-based IDS"
 pageTitles["ids/period-based"] = "Period-based IDS"
 pageTitles["ids/counter-status"] = "Counter/Status Check IDS"
+pageTitles["ids/ips-blocking"] = "IPS 차단"
 
 const SunIcon = () => (
   <svg

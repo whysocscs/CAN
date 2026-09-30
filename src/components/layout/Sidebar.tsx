@@ -262,6 +262,12 @@ const navItems: NavItem[] = [
         icon: "alert",
         route: "ids/counter-status",
       },
+      {
+        id: "ids/ips-blocking",
+        label: "IPS 차단",
+        icon: "alert",
+        route: "ids/ips-blocking",
+      },
     ],
   },
   { id: "results", label: "학습 결과", icon: "award", route: "results" },
