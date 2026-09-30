@@ -21,6 +21,7 @@ import {
 } from "@phosphor-icons/react"
 import type { CanEvent } from "../can/events/types"
 import { useCanVehicleStream } from "../vehicle/useCanVehicleStream"
+import VehicleModelSelector from "../vehicle/VehicleModelSelector"
 import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
 import {
   applyVehicleFlowEffect,
@@ -668,6 +669,7 @@ export default function BeginnerCanAttackLabPage({
         <section className="door-attack-lab__vehicle-flow" aria-labelledby="beginner-vehicle-title">
           <header className="door-attack-lab__panel-heading">
             <div><Cpu size={18} aria-hidden="true" /><span><strong id="beginner-vehicle-title">Vehicle topology</strong><small>{config.targetSummary} → {config.effectSummary} GLB/Toy effect</small></span></div>
+            <VehicleModelSelector compact />
             <span className="door-attack-lab__truth-qualifier">교육용 논리 위치 · 실제 OEM 배치 아님</span>
           </header>
           <VehicleNetworkViewport

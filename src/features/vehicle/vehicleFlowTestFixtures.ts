@@ -58,7 +58,7 @@ export const captureTrace: VehicleFlowTrace = freezeTrace({
   kind: "capture",
   commandLabel: "candump -L vcan0 > capture.log",
   commandIndex: null,
-  canId: "0x5a2",
+  canId: "0x101",
   data: ["00", "01"],
   route: ["terminal", "obd", "monitor"],
   outcome: "OBSERVED",

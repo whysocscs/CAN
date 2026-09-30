@@ -48,11 +48,11 @@ export const CAN_COMMAND_CATALOG: Record<CanCommand, CanMessageDefinition> = {
   TRUNK_OPEN: {
     command: "TRUNK_OPEN",
     label: "트렁크 열기",
-    terminalCommand: "cansend vcan0 200#01",
+    terminalCommand: "cansend vcan0 200#00",
     frame: {
       canId: "0x200",
       dlc: 1,
-      data: ["01"],
+      data: ["00"],
     },
     context: {
       command: "TRUNK_OPEN",
@@ -83,11 +83,11 @@ export const CAN_COMMAND_CATALOG: Record<CanCommand, CanMessageDefinition> = {
   DASHBOARD_SYNC: {
     command: "DASHBOARD_SYNC",
     label: "계기판 갱신",
-    terminalCommand: "cansend vcan0 201#3E01",
+    terminalCommand: "cansend vcan0 201#32",
     frame: {
       canId: "0x201",
-      dlc: 2,
-      data: ["3E", "01"],
+      dlc: 1,
+      data: ["32"],
     },
     context: {
       command: "DASHBOARD_SYNC",

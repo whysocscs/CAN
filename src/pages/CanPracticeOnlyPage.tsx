@@ -36,7 +36,11 @@ import {
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import { useCanVehicleStream } from "@/features/vehicle"
+import {
+  useCanVehicleStream,
+  useSelectedVehicleModel,
+  VehicleModelSelector,
+} from "@/features/vehicle"
 import {
   SharedVehicleCanvas,
   SharedVehicleOverviewController,
@@ -112,7 +116,7 @@ const guideSteps: Array<{
     id: "3-2",
     label: "3-2",
     title: "트렁크 열기 메시지 송신",
-    body: '정상 명령 "cansend vcan0 200#01"에 해당하는 이벤트를 발생시켜 Rear Module 경로를 확인합니다.',
+    body: '정상 명령 "cansend vcan0 200#00"에 해당하는 이벤트를 발생시켜 Rear Module 경로를 확인합니다.',
   },
   {
     id: "4",
@@ -834,6 +838,7 @@ export default function CanPracticeOnlyPage() {
     () => typeof window === "undefined" || window.innerWidth > 800,
   )
   const reducedMotion = useReducedMotion()
+  const selectedModel = useSelectedVehicleModel()
 
   const progress = Math.round((completedSteps.length / guideSteps.length) * 100)
   const selectedEvent = events.find((event) => event.eventId === selectedEventId) ?? null
@@ -914,7 +919,7 @@ export default function CanPracticeOnlyPage() {
 
     const [, canId, payload] = match
     const frame = `${canId}#${payload}`
-    if (frame !== "101#00" && frame !== "200#01") {
+    if (frame !== "101#00" && frame !== "200#00") {
       return ["\x1b[31m[error] 현재 실습 단계에서 허용되지 않은 CAN Frame입니다.\x1b[0m"]
     }
 
@@ -1046,9 +1051,10 @@ export default function CanPracticeOnlyPage() {
               <div className="canlab__panel-bar">
                 <div>
                   <span>Vehicle Viewport</span>
-                  <small>RIDGEX · V7.01 GLB</small>
+                  <small>{selectedModel.title} GLB</small>
                 </div>
                 <div className="canlab__vehicle-controls" aria-label="차량 보기 제어">
+                  <VehicleModelSelector compact />
                   <button
                     className={showLabels ? "is-active" : ""}
                     type="button"

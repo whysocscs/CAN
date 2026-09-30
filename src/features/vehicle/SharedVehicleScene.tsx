@@ -23,9 +23,13 @@ import {
 import * as THREE from "three"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import type { VehicleEffectTargetId, VehicleAnchor } from "./vehicleTopology"
+import {
+  useSelectedVehicleModel,
+  VEHICLE_MODEL_OPTIONS,
+} from "./vehicleModelCatalog"
 
 export const SHARED_VEHICLE_MODEL_PATH =
-  "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
+  VEHICLE_MODEL_OPTIONS[0].path
 
 export const NORMAL_CAN_SCENE_PRESET = Object.freeze({
   camera: Object.freeze({
@@ -289,7 +293,8 @@ export const SharedVehicleScene = forwardRef<
   { xray, children, onCentered, onSelectEffect },
   rootRef,
 ) {
-  const gltf = useGLTF(SHARED_VEHICLE_MODEL_PATH)
+  const selectedModel = useSelectedVehicleModel()
+  const gltf = useGLTF(selectedModel.path)
   const coordinateRoot = useMemo(() => {
     // 차량과 overlay를 한 root 아래 두어 Center가 둘을 서로 다른 좌표계로 옮기지 않게 한다.
     const root = new THREE.Group()
@@ -342,4 +347,4 @@ export const SharedVehicleScene = forwardRef<
   )
 })
 
-useGLTF.preload(SHARED_VEHICLE_MODEL_PATH)
+VEHICLE_MODEL_OPTIONS.forEach((model) => useGLTF.preload(model.path))

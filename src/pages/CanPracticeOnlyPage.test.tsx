@@ -167,6 +167,7 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
   it("turns xray off truthfully while preserving labels, bus, auto-rotate, and reset controls", async () => {
     const user = userEvent.setup()
     render(<CanPracticeOnlyPage />)
+    await user.click(screen.getByRole("button", { name: "실습 시작" }))
     const labels = screen.getByRole("button", { name: /ECU Name/ })
     const bus = screen.getByRole("button", { name: /CAN Bus/ })
     const rotation = screen.getByRole("button", { name: "회전" })

@@ -3975,6 +3975,42 @@ html[data-design-version='ver4'] .frame-application .frame-comparison__diagram >
   gap: 4px;
 }
 
+.vehicle-model-selector {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.vehicle-model-selector > span {
+  white-space: nowrap;
+}
+
+.vehicle-model-selector select {
+  min-width: 154px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  color: var(--text-primary);
+  background: var(--surface-default);
+  cursor: pointer;
+  font: inherit;
+  font-size: 10px;
+}
+
+.vehicle-model-selector select:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+.vehicle-model-selector--compact select {
+  max-width: 182px;
+}
+
 .canlab__vehicle-controls button {
   display: inline-flex;
   min-height: 26px;
@@ -5180,6 +5216,19 @@ html[data-design-version='ver4'] .module-scaffold__slots li > span {
   outline-offset: 2px;
 }
 
+.model-manager__control-note {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  padding: 6px 8px;
+  border: 1px dashed var(--border-default);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .model-manager__canvas {
   position: relative;
   min-height: 0;
@@ -5285,6 +5334,46 @@ html[data-design-version='ver4'] .module-scaffold__slots li > span {
 .model-manager__detail-section {
   padding: 18px 0 20px;
   border-bottom: 1px solid var(--border-default);
+}
+
+.model-manager__model-picker {
+  display: grid;
+  margin-top: 14px;
+  gap: 7px;
+}
+
+.model-manager__model-picker span {
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.model-manager__model-picker select {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-primary);
+  background: var(--surface-default);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.model-manager__model-picker select:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
+.model-manager__selection-description {
+  margin: 11px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
 }
 
 .model-manager__section-heading {

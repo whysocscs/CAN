@@ -31,11 +31,11 @@ _CANPLAYER_RE: Final = re.compile(
 _UNSAFE_TOKEN_RE: Final = re.compile(r"(?:[;&|`]|\$\(|\r|\n)")
 _HOST_PATH_RE: Final = re.compile(r"(?:^|\s)(?:[A-Za-z]:|/|\\|\.\.?[/\\])")
 
-_NORMAL_SPOOFING_FRAME: Final = "(1721000000.100000) vcan0 5A1#00"
-_REPLAY_CAPTURE_LINE: Final = "(1721000100.100000) vcan0 5A2#0001"
+_NORMAL_SPOOFING_FRAME: Final = "(1721000000.100000) vcan0 101#01"
+_REPLAY_CAPTURE_LINE: Final = "(1721000100.100000) vcan0 101#0001"
 _MESSAGE_MAP: Final = (
     "Toy Rear ECU message map\n"
-    "0x5A1 byte0: 00=tailgate closed, 01=tailgate open"
+    "0x101 byte0: 00=tailgate open, 01=tailgate closed"
 )
 _NORMAL_IDS_EXPLANATION: Final = (
     "Toy IDS status NORMAL: this lab models a limited Toy allowlist/freshness gap; "
@@ -64,8 +64,8 @@ SCENARIO_SPECS: Final[Mapping[str, ScenarioSpec]] = MappingProxyType(
         "spoofing": ScenarioSpec(
             scenario="spoofing",
             lab_id="can-spoofing-basic-v1",
-            target_can_id="0x5A1",
-            success_payload=("01",),
+            target_can_id="0x101",
+            success_payload=("00",),
             captured_payload=None,
             target_label="Toy Rear ECU",
             target_node="rear",
@@ -78,7 +78,7 @@ SCENARIO_SPECS: Final[Mapping[str, ScenarioSpec]] = MappingProxyType(
         "replay": ScenarioSpec(
             scenario="replay",
             lab_id="can-replay-basic-v1",
-            target_can_id="0x5A2",
+            target_can_id="0x101",
             success_payload=None,
             captured_payload=("00", "01"),
             target_label="Toy Body ECU",

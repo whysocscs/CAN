@@ -29,13 +29,13 @@ import {
 import * as THREE from "three"
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib"
 import {
+  VehicleModelSelector,
   useCanVehicleStream,
+  useSelectedVehicleModel,
   useVehicleRig,
   useVehicleState,
   vehicle,
 } from "../features/vehicle"
-
-const MODEL_PATH = "/models/RIDGEX_ROCKER_CLEANUP_V7_01.glb"
 
 const mappingTargets = [
   ["Body ECU", "도어 · 조명 · 잠금 상태"],
@@ -44,8 +44,8 @@ const mappingTargets = [
   ["IDS ECU", "탐지 이벤트 위치"],
 ]
 
-function VehicleModel() {
-  const gltf = useGLTF(MODEL_PATH)
+function VehicleModel({ modelPath }: { modelPath: string }) {
+  const gltf = useGLTF(modelPath)
   const scene = useMemo(() => gltf.scene.clone(true), [gltf.scene])
 
   useVehicleRig(scene)
@@ -63,7 +63,11 @@ function VehicleModel() {
   return <primitive object={scene} />
 }
 
-function VehicleControls() {
+function VehicleControls({
+  supportsVehicleControls,
+}: {
+  supportsVehicleControls: boolean
+}) {
   const state = useVehicleState()
   // 백엔드가 떠 있으면 실제 CAN 프레임에도 반응합니다. 없으면 버튼만 동작합니다.
   const streamStatus = useCanVehicleStream()
@@ -77,20 +81,26 @@ function VehicleControls() {
       >
         CAN {streamStatus === "open" ? "연결됨" : "오프라인"}
       </span>
-      <button
-        type="button"
-        aria-pressed={state.doorL > 0.5 && state.doorR > 0.5}
-        onClick={() => vehicle.toggleDoor()}
-      >
-        {state.doorL > 0.5 ? "문 닫기" : "문 열기"}
-      </button>
-      <button
-        type="button"
-        aria-pressed={state.tailgate > 0.5}
-        onClick={() => vehicle.toggleTrunk()}
-      >
-        {state.tailgate > 0.5 ? "트렁크 닫기" : "트렁크 열기"}
-      </button>
+      {supportsVehicleControls ? (
+        <>
+          <button
+            type="button"
+            aria-pressed={state.doorL > 0.5 && state.doorR > 0.5}
+            onClick={() => vehicle.toggleDoor()}
+          >
+            {state.doorL > 0.5 ? "문 닫기" : "문 열기"}
+          </button>
+          <button
+            type="button"
+            aria-pressed={state.tailgate > 0.5}
+            onClick={() => vehicle.toggleTrunk()}
+          >
+            {state.tailgate > 0.5 ? "트렁크 닫기" : "트렁크 열기"}
+          </button>
+        </>
+      ) : (
+        <span className="model-manager__control-note">시각화 전용 모델</span>
+      )}
     </>
   )
 }
@@ -139,9 +149,11 @@ class ModelLoadErrorBoundary extends Component<
 }
 
 function ModelCanvas({
+  modelPath,
   autoRotate,
   orbitCommand,
 }: {
+  modelPath: string
   autoRotate: boolean
   orbitCommand: { id: number; angle: number }
 }) {
@@ -171,7 +183,7 @@ function ModelCanvas({
         <Suspense fallback={<ModelLoading />}>
           <Bounds fit clip observe margin={1.18}>
             <Center>
-              <VehicleModel />
+              <VehicleModel modelPath={modelPath} />
             </Center>
           </Bounds>
         </Suspense>
@@ -209,6 +221,12 @@ export default function ModelManagerPage() {
   const [viewKey, setViewKey] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
   const reducedMotion = useReducedMotion()
+  const selectedModel = useSelectedVehicleModel()
+
+  useEffect(() => {
+    setViewKey((value) => value + 1)
+    setOrbitCommand({ id: 0, angle: 0 })
+  }, [selectedModel.id])
 
   useEffect(() => {
     if (reducedMotion) setAutoRotate(false)
@@ -220,8 +238,8 @@ export default function ModelManagerPage() {
         <div>
           <h1>3D 모델 관리</h1>
           <p>
-            현재 교육 화면에 사용할 RIDGEX 차량 모델입니다. 드래그하여 확인하고,
-            이후 ECU 위치를 실제 GLB 노드에 연결할 수 있습니다.
+            차량 모델을 선택해 3D 프리뷰로 확인할 수 있습니다. 드래그하여
+            회전하고, 이후 ECU 위치를 실제 GLB 노드에 연결할 수 있습니다.
           </p>
         </div>
         <span className="model-manager__status">
@@ -231,11 +249,14 @@ export default function ModelManagerPage() {
       </header>
 
       <div className="model-manager__workspace">
-        <section className="model-manager__viewer" aria-labelledby="active-model-title">
+        <section
+          className="model-manager__viewer"
+          aria-labelledby="active-model-title"
+        >
           <div className="model-manager__viewer-bar">
             <div>
               <span className="model-manager__micro-label">ACTIVE MODEL</span>
-              <h2 id="active-model-title">RIDGEX · V7.01</h2>
+              <h2 id="active-model-title">{selectedModel.title}</h2>
             </div>
             <div className="model-manager__view-controls" aria-label="3D 모델 보기 제어">
               <button
@@ -281,20 +302,23 @@ export default function ModelManagerPage() {
                 <ArrowClockwise size={16} aria-hidden="true" />
                 보기 초기화
               </button>
-              <VehicleControls />
+              <VehicleControls
+                supportsVehicleControls={selectedModel.supportsVehicleControls}
+              />
             </div>
           </div>
 
           <div
             className="model-manager__canvas"
             role="region"
-            aria-label="RIDGEX 차량 GLB 3D 미리보기"
+            aria-label={`${selectedModel.title} GLB 3D 미리보기`}
             aria-describedby="model-view-help"
           >
             <ModelCanvas
+              key={`${selectedModel.id}-${viewKey}`}
+              modelPath={selectedModel.path}
               autoRotate={autoRotate && !reducedMotion}
               orbitCommand={orbitCommand}
-              key={viewKey}
             />
             <div className="model-manager__canvas-note" id="model-view-help">
               <ArrowsOutSimple size={16} aria-hidden="true" />
@@ -304,12 +328,25 @@ export default function ModelManagerPage() {
 
           <footer className="model-manager__viewer-footer">
             <Cube size={17} aria-hidden="true" />
-            <span className="model-manager__filename">RIDGEX_ROCKER_CLEANUP_V7_01.glb</span>
-            <span>GLB · 4.0 MB</span>
+            <span className="model-manager__filename">
+              {selectedModel.fileName}
+            </span>
+            <span>GLB · {selectedModel.sizeLabel}</span>
           </footer>
         </section>
 
         <aside className="model-manager__details" aria-label="모델 연결 정보">
+          <section className="model-manager__detail-section model-manager__selection-section">
+            <div className="model-manager__section-heading">
+              <Cube size={18} aria-hidden="true" />
+              <h2>차량 모델 선택</h2>
+            </div>
+            <VehicleModelSelector />
+            <p className="model-manager__selection-description">
+              {selectedModel.description}
+            </p>
+          </section>
+
           <section className="model-manager__detail-section">
             <div className="model-manager__section-heading">
               <Eye size={18} aria-hidden="true" />
@@ -322,7 +359,7 @@ export default function ModelManagerPage() {
               </div>
               <div>
                 <dt>버전</dt>
-                <dd>V7.01</dd>
+                <dd>{selectedModel.formatVersion}</dd>
               </div>
               <div>
                 <dt>상태</dt>
