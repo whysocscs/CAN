@@ -336,6 +336,7 @@ export function SharedVehicleOverviewController({
 interface SharedVehicleSceneProps {
   xray: boolean
   showEcuModels?: boolean
+  fixedCamera?: boolean
   children?: ReactNode
   onCentered?: () => void
   onSelectEffect?: (effectId: VehicleEffectTargetId) => void
@@ -345,7 +346,7 @@ export const SharedVehicleScene = forwardRef<
   THREE.Group,
   SharedVehicleSceneProps
 >(function SharedVehicleScene(
-  { xray, showEcuModels = true, children, onCentered, onSelectEffect },
+  { xray, showEcuModels = true, fixedCamera = false, children, onCentered, onSelectEffect },
   rootRef,
 ) {
   const selectedModel = useSelectedVehicleModel()
@@ -388,7 +389,7 @@ export const SharedVehicleScene = forwardRef<
   )
 
   return (
-    <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds}>
+    <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds} fit={!fixedCamera}>
       <Center onCentered={onCentered} cacheKey={resource?.revision ?? 0}>
         <primitive object={coordinateRoot} name={coordinateRoot.name}>
           {resource && (

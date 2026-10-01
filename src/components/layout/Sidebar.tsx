@@ -241,32 +241,32 @@ const navItems: NavItem[] = [
   },
   {
     id: "ids",
-    label: "IDS 실습",
+    label: "IDS/IPS 실습",
     icon: "alert",
     children: [
       {
-        id: "ids/unknown-id",
-        label: "Unknown ID",
+        id: "ids/rule-based",
+        label: "Rule-based IDS",
         icon: "alert",
-        route: "ids/unknown-id",
+        route: "ids/rule-based",
       },
       {
-        id: "ids/frequency",
-        label: "Frequency Anomaly",
+        id: "ids/period-based",
+        label: "Period-based IDS",
         icon: "alert",
-        route: "ids/frequency",
+        route: "ids/period-based",
       },
       {
-        id: "ids/payload-jump",
-        label: "Payload Jump",
+        id: "ids/counter-status",
+        label: "Counter/Status Check IDS",
         icon: "alert",
-        route: "ids/payload-jump",
+        route: "ids/counter-status",
       },
       {
-        id: "ids/gateway",
-        label: "Gateway Policy",
+        id: "ids/ips-blocking",
+        label: "IPS 차단",
         icon: "alert",
-        route: "ids/gateway",
+        route: "ids/ips-blocking",
       },
     ],
   },
@@ -279,7 +279,6 @@ const navItems: NavItem[] = [
 
 const hiddenNavItemIds = new Set([
   "practice/monitor",
-  "ids",
   "results",
   "about",
 ])

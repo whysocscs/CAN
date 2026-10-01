@@ -1,6 +1,6 @@
 import { useApp, type Route } from "@/context/AppContext"
 
-export const breadcrumbMap: Record<Route, string[]> = {
+export const breadcrumbMap: Partial<Record<Route, string[]>> = {
   courses: ["홈", "학습 과정"],
   dashboard: ["홈", "전체 대시보드"],
   "can-basics/protocol": ["홈", "CAN 기초", "CAN 프로토콜"],
@@ -23,7 +23,7 @@ export const breadcrumbMap: Record<Route, string[]> = {
   about: ["홈", "프로젝트 소개"],
 }
 
-export const pageTitles: Record<Route, string> = {
+export const pageTitles: Partial<Record<Route, string>> = {
   courses: "학습 과정",
   dashboard: "전체 대시보드",
   "can-basics/protocol": "CAN 프로토콜",
@@ -45,6 +45,15 @@ export const pageTitles: Record<Route, string> = {
   models: "3D 모델 관리",
   about: "프로젝트 소개",
 }
+
+breadcrumbMap["ids/rule-based"] = ["홈", "IDS/IPS 실습", "Rule-based IDS"]
+breadcrumbMap["ids/period-based"] = ["홈", "IDS/IPS 실습", "Period-based IDS"]
+breadcrumbMap["ids/counter-status"] = ["홈", "IDS/IPS 실습", "Counter/Status Check IDS"]
+breadcrumbMap["ids/ips-blocking"] = ["홈", "IDS/IPS 실습", "IPS 차단"]
+pageTitles["ids/rule-based"] = "Rule-based IDS"
+pageTitles["ids/period-based"] = "Period-based IDS"
+pageTitles["ids/counter-status"] = "Counter/Status Check IDS"
+pageTitles["ids/ips-blocking"] = "IPS 차단"
 
 const SunIcon = () => (
   <svg
