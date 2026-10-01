@@ -30,6 +30,16 @@ _sessions: dict[str, OrderedDict[str, BeginnerCanAttackSession]] = {
     "replay": OrderedDict(),
 }
 _active_correlations: dict[str, tuple[str, int]] = {}
+_REPLAY_TERMINAL_PREFLIGHT = {
+    "CAPTURE_REQUIRED",
+    "CAPTURE_FILE_UNKNOWN",
+    "REPEAT_COUNT_INVALID",
+}
+_REPLAY_EVIDENCE_PREFLIGHT = {
+    "CAPTURE_SESSION_MISMATCH",
+    "CAPTURE_GENERATION_MISMATCH",
+    "CAPTURE_CONTENT_MISMATCH",
+}
 
 VirtualEventPublisher = Callable[..., Awaitable[bool]]
 
@@ -158,11 +168,38 @@ def _attempt_trace(
     )
 
 
+def _replay_preflight_trace(command_label: str, code: str) -> dict[str, object]:
+    evidence_stop = code in _REPLAY_EVIDENCE_PREFLIGHT
+    route = ["terminal", "evidence"] if evidence_stop else ["terminal"]
+    return make_flow_trace(
+        trace_id="result:" + code,
+        attempt_id=None,
+        sequence=1,
+        kind="local",
+        command_label=command_label,
+        command_index=None,
+        can_id=None,
+        data=(),
+        route=route,
+        stopped_at=route[-1],
+        outcome="REJECTED",
+        ecu_verdict=None,
+        ids_verdict=None,
+        effect_target=None,
+        effect_state=None,
+        effect_applied=False,
+    )
+
+
 def _beginner_result_traces(
     scenario: str,
     command_label: str,
     result: TerminalResult | ScriptResult,
 ) -> list[dict[str, object]]:
+    if scenario == "replay" and result.code in (
+        _REPLAY_TERMINAL_PREFLIGHT | _REPLAY_EVIDENCE_PREFLIGHT
+    ):
+        return [_replay_preflight_trace(command_label, result.code)]
     if result.attempts:
         return [
             _attempt_trace(
@@ -190,7 +227,7 @@ def _beginner_result_traces(
                 route=["terminal"],
                 stopped_at="terminal",
                 outcome="REJECTED",
-                ecu_verdict=result.code,
+                ecu_verdict=None,
                 ids_verdict=result.ids_status,
                 effect_target=None,
                 effect_state=None,

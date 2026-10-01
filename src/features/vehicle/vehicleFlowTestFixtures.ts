@@ -51,6 +51,25 @@ export const rejectedBodyTrace: VehicleFlowTrace = freezeTrace({
   effectApplied: false,
 })
 
+export const terminalLocalRejectionTrace: VehicleFlowTrace = freezeTrace({
+  traceId: "terminal-local-rejection",
+  attemptId: null,
+  sequence: 1,
+  kind: "local",
+  commandLabel: "cansend vcan0 malformed",
+  commandIndex: null,
+  canId: null,
+  data: [],
+  route: ["terminal"],
+  stoppedAt: "terminal",
+  outcome: "REJECTED",
+  ecuVerdict: null,
+  idsVerdict: null,
+  effectTarget: null,
+  effectState: null,
+  effectApplied: false,
+})
+
 export const captureTrace: VehicleFlowTrace = freezeTrace({
   ...executedDoorTrace,
   traceId: "capture-1",

@@ -10,11 +10,7 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react"
-import {
-  useFrame,
-  useThree,
-  type ThreeEvent,
-} from "@react-three/fiber"
+import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber"
 import { Html, Line } from "@react-three/drei"
 import {
   ArrowCounterClockwise,
@@ -35,11 +31,13 @@ import {
 } from "./SharedVehicleScene"
 import { useVehicleRig } from "./useVehicleRig"
 import type {
+  VehicleFlowNodeFeedback,
   VehicleFlowNodeId,
+  VehicleFlowPlaybackMode,
   VehicleFlowPlaybackSnapshot,
+  VehicleFlowPresentation,
 } from "./vehicleFlowTypes"
 import {
-  VEHICLE_TOPOLOGY,
   VEHICLE_TOPOLOGY_BY_ID,
   type VehicleEffectTargetId,
   type VehicleLogicalNodeId,
@@ -48,6 +46,20 @@ import {
 } from "./vehicleTopology"
 
 const CAMERA_TARGET: [number, number, number] = [0, 0, 0]
+const IDS_OBSERVER_TONE = "#f59e0b"
+const REJECTED_TONE = "#d12f2f"
+const EFFECT_TONE = "#287a52"
+const FLOW_PACKET_DURATION_MS = 600
+const FLOW_CALLOUT_INSET = 8
+const FLOW_CALLOUT_MAX_WIDTH = 220
+const FLOW_CALLOUT_MIN_WIDTH = 160
+const FLOW_CALLOUT_FALLBACK_HEIGHT = 112
+const FLOW_CALLOUT_PLACEMENT_DIRECTIONS = [
+  [1, -1],
+  [-1, -1],
+  [1, 1],
+  [-1, 1],
+] as const
 const IDLE_PLAYBACK: VehicleFlowPlaybackSnapshot = {
   playbackId: 0,
   phase: "idle",
@@ -69,6 +81,12 @@ export interface VehicleNetworkViewportProps {
   accent: string
   initialView?: VehicleCameraView
   playback?: VehicleFlowPlaybackSnapshot
+  presentation?: VehicleFlowPresentation
+  playbackPaused?: boolean
+  onPlaybackPause?: () => void
+  onPlaybackResume?: () => void
+  onPlaybackNextStep?: () => void
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 interface CameraPreset {
@@ -88,17 +106,17 @@ interface NodeCameraFocus {
 
 type CameraFocus = NamedCameraFocus | NodeCameraFocus
 type TopologyCalloutKind = "logical" | "target" | "effect"
-type VehicleFlowEdgeState =
-  | "idle"
-  | "queued"
-  | "active"
-  | "passed"
-  | "cancelled"
-type VehicleFlowNodeVisualState = "active" | "cancelled"
+type VehicleFlowEdgeState = "idle" | "queued" | "active" | "passed" | "cancelled"
+type VehicleFlowNodeVisualState = "active" | "cancelled" | "observer" | "rejected" | "effect"
+type VehicleScenePhase = "loading" | "fitting" | "ready" | "error"
 
 interface VehicleRouteNode {
   node: VehicleTopologyNode
   traceIndex: number
+}
+
+interface VehicleTopologyFeedback extends VehicleFlowNodeFeedback {
+  nodeId: VehicleTopologyNodeId
 }
 
 interface PinScreenOffset {
@@ -116,18 +134,16 @@ const PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> = {
   tailgate: { x: 15, y: 65 },
 }
 
-const COMPACT_PIN_SCREEN_OFFSETS: Record<
-  VehicleTopologyNodeId,
-  PinScreenOffset
-> = {
-  obd: { x: -36, y: 34 },
-  ids: { x: -34, y: -20 },
-  gateway: { x: 0, y: -46 },
-  body: { x: 22, y: -18 },
-  rear: { x: 22, y: -18 },
-  leftDoor: { x: 28, y: 38 },
-  tailgate: { x: -24, y: 42 },
-}
+const COMPACT_PIN_SCREEN_OFFSETS: Record<VehicleTopologyNodeId, PinScreenOffset> =
+  {
+    obd: { x: -36, y: 34 },
+    ids: { x: -34, y: -20 },
+    gateway: { x: 0, y: -46 },
+    body: { x: 22, y: -18 },
+    rear: { x: 22, y: -18 },
+    leftDoor: { x: 28, y: 38 },
+    tailgate: { x: -24, y: 42 },
+  }
 
 const LOGICAL_CALLOUT_STYLE: CSSProperties = {
   width: "104px",
@@ -135,12 +151,122 @@ const LOGICAL_CALLOUT_STYLE: CSSProperties = {
   whiteSpace: "normal",
 }
 
+const DYNAMIC_CALLOUT_STYLE: CSSProperties = {
+  width: "clamp(160px, 22vw, 220px)",
+  maxWidth:
+    "min(calc(100vw - 16px), var(--vehicle-feedback-canvas-max-width, calc(100vw - 16px)))",
+  whiteSpace: "normal",
+  pointerEvents: "auto",
+}
+const DYNAMIC_CALLOUT_TITLE_STYLE: CSSProperties = { fontSize: "12px" }
+const DYNAMIC_CALLOUT_STATUS_STYLE: CSSProperties = { fontSize: "11px" }
+const DYNAMIC_CALLOUT_DETAIL_STYLE: CSSProperties = { fontSize: "11px" }
+const DYNAMIC_CALLOUT_META_STYLE: CSSProperties = { fontSize: "10px" }
+
 const HTML_PIN_LAYER_STYLE: CSSProperties = { pointerEvents: "none" }
 const PIN_BUTTON_STYLE: CSSProperties = { pointerEvents: "auto" }
+const PIN_Z_INDEX_RANGE: [number, number] = [100, 0]
+const FEEDBACK_Z_INDEX_RANGE: [number, number] = [200, 101]
 
 interface OrbitControlsState {
   target: THREE.Vector3
   update: () => void
+  dispatchEvent: (event: { type: "start" }) => void
+}
+
+interface FlowCalloutGeometryInput {
+  anchorX: number
+  anchorY: number
+  canvasWidth: number
+  canvasHeight: number
+  calloutWidth: number
+  calloutHeight: number
+  inset?: number
+}
+
+export interface FlowCalloutGeometry {
+  left: number
+  top: number
+  leaderEndX: number
+  leaderEndY: number
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  if (minimum > maximum) return (minimum + maximum) / 2
+  return Math.min(maximum, Math.max(minimum, value))
+}
+
+export function clampFlowCalloutPosition({
+  anchorX,
+  anchorY,
+  canvasWidth,
+  canvasHeight,
+  calloutWidth,
+  calloutHeight,
+  inset = FLOW_CALLOUT_INSET,
+}: FlowCalloutGeometryInput): FlowCalloutGeometry {
+  const halfWidth = calloutWidth / 2
+  const halfHeight = calloutHeight / 2
+  let centerX = anchorX
+  let centerY = anchorY
+  let bestScore = Number.POSITIVE_INFINITY
+  for (const [horizontal, vertical] of FLOW_CALLOUT_PLACEMENT_DIRECTIONS) {
+    const preferredCenterX = anchorX + horizontal * (halfWidth + 24)
+    const preferredCenterY = anchorY + vertical * (halfHeight + 16)
+    const candidateCenterX = clampNumber(
+      preferredCenterX,
+      inset + halfWidth,
+      canvasWidth - inset - halfWidth,
+    )
+    const candidateCenterY = clampNumber(
+      preferredCenterY,
+      inset + halfHeight,
+      canvasHeight - inset - halfHeight,
+    )
+    const left = candidateCenterX - halfWidth
+    const top = candidateCenterY - halfHeight
+    const anchorInside =
+      anchorX > left &&
+      anchorX < left + calloutWidth &&
+      anchorY > top &&
+      anchorY < top + calloutHeight
+    const clampDistance = Math.hypot(
+      candidateCenterX - preferredCenterX,
+      candidateCenterY - preferredCenterY,
+    )
+    const score = clampDistance + (anchorInside ? 1_000_000 : 0)
+    if (score < bestScore) {
+      centerX = candidateCenterX
+      centerY = candidateCenterY
+      bestScore = score
+    }
+  }
+  const left = centerX - halfWidth
+  const top = centerY - halfHeight
+  const deltaX = anchorX - centerX
+  const deltaY = anchorY - centerY
+  const scaleX =
+    deltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / Math.abs(deltaX)
+  const scaleY =
+    deltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / Math.abs(deltaY)
+  const boundaryScale = Math.min(scaleX, scaleY)
+  const leaderEndX = Number.isFinite(boundaryScale)
+    ? centerX + deltaX * boundaryScale
+    : centerX
+  const leaderEndY = Number.isFinite(boundaryScale)
+    ? centerY + deltaY * boundaryScale
+    : top
+
+  return { left, top, leaderEndX, leaderEndY }
+}
+
+function fallbackFlowCalloutWidth(): number {
+  if (typeof window === "undefined") return FLOW_CALLOUT_MAX_WIDTH
+  return clampNumber(
+    window.innerWidth * 0.22,
+    FLOW_CALLOUT_MIN_WIDTH,
+    FLOW_CALLOUT_MAX_WIDTH,
+  )
 }
 
 function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
@@ -149,36 +275,16 @@ function getTopologyNode(id: VehicleTopologyNodeId): VehicleTopologyNode {
   return node
 }
 
-function getVehicleTopologyNode(
-  id: VehicleTopologyNodeId,
-  vehicleRoot: THREE.Group | null,
-): VehicleTopologyNode {
-  const node = getTopologyNode(id)
-  if (!vehicleRoot) return node
-
-  const objectName =
-    id === "leftDoor"
-      ? "HINGE_doorL"
-      : id === "tailgate"
-        ? "HINGE_trunkLid"
-        : `ANCHOR_${id}`
-  const anchorObject =
-    vehicleRoot.getObjectByName(objectName) ??
-    (id === "tailgate"
-      ? vehicleRoot.getObjectByName("HINGE_tailgate")
-      : undefined)
-  if (!anchorObject) return node
-
-  vehicleRoot.updateWorldMatrix(true, true)
-  const anchor = anchorObject.getWorldPosition(new THREE.Vector3())
-  vehicleRoot.worldToLocal(anchor)
-  return { ...node, anchor: anchor.toArray() as [number, number, number] }
-}
-
 function isVehicleTopologyNodeId(
   nodeId: VehicleFlowNodeId,
 ): nodeId is VehicleTopologyNodeId {
   return VEHICLE_TOPOLOGY_BY_ID.has(nodeId as VehicleTopologyNodeId)
+}
+
+function isVehicleTopologyFeedback(
+  feedback: VehicleFlowNodeFeedback,
+): feedback is VehicleTopologyFeedback {
+  return isVehicleTopologyNodeId(feedback.nodeId)
 }
 
 function playbackSnapshotForRendering(
@@ -251,9 +357,7 @@ function createCameraPresets(
 ): Record<VehicleCameraView, CameraPreset> {
   return {
     overview: {
-      position: new THREE.Vector3(
-        ...NORMAL_CAN_SCENE_PRESET.camera.position,
-      ),
+      position: new THREE.Vector3(...NORMAL_CAN_SCENE_PRESET.camera.position),
       target: new THREE.Vector3(...CAMERA_TARGET),
     },
     source: createNodeCameraPreset(
@@ -293,6 +397,11 @@ function CameraPresetController({
       progress.current = 1
       return
     }
+
+    // Bounds keeps its own camera animation alive after an overview fit.
+    // Notify OrbitControls of a new interaction so Bounds cancels that
+    // animation before this focused preset takes ownership of the camera.
+    controls?.dispatchEvent({ type: "start" })
 
     const applyPreset = () => {
       camera.position.copy(preset.position)
@@ -346,6 +455,133 @@ function VehicleRigAttachment({ immediate }: { immediate: boolean }) {
   return null
 }
 
+function DynamicTopologyFeedback({
+  node,
+  feedback,
+  truthQualifier,
+}: {
+  node: VehicleTopologyNode
+  feedback: VehicleFlowNodeFeedback
+  truthQualifier: string
+}) {
+  const elementRef = useRef<HTMLSpanElement | null>(null)
+  const observerRef = useRef<ResizeObserver | null>(null)
+  const measuredSizeRef = useRef({ width: 0, height: 0 })
+  const projectedPositionRef = useRef(new THREE.Vector3())
+  const setElementRef = useCallback((element: HTMLSpanElement | null) => {
+    observerRef.current?.disconnect()
+    observerRef.current = null
+    elementRef.current = element
+    if (!element) return
+
+    const measure = () => {
+      const rect = element.getBoundingClientRect()
+      if (rect.width > 0 && rect.height > 0) {
+        measuredSizeRef.current = {
+          width: rect.width,
+          height: rect.height,
+        }
+      }
+    }
+    measure()
+    if (typeof ResizeObserver === "undefined") return
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    observerRef.current = observer
+  }, [])
+  const calculatePosition = useCallback(
+    (
+      object: THREE.Object3D,
+      camera: THREE.Camera,
+      size: { width: number; height: number },
+    ): [number, number] => {
+      const projectedPosition = projectedPositionRef.current
+      projectedPosition
+        .setFromMatrixPosition(object.matrixWorld)
+        .project(camera)
+      const anchorX = (projectedPosition.x * 0.5 + 0.5) * size.width
+      const anchorY = (projectedPosition.y * -0.5 + 0.5) * size.height
+      const availableWidth = Math.max(1, size.width - FLOW_CALLOUT_INSET * 2)
+      const measuredSize = measuredSizeRef.current
+      const calloutWidth = Math.min(
+        measuredSize.width || fallbackFlowCalloutWidth(),
+        availableWidth,
+      )
+      const calloutHeight = measuredSize.height || FLOW_CALLOUT_FALLBACK_HEIGHT
+      const geometry = clampFlowCalloutPosition({
+        anchorX,
+        anchorY,
+        canvasWidth: size.width,
+        canvasHeight: size.height,
+        calloutWidth,
+        calloutHeight,
+      })
+      const leaderX = geometry.leaderEndX - geometry.left
+      const leaderY = geometry.leaderEndY - geometry.top
+      const deltaX = anchorX - geometry.leaderEndX
+      const deltaY = anchorY - geometry.leaderEndY
+      const element = elementRef.current
+      if (element) {
+        element.style.setProperty(
+          "--vehicle-feedback-canvas-max-width",
+          `${availableWidth}px`,
+        )
+        element.style.setProperty("--vehicle-feedback-leader-x", `${leaderX}px`)
+        element.style.setProperty("--vehicle-feedback-leader-y", `${leaderY}px`)
+        element.style.setProperty(
+          "--vehicle-feedback-leader-length",
+          `${Math.hypot(deltaX, deltaY)}px`,
+        )
+        element.style.setProperty(
+          "--vehicle-feedback-leader-angle",
+          `${Math.atan2(deltaY, deltaX)}rad`,
+        )
+      }
+      return [
+        geometry.left + calloutWidth / 2,
+        geometry.top + calloutHeight / 2,
+      ]
+    },
+    [],
+  )
+
+  return (
+    <Html
+      position={node.anchor}
+      center
+      calculatePosition={calculatePosition}
+      className="vehicle-network-viewport__feedback-layer"
+      style={HTML_PIN_LAYER_STYLE}
+      zIndexRange={FEEDBACK_Z_INDEX_RANGE}
+    >
+      <span
+        ref={setElementRef}
+        className="vehicle-network-viewport__feedback"
+        data-status={feedback.status}
+        data-testid="vehicle-flow-feedback"
+        style={DYNAMIC_CALLOUT_STYLE}
+      >
+        <span
+          className="vehicle-network-viewport__feedback-leader"
+          data-testid="vehicle-flow-feedback-leader"
+          aria-hidden="true"
+        />
+        <strong style={DYNAMIC_CALLOUT_TITLE_STYLE}>{feedback.title}</strong>
+        <b style={DYNAMIC_CALLOUT_STATUS_STYLE}>{feedback.status}</b>
+        <small style={DYNAMIC_CALLOUT_DETAIL_STYLE}>{feedback.detail}</small>
+        <em style={DYNAMIC_CALLOUT_META_STYLE}>{feedback.source}</em>
+        <span
+          className="vehicle-network-viewport__feedback-truth"
+          style={DYNAMIC_CALLOUT_META_STYLE}
+        >
+          {truthQualifier}
+        </span>
+      </span>
+    </Html>
+  )
+}
+
 function TopologyPin({
   node,
   accent,
@@ -354,6 +590,8 @@ function TopologyPin({
   cameraFocused,
   tooltipVisible,
   tooltipTranslucent,
+  feedback,
+  contextSuppressed,
   onSelect,
 }: {
   node: VehicleTopologyNode
@@ -363,14 +601,17 @@ function TopologyPin({
   cameraFocused: boolean
   tooltipVisible: boolean
   tooltipTranslucent: boolean
+  feedback?: VehicleFlowNodeFeedback
+  contextSuppressed: boolean
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
   const handleSelect = useCallback(() => onSelect(node.id), [node.id, onSelect])
   const screenOffset = PIN_SCREEN_OFFSETS[node.id]
   const compactScreenOffset = COMPACT_PIN_SCREEN_OFFSETS[node.id]
-  const calloutKindForNode =
-    calloutKind ??
-    (tooltipVisible && node.kind === "logical" ? "logical" : undefined)
+  const calloutKindForNode = feedback
+    ? undefined
+    : (calloutKind ??
+      (tooltipVisible && node.kind === "logical" ? "logical" : undefined))
   const calloutPlacement =
     calloutKindForNode === "target"
       ? "target-far-left"
@@ -387,71 +628,90 @@ function TopologyPin({
     "--vehicle-pin-compact-offset-y": `${compactScreenOffset.y}px`,
     "--vehicle-pin-compact-leader-length": `${Math.hypot(compactScreenOffset.x, compactScreenOffset.y)}px`,
     "--vehicle-pin-compact-leader-angle": `${Math.atan2(-compactScreenOffset.y, -compactScreenOffset.x)}rad`,
+    opacity: contextSuppressed ? 0.24 : 1,
   } as CSSProperties
 
+  const truthQualifier =
+    node.kind === "effect"
+      ? "GLB 동작 기준점 · 실제 actuator 위치 아님"
+      : "교육용 논리 ECU · 실제 OEM 위치 아님"
+
   return (
-    <Html
-      position={node.anchor}
-      center
-      distanceFactor={7.2}
-      sprite
-      className="vehicle-network-viewport__html-layer"
-      style={HTML_PIN_LAYER_STYLE}
-    >
-      <span
-        className="vehicle-network-viewport__marker"
-        data-node-id={node.id}
-        data-testid="vehicle-topology-marker"
-        style={markerStyle}
+    <>
+      <Html
+        position={node.anchor}
+        center
+        distanceFactor={7.2}
+        sprite
+        className="vehicle-network-viewport__html-layer"
+        style={HTML_PIN_LAYER_STYLE}
+        zIndexRange={PIN_Z_INDEX_RANGE}
       >
         <span
-          className="vehicle-network-viewport__leader"
-          data-testid="vehicle-topology-leader"
-          aria-hidden="true"
-        />
-        <button
-          type="button"
-          className="vehicle-network-viewport__pin"
-          data-active={active}
-          data-testid="vehicle-topology-pin"
-          aria-label={`${node.label} 선택`}
-          onClick={handleSelect}
-          style={PIN_BUTTON_STYLE}
+          className="vehicle-network-viewport__marker"
+          data-node-id={node.id}
+          data-testid="vehicle-topology-marker"
+          data-context-suppressed={contextSuppressed ? "true" : undefined}
+          style={markerStyle}
         >
-          {node.number}
-        </button>
-        {calloutKindForNode ? (
           <span
-            className={
-              calloutKindForNode === "logical"
-                ? "vehicle-network-viewport__callout vehicle-network-viewport__callout--logical"
-                : "vehicle-network-viewport__callout"
-            }
-            data-kind={calloutKindForNode}
-            data-placement={calloutPlacement}
-            style={
-              calloutKindForNode === "logical"
-                ? LOGICAL_CALLOUT_STYLE
-                : undefined
-            }
-            data-camera-focused={cameraFocused ? "true" : undefined}
-            data-visible={tooltipVisible ? "true" : undefined}
-            data-translucent={tooltipTranslucent ? "true" : undefined}
-            data-testid="vehicle-topology-callout"
+            className="vehicle-network-viewport__leader"
+            data-testid="vehicle-topology-leader"
             aria-hidden="true"
+          />
+          <button
+            type="button"
+            className="vehicle-network-viewport__pin"
+            data-active={active}
+            data-feedback-status={feedback?.status}
+            data-testid="vehicle-topology-pin"
+            aria-label={`${node.label} 선택`}
+            onClick={handleSelect}
+            disabled={contextSuppressed}
+            style={PIN_BUTTON_STYLE}
           >
-            <strong>{node.calloutLabel ?? node.label}</strong>
-            <small>
-              {calloutKindForNode === "target"
-                ? "Target ECU · 교육용 위치"
-                : calloutKindForNode === "effect"
-                  ? "영향 부위"
-                  : `${node.role} · 실제 OEM 배치 아님`}
-            </small>
-          </span>
-        ) : null}
-      </span>
-    </Html>
+            {node.number}
+          </button>
+          {calloutKindForNode ? (
+            <span
+              className={
+                calloutKindForNode === "logical"
+                  ? "vehicle-network-viewport__callout vehicle-network-viewport__callout--logical"
+                  : "vehicle-network-viewport__callout"
+              }
+              data-kind={calloutKindForNode}
+              data-placement={calloutPlacement}
+              style={
+                calloutKindForNode === "logical"
+                  ? LOGICAL_CALLOUT_STYLE
+                  : undefined
+              }
+              data-camera-focused={cameraFocused ? "true" : undefined}
+              data-visible={tooltipVisible ? "true" : undefined}
+              data-translucent={tooltipTranslucent ? "true" : undefined}
+              data-testid="vehicle-topology-callout"
+              aria-hidden="true"
+            >
+              <strong>{node.calloutLabel ?? node.label}</strong>
+              <small>
+                {calloutKindForNode === "target"
+                  ? "Target ECU · 교육용 위치"
+                  : calloutKindForNode === "effect"
+                    ? "영향 부위"
+                    : `${node.role} · 실제 OEM 배치 아님`}
+              </small>
+            </span>
+          ) : null}
+        </span>
+      </Html>
+      {feedback ? (
+        <DynamicTopologyFeedback
+          node={node}
+          feedback={feedback}
+          truthQualifier={truthQualifier}
+        />
+      ) : null}
+    </>
   )
 }
 
@@ -471,10 +731,10 @@ function flowEdgeState(
 
 function lineOpacity(state: VehicleFlowEdgeState): number {
   if (state === "active") return 1
-  if (state === "passed") return 0.92
+  if (state === "passed") return 0.56
   if (state === "cancelled") return 0.52
-  if (state === "queued") return 0.28
-  return 0.68
+  if (state === "queued") return 0.16
+  return 0.42
 }
 
 function TopologyHitTarget({
@@ -514,20 +774,49 @@ function FlowNodeHalo({
   accent: string
   state: VehicleFlowNodeVisualState
 }) {
+  const tone =
+    state === "observer"
+      ? IDS_OBSERVER_TONE
+      : state === "rejected"
+        ? REJECTED_TONE
+        : state === "effect"
+          ? EFFECT_TONE
+          : accent
   return (
-    <mesh
+    <group
       position={node.anchor}
       name={`vehicle-flow-node-halo:${node.id}:${state}`}
       userData={{ vehicleNodeId: node.id, flowState: state }}
     >
-      <sphereGeometry args={[0.17, 16, 16]} />
-      <meshBasicMaterial
-        color={accent}
-        transparent
-        opacity={0.28}
-        depthWrite={false}
-      />
-    </mesh>
+      <mesh
+        name={`vehicle-flow-node-halo-layer:${node.id}:inner`}
+        userData={{ haloLayer: "inner" }}
+        renderOrder={20}
+      >
+        <sphereGeometry args={[0.19, 20, 20]} />
+        <meshBasicMaterial
+          color={tone}
+          transparent
+          opacity={0.64}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh
+        name={`vehicle-flow-node-halo-layer:${node.id}:outer`}
+        userData={{ haloLayer: "outer" }}
+        renderOrder={19}
+      >
+        <sphereGeometry args={[0.28, 20, 20]} />
+        <meshBasicMaterial
+          color={tone}
+          transparent
+          opacity={0.24}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
+    </group>
   )
 }
 
@@ -544,10 +833,7 @@ function FlowPacket({
 }) {
   const ref = useRef<THREE.Mesh>(null)
   const progress = useRef(0)
-  const fromPosition = useMemo(
-    () => new THREE.Vector3(...from.anchor),
-    [from],
-  )
+  const fromPosition = useMemo(() => new THREE.Vector3(...from.anchor), [from])
   const toPosition = useMemo(() => new THREE.Vector3(...to.anchor), [to])
 
   useFrame((_, delta) => {
@@ -581,7 +867,6 @@ function FlowPacket({
 
 function TopologyOverlay({
   nodes,
-  allNodes,
   flowRoute,
   playback,
   accent,
@@ -591,11 +876,12 @@ function TopologyOverlay({
   visibleTooltipNodeId,
   targetId,
   effectId,
+  feedback,
+  structuredPresentation,
   reducedMotion,
   onSelect,
 }: {
   nodes: readonly VehicleTopologyNode[]
-  allNodes: readonly VehicleTopologyNode[]
   flowRoute: readonly VehicleRouteNode[]
   playback: VehicleFlowPlaybackSnapshot
   accent: string
@@ -605,24 +891,24 @@ function TopologyOverlay({
   visibleTooltipNodeId?: VehicleTopologyNodeId
   targetId: VehicleLogicalNodeId
   effectId: VehicleEffectTargetId
+  feedback?: VehicleFlowNodeFeedback
+  structuredPresentation: boolean
   reducedMotion: boolean
   onSelect: (nodeId: VehicleTopologyNodeId) => void
 }) {
   const activeEdgeIndex = flowRoute
     .slice(1)
-    .findIndex(({ traceIndex }, index) =>
-      flowEdgeState(
-        flowRoute[index].traceIndex,
-        traceIndex,
-        playback,
-      ) === "active",
+    .findIndex(
+      ({ traceIndex }, index) =>
+        flowEdgeState(flowRoute[index].traceIndex, traceIndex, playback) ===
+        "active",
     )
   const activeEdge =
     activeEdgeIndex >= 0
       ? [flowRoute[activeEdgeIndex], flowRoute[activeEdgeIndex + 1]]
       : undefined
   const activeNode = activeNodeId
-    ? allNodes.find((node) => node.id === activeNodeId)
+    ? VEHICLE_TOPOLOGY_BY_ID.get(activeNodeId)
     : undefined
 
   return (
@@ -634,15 +920,25 @@ function TopologyOverlay({
           destination.traceIndex,
           playback,
         )
+        const observerRole =
+          structuredPresentation &&
+          (node.id === "ids" || destination.node.id === "ids")
         return (
           <Line
             key={`${node.id}-${destination.node.id}`}
             points={[node.anchor, destination.node.anchor]}
-            color={accent}
-            lineWidth={state === "active" ? 2 : 1}
+            color={observerRole ? IDS_OBSERVER_TONE : accent}
+            lineWidth={state === "active" ? 3.5 : state === "passed" ? 1.4 : 1}
+            dashed={observerRole}
+            dashSize={observerRole ? 0.12 : undefined}
+            gapSize={observerRole ? 0.08 : undefined}
             transparent
             opacity={lineOpacity(state)}
-            userData={{ flowState: state }}
+            userData={
+              observerRole
+                ? { flowState: state, observerRole: "ids" }
+                : { flowState: state }
+            }
           />
         )
       })}
@@ -662,7 +958,7 @@ function TopologyOverlay({
           ].join(":")}
           from={activeEdge[0].node}
           to={activeEdge[1].node}
-          durationMs={220}
+          durationMs={FLOW_PACKET_DURATION_MS}
           accent={accent}
         />
       ) : null}
@@ -679,6 +975,10 @@ function TopologyOverlay({
               node.id === visibleTooltipNodeId &&
               cameraFocusedNodeId !== undefined
             }
+            feedback={feedback?.nodeId === node.id ? feedback : undefined}
+            contextSuppressed={
+              Boolean(feedback) && feedback?.nodeId !== node.id
+            }
             onSelect={onSelect}
             calloutKind={
               node.id === targetId
@@ -694,9 +994,10 @@ function TopologyOverlay({
   )
 }
 
-class VehicleErrorBoundary extends Component<{ children: ReactNode }, {
-  failed: boolean
-}> {
+class VehicleErrorBoundary extends Component<{
+  children: ReactNode
+  onError: () => void
+}, { failed: boolean }> {
   state = { failed: false }
 
   static getDerivedStateFromError() {
@@ -705,6 +1006,7 @@ class VehicleErrorBoundary extends Component<{ children: ReactNode }, {
 
   componentDidCatch(_error: Error, _info: ErrorInfo) {
     // The route map and the rest of the lab remain usable without the GLB.
+    this.props.onError()
   }
 
   render() {
@@ -752,64 +1054,101 @@ export default function VehicleNetworkViewport({
   accent,
   initialView = "overview",
   playback,
+  presentation,
+  playbackPaused,
+  onPlaybackPause,
+  onPlaybackResume,
+  onPlaybackNextStep,
+  playbackMode = "auto",
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
   const playbackState = useMemo(
     () => playbackSnapshotForRendering(playback ?? IDLE_PLAYBACK),
     [playback],
   )
-  const vehicleRootRef = useRef<THREE.Group>(null)
-  const [rootTransformVersion, setRootTransformVersion] = useState(0)
-  const handleVehicleCentered = useCallback(
-    () => setRootTransformVersion((version) => version + 1),
-    [],
-  )
-  const allNodes = useMemo(
-    () =>
-      VEHICLE_TOPOLOGY.map((node) =>
-        getVehicleTopologyNode(node.id, vehicleRootRef.current),
-      ),
-    [rootTransformVersion],
-  )
-  const nodesById = useMemo(
-    () =>
-      new Map<VehicleTopologyNodeId, VehicleTopologyNode>(
-        allNodes.map((node) => [node.id, node]),
-      ),
-    [allNodes],
-  )
-  const routeNodes = useMemo(
-    () => route.map((id) => nodesById.get(id) ?? getTopologyNode(id)),
-    [nodesById, route],
-  )
+  const routeNodes = useMemo(() => route.map(getTopologyNode), [route])
   const flowRoute = useMemo<VehicleRouteNode[]>(() => {
     if (!playbackState.trace) {
       return routeNodes.map((node, traceIndex) => ({ node, traceIndex }))
     }
     return playbackState.trace.route.flatMap((nodeId, traceIndex) =>
       isVehicleTopologyNodeId(nodeId)
-        ? [
-            {
-              node: nodesById.get(nodeId) ?? getTopologyNode(nodeId),
-              traceIndex,
-            },
-          ]
+        ? [{ node: getTopologyNode(nodeId), traceIndex }]
         : [],
     )
-  }, [nodesById, playbackState.trace, routeNodes])
+  }, [playbackState.trace, routeNodes])
+  const canvasNodes = useMemo(
+    () =>
+      playbackState.trace
+        ? flowRoute.map(({ node }) => node)
+        : routeNodes,
+    [flowRoute, playbackState.trace, routeNodes],
+  )
   const sourceNode = routeNodes[0]
-  const targetNode = nodesById.get(targetId) ?? getTopologyNode(targetId)
-  const effectNode = nodesById.get(effectId) ?? getTopologyNode(effectId)
+  const targetNode = getTopologyNode(targetId)
+  const effectNode = getTopologyNode(effectId)
   const [cameraFocus, setCameraFocus] = useState<CameraFocus>(() =>
     focusedNodeId
       ? cameraFocusForNode(focusedNodeId, route, targetId, effectId)
       : { view: initialView },
   )
   const [overviewRevision, setOverviewRevision] = useState(0)
+  const [scenePhase, setScenePhase] =
+    useState<VehicleScenePhase>("loading")
+  const centeredRefitFrames = useRef<{
+    layout?: number
+    settled?: number
+  }>({})
+  const sceneReadyTimer = useRef<number | undefined>(undefined)
   const previousPlaybackRef = useRef({
     phase: IDLE_PLAYBACK.phase,
     playbackId: IDLE_PLAYBACK.playbackId,
   })
+  const vehicleRootRef = useRef<THREE.Group>(null)
+  const [rootTransformVersion, setRootTransformVersion] = useState(0)
+  const cancelSceneSettling = useCallback(() => {
+    const pending = centeredRefitFrames.current
+    if (pending.layout !== undefined) {
+      window.cancelAnimationFrame(pending.layout)
+      pending.layout = undefined
+    }
+    if (pending.settled !== undefined) {
+      window.cancelAnimationFrame(pending.settled)
+      pending.settled = undefined
+    }
+    if (sceneReadyTimer.current !== undefined) {
+      window.clearTimeout(sceneReadyTimer.current)
+      sceneReadyTimer.current = undefined
+    }
+  }, [])
+  const handleVehicleCentered = useCallback(() => {
+    cancelSceneSettling()
+    setScenePhase("fitting")
+    setRootTransformVersion((version) => version + 1)
+    const pending = centeredRefitFrames.current
+    // Center measures the committed clone before OrbitControls and Bounds have
+    // necessarily completed their own layout work. Two frames later all three
+    // share the same scene, so this refit cannot use the empty initial bounds.
+    pending.layout = window.requestAnimationFrame(() => {
+      pending.settled = window.requestAnimationFrame(() => {
+        pending.layout = undefined
+        pending.settled = undefined
+        setOverviewRevision((revision) => revision + 1)
+        sceneReadyTimer.current = window.setTimeout(() => {
+          sceneReadyTimer.current = undefined
+          setScenePhase("ready")
+        }, 350)
+      })
+    })
+  }, [cancelSceneSettling])
+  const handleVehicleError = useCallback(() => {
+    cancelSceneSettling()
+    setScenePhase("error")
+  }, [cancelSceneSettling])
+
+  useEffect(() => {
+    return cancelSceneSettling
+  }, [cancelSceneSettling])
   const cameraPresets = useMemo(
     () =>
       createCameraPresets(
@@ -843,11 +1182,9 @@ export default function VehicleNetworkViewport({
       playbackId: playbackState.playbackId,
     }
     if (
-      playbackState.phase === "playing"
-      && (
-        previousPlayback.phase === "idle"
-        || previousPlayback.playbackId !== playbackState.playbackId
-      )
+      playbackState.phase === "playing" &&
+      (previousPlayback.phase === "idle" ||
+        previousPlayback.playbackId !== playbackState.playbackId)
     ) {
       requestOverview()
     }
@@ -871,28 +1208,47 @@ export default function VehicleNetworkViewport({
     playbackNodeId && isVehicleTopologyNodeId(playbackNodeId)
       ? playbackNodeId
       : undefined
-  const playbackActiveNodeId =
-    playbackState.phase === "playing" ? playbackCurrentNodeId : undefined
-  const playbackOwnsActiveNode =
-    playbackState.phase === "playing" || playbackState.phase === "cancelled"
-  const activeNodeId = playbackOwnsActiveNode
-    ? playbackCurrentNodeId
-    : focusedId ?? currentNodeId
+  const presentationFeedback = presentation?.nodeFeedback
+  const topologyFeedback =
+    presentationFeedback &&
+    presentationFeedback.nodeId === presentation.currentNodeId &&
+    isVehicleTopologyFeedback(presentationFeedback) &&
+    (presentation.phase === "playing" ||
+      (presentation.phase === "complete" && presentationFeedback.persist))
+      ? presentationFeedback
+      : undefined
+  const hasAuthoritativeTrace =
+    Boolean(playbackState.trace) && playbackState.phase !== "idle"
+  const authoritativeActiveNodeId =
+    topologyFeedback?.nodeId ??
+    (playbackState.phase === "playing" || playbackState.phase === "cancelled"
+      ? playbackCurrentNodeId
+      : undefined)
+  const activeNodeId = hasAuthoritativeTrace
+    ? authoritativeActiveNodeId
+    : (focusedId ?? currentNodeId)
   const activeNodeState: VehicleFlowNodeVisualState =
     playbackState.phase === "cancelled" && playbackCurrentNodeId
       ? "cancelled"
-      : "active"
-  const visibleTooltipNodeId = playbackActiveNodeId ?? focusedId
+      : topologyFeedback?.status === "OBSERVED"
+        ? "observer"
+        : topologyFeedback?.status === "REJECTED"
+          ? "rejected"
+          : topologyFeedback?.status === "EFFECT APPLIED"
+            ? "effect"
+            : "active"
+  const visibleTooltipNodeId = hasAuthoritativeTrace
+    ? authoritativeActiveNodeId
+    : focusedId
   const cameraPreset = useMemo(
     () =>
       cameraFocus.view === "node"
         ? createNodeCameraPreset(
-            nodesById.get(cameraFocus.nodeId) ??
-              getTopologyNode(cameraFocus.nodeId),
+            getTopologyNode(cameraFocus.nodeId),
             vehicleRootRef.current,
           )
         : cameraPresets[cameraFocus.view],
-    [cameraFocus, cameraPresets, nodesById, rootTransformVersion],
+    [cameraFocus, cameraPresets, rootTransformVersion],
   )
   const cameraPresetName =
     cameraFocus.view === "node"
@@ -955,23 +1311,38 @@ export default function VehicleNetworkViewport({
         aria-label={`${scenarioTitle} target map`}
         tabIndex={0}
       >
-        {routeNodes.map((node) => (
-          <li
-            key={node.id}
-            data-kind={node.kind}
-            data-active={node.id === activeNodeId}
-            aria-current={node.id === currentNodeId ? "step" : undefined}
-          >
-            <span className="vehicle-network-viewport__map-number">
-              {node.number}
-            </span>
-            <div>
-              <strong>{node.label}</strong>
-              <span>{node.role}</span>
-              <small data-truth={node.truth}>{node.truthDetail}</small>
-            </div>
-          </li>
-        ))}
+        {routeNodes.map((node) => {
+          const nodeStatus =
+            topologyFeedback?.nodeId === node.id
+              ? topologyFeedback.status
+              : node.id === activeNodeId && hasAuthoritativeTrace
+                ? "PROCESSING"
+                : null
+          return (
+            <li
+              key={node.id}
+              data-kind={node.kind}
+              data-active={node.id === activeNodeId}
+              data-feedback-status={nodeStatus ?? undefined}
+              aria-current={node.id === activeNodeId ? "step" : undefined}
+              aria-label={
+                nodeStatus ? `${node.label} · ${nodeStatus}` : undefined
+              }
+            >
+              <span className="vehicle-network-viewport__map-number">
+                {node.number}
+              </span>
+              <div>
+                <strong>{node.label}</strong>
+                <span>{node.role}</span>
+                <small data-truth={node.truth}>
+                  <strong>{node.truthTitle}</strong>
+                  <span>{node.truthDetail}</span>
+                </small>
+              </div>
+            </li>
+          )
+        })}
       </ol>
 
       <VehicleFlowRail
@@ -980,28 +1351,34 @@ export default function VehicleNetworkViewport({
         playback={playbackState}
         selectedNodeId={focusedId}
         accent={accent}
+        presentation={presentation}
+        reducedMotion={reducedMotion}
+        isPaused={playbackPaused}
+        onPause={onPlaybackPause}
+        onResume={onPlaybackResume}
+        onNextStep={onPlaybackNextStep}
+        playbackMode={playbackMode}
       />
 
       <div className="vehicle-network-viewport__canvas">
+        {(scenePhase === "loading" || scenePhase === "fitting") && (
+          <div
+            className="vehicle-network-viewport__scene-loading"
+            role="status"
+          >
+            <CircleNotch
+              size={17}
+              className="door-attack-lab__spin"
+              aria-hidden="true"
+            />
+            {scenePhase === "loading"
+              ? "GLB 차량 불러오는 중"
+              : "차량 3D 장면 맞추는 중"}
+          </div>
+        )}
         <SharedVehicleCanvas>
-          <VehicleErrorBoundary>
-            <Suspense
-              fallback={
-                <Html center>
-                  <div
-                    className="vehicle-network-viewport__status"
-                    role="status"
-                  >
-                    <CircleNotch
-                      size={18}
-                      className="door-attack-lab__spin"
-                      aria-hidden="true"
-                    />
-                    GLB 불러오는 중
-                  </div>
-                </Html>
-              }
-            >
+          <VehicleErrorBoundary onError={handleVehicleError}>
+            <Suspense fallback={null}>
               <SharedVehicleScene
                 ref={vehicleRootRef}
                 xray
@@ -1010,8 +1387,7 @@ export default function VehicleNetworkViewport({
               >
                 <VehicleRigAttachment immediate={reducedMotion} />
                 <TopologyOverlay
-                  nodes={routeNodes}
-                  allNodes={allNodes}
+                  nodes={canvasNodes}
                   flowRoute={flowRoute}
                   playback={playbackState}
                   accent={accent}
@@ -1021,6 +1397,8 @@ export default function VehicleNetworkViewport({
                   visibleTooltipNodeId={visibleTooltipNodeId}
                   targetId={targetId}
                   effectId={effectId}
+                  feedback={topologyFeedback}
+                  structuredPresentation={presentation !== undefined}
                   reducedMotion={reducedMotion}
                   onSelect={onSelectNode}
                 />

@@ -45,12 +45,28 @@ describe("vehicle topology contract", () => {
 
   it("does not invent OEM mounting locations in learner-facing copy", () => {
     const copy = VEHICLE_TOPOLOGY.map((node) =>
-      [node.label, node.role, node.truthDetail].join(" "),
+      [node.label, node.role, node.truthTitle, node.truthDetail].join(" "),
     ).join(" ")
 
     expect(copy).not.toMatch(
       /driver footwell|B-pillar|centre tunnel|center tunnel|rear floor|운전석 발밑|B필러|센터 터널|리어 플로어/i,
     )
+  })
+
+  it("keeps logical and effect truth copy as separate two-line card facts", () => {
+    const logical = VEHICLE_TOPOLOGY.find((node) => node.id === "body")
+    const effect = VEHICLE_TOPOLOGY.find((node) => node.id === "leftDoor")
+
+    expect(logical).toMatchObject({
+      label: "Toy Body ECU",
+      truthTitle: "교육용 논리 ECU",
+      truthDetail: "실제 OEM 위치 아님",
+    })
+    expect(effect).toMatchObject({
+      label: "Left Door Effect",
+      truthTitle: "GLB 동작 기준점",
+      truthDetail: "실제 actuator 위치 아님",
+    })
   })
 
   it("maps compact callout labels only to scenario targets and effects", () => {

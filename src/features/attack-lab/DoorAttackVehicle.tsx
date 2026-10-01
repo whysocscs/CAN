@@ -1,5 +1,9 @@
 import VehicleNetworkViewport from "../vehicle/VehicleNetworkViewport"
-import type { VehicleFlowPlaybackSnapshot } from "../vehicle/vehicleFlowTypes"
+import type {
+  VehicleFlowPlaybackSnapshot,
+  VehicleFlowPlaybackMode,
+  VehicleFlowPresentation,
+} from "../vehicle/vehicleFlowTypes"
 import {
   VEHICLE_ROUTES,
   type VehicleTopologyNodeId,
@@ -19,12 +23,24 @@ export interface DoorAttackVehicleProps {
   currentStage?: string
   focusedNodeId?: VehicleTopologyNodeId
   playback?: VehicleFlowPlaybackSnapshot
+  presentation?: VehicleFlowPresentation
+  playbackPaused?: boolean
+  onPlaybackPause?: () => void
+  onPlaybackResume?: () => void
+  onPlaybackNextStep?: () => void
+  playbackMode?: VehicleFlowPlaybackMode
 }
 
 export default function DoorAttackVehicle({
   currentStage,
   focusedNodeId,
   playback,
+  presentation,
+  playbackPaused,
+  onPlaybackPause,
+  onPlaybackResume,
+  onPlaybackNextStep,
+  playbackMode,
 }: DoorAttackVehicleProps) {
   return (
     <VehicleNetworkViewport
@@ -36,6 +52,12 @@ export default function DoorAttackVehicle({
       scenarioTitle="Door attack route"
       accent="#d94b4b"
       playback={playback}
+      presentation={presentation}
+      playbackPaused={playbackPaused}
+      onPlaybackPause={onPlaybackPause}
+      onPlaybackResume={onPlaybackResume}
+      onPlaybackNextStep={onPlaybackNextStep}
+      playbackMode={playbackMode}
     />
   )
 }

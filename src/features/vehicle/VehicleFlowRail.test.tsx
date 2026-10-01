@@ -1,17 +1,72 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest"
 import { cleanup, render, screen, within } from "@testing-library/react"
-import { afterEach, describe, expect, it } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   captureTrace,
   executedAlertTrace,
   rejectedBodyTrace,
 } from "./vehicleFlowTestFixtures"
+import type { VehicleFlowPresentation } from "./vehicleFlowTypes"
 import VehicleFlowRail from "./VehicleFlowRail"
 
 afterEach(cleanup)
 
+const structuredPresentation: VehicleFlowPresentation = {
+  commandLabel: "cansend vcan0 learner-frame-two",
+  phase: "playing",
+  traceIndex: 1,
+  traceCount: 3,
+  canId: "0x456",
+  dlc: 4,
+  data: ["01", "01", "10", "B5"],
+  currentTransition: "Toy Gateway -> Toy Body ECU",
+  currentNodeId: "body",
+  outcome: "REJECTED",
+  stoppedAt: "body",
+  effectTarget: null,
+  effectApplied: false,
+  ecuVerdict: "COUNTER_REJECTED",
+  idsVerdict: "ALERT",
+  nodeFeedback: {
+    nodeId: "body",
+    title: "Toy Body ECU",
+    status: "REJECTED",
+    detail: "rolling counter(순서 카운터)가 예상 진행 순서와 맞지 않습니다.",
+    source: "Toy ECU",
+    persist: false,
+  },
+}
+
 describe("VehicleFlowRail", () => {
+  it.each([
+    [false, "실습자용 · 자동 slow-motion trace"],
+    [true, "실습자용 · 정적 단계 전환 · reduced motion"],
+  ] as const)(
+    "reports the actual motion mode when reducedMotion is %s",
+    (reducedMotion, label) => {
+      render(
+        <VehicleFlowRail
+          scenarioTitle="Door attack route"
+          route={["obd", "ids", "gateway", "body", "leftDoor"]}
+          playback={{
+            playbackId: 0,
+            phase: "idle",
+            trace: null,
+            traceIndex: 0,
+            traceCount: 0,
+            segmentIndex: 0,
+          }}
+          reducedMotion={reducedMotion}
+          accent="#d94b4b"
+        />,
+      )
+
+      expect(screen.getByText(label)).toBeInTheDocument()
+    },
+  )
+
   it.each(["idle", "complete"] as const)(
     "highlights the selected route node while playback is %s",
     (phase) => {
@@ -71,6 +126,13 @@ describe("VehicleFlowRail", () => {
       "data-flow-state",
       "active",
     )
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    )
+    expect(screen.getByText("Toy IDS").closest("li")).toHaveAccessibleName(
+      /Toy IDS.*현재 처리 중/,
+    )
     expect(screen.getByText("Toy Body ECU").closest("li")).not.toHaveAttribute(
       "data-selected",
     )
@@ -81,7 +143,7 @@ describe("VehicleFlowRail", () => {
     ).toHaveLength(0)
   })
 
-  it("shows the active device transition and separate verdicts", () => {
+  it("shows complete structured HUD evidence without solution hints", () => {
     render(
       <VehicleFlowRail
         scenarioTitle="Door attack route"
@@ -94,20 +156,141 @@ describe("VehicleFlowRail", () => {
           traceCount: 1,
           segmentIndex: 2,
         }}
+        presentation={structuredPresentation}
         accent="#d94b4b"
       />,
     )
-    const rail = screen.getByRole("list", { name: "Door attack route command flow" })
+    const rail = screen.getByRole("list", {
+      name: "Door attack route command flow",
+    })
     expect(within(rail).getByText("Lab Terminal")).toBeInTheDocument()
     expect(within(rail).getByText("Toy IDS").closest("li")).toHaveAttribute(
       "data-flow-state",
       "active",
     )
-    expect(screen.getByText("ECU · EXECUTED")).toBeInTheDocument()
-    expect(screen.getByText("IDS · ALERT · 탐지됨, 차단하지 않음")).toBeInTheDocument()
+    expect(screen.getByText("Frame 2/3")).toBeInTheDocument()
+    expect(screen.getByText(/cansend vcan0/)).toBeInTheDocument()
+    expect(screen.getByText(/0x456/)).toBeInTheDocument()
+    expect(screen.getByText(/DLC 4/)).toBeInTheDocument()
+    expect(screen.getByText("DATA 01 01 10 B5")).toBeInTheDocument()
+    expect(screen.getByText(/Gateway.*Body ECU/)).toBeInTheDocument()
+    expect(screen.getByText(/COUNTER_REJECTED/)).toBeInTheDocument()
+    expect(screen.getByText(/관찰\/탐지됨.*차단 근거 없음/)).toBeInTheDocument()
+    expect(screen.queryByText(/expected counter/i)).not.toBeInTheDocument()
+    expect(
+      screen.queryByText("cansend vcan0 456#000113B7"),
+    ).not.toBeInTheDocument()
   })
 
-  it("marks rejection with text and a stop state", () => {
+  it("shows a large node-by-node cause card only in beginner step mode", () => {
+    const playback = {
+      playbackId: 11,
+      phase: "playing" as const,
+      trace: executedAlertTrace,
+      traceIndex: 1,
+      traceCount: 3,
+      segmentIndex: 4,
+    }
+    const presentation: VehicleFlowPresentation = {
+      ...structuredPresentation,
+      currentTransition: "Toy Body ECU -> Left Door Effect",
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        presentation={presentation}
+        playbackMode="step"
+        isPaused
+        onNextStep={() => undefined}
+        accent="#d94b4b"
+      />,
+    )
+
+    const cause = screen.getByRole("region", { name: "초보자 단계 설명" })
+    expect(within(cause).getByText("Frame 2/3")).toBeInTheDocument()
+    expect(within(cause).getByText("단계 5/6")).toBeInTheDocument()
+    expect(within(cause).getByText("Toy Body ECU")).toBeInTheDocument()
+    expect(within(cause).getByText(/rolling counter/)).toBeInTheDocument()
+    expect(within(cause).getByText("근거 · Toy ECU")).toBeInTheDocument()
+    expect(within(cause).getByText("다음 · Left Door Effect")).toBeInTheDocument()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        presentation={presentation}
+        playbackMode="auto"
+        accent="#d94b4b"
+      />,
+    )
+    expect(
+      screen.queryByRole("region", { name: "초보자 단계 설명" }),
+    ).not.toBeInTheDocument()
+  })
+
+  it("keeps the final ECU rejection hidden from Terminal until Body ECU arrival", () => {
+    const terminalPresentation: VehicleFlowPresentation = {
+      ...structuredPresentation,
+      currentTransition: null,
+      currentNodeId: "terminal",
+      outcome: null,
+      stoppedAt: null,
+      ecuVerdict: null,
+      idsVerdict: null,
+      nodeFeedback: {
+        nodeId: "terminal",
+        title: "Lab Terminal",
+        status: "PROCESSING",
+        detail: "명령을 교육용 실행 흐름에 등록했습니다.",
+        source: "Terminal",
+        persist: false,
+      },
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 2,
+          phase: "playing",
+          trace: rejectedBodyTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 0,
+        }}
+        presentation={terminalPresentation}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
+    expect(screen.queryByText(/COUNTER_REJECTED/)).not.toBeInTheDocument()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 2,
+          phase: "playing",
+          trace: rejectedBodyTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 4,
+        }}
+        presentation={structuredPresentation}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByText("ECU · COUNTER_REJECTED")).toBeInTheDocument()
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
+  })
+
+  it("marks a reached target rejection without duplicated trace outcome copy", () => {
     render(
       <VehicleFlowRail
         scenarioTitle="Door attack route"
@@ -120,13 +303,22 @@ describe("VehicleFlowRail", () => {
           traceCount: 1,
           segmentIndex: 4,
         }}
+        presentation={{ ...structuredPresentation, phase: "complete" }}
         accent="#d94b4b"
       />,
     )
-    expect(screen.getByText("Toy Body ECU에서 거부")).toBeInTheDocument()
+    expect(screen.getByText("ECU · COUNTER_REJECTED")).toBeInTheDocument()
+    expect(screen.queryByText("Toy Body ECU에서 거부")).not.toBeInTheDocument()
     expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAttribute(
       "data-flow-state",
       "rejected",
+    )
+    expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAttribute(
+      "aria-current",
+      "step",
+    )
+    expect(screen.getByText("Toy Body ECU").closest("li")).toHaveAccessibleName(
+      /Toy Body ECU.*거부됨/,
     )
   })
 
@@ -181,12 +373,323 @@ describe("VehicleFlowRail", () => {
       />,
     )
 
-    const rail = screen.getByRole("list", { name: "Capture route command flow" })
+    const rail = screen.getByRole("list", {
+      name: "Capture route command flow",
+    })
     expect(within(rail).getByText("Lab Terminal")).toBeInTheDocument()
     expect(within(rail).getByText("Training OBD-II")).toBeInTheDocument()
     expect(within(rail).getByText("CAN Monitor")).toBeInTheDocument()
     expect(within(rail).queryByText("Toy Body ECU")).not.toBeInTheDocument()
     expect(within(rail).queryByText("Left Door Effect")).not.toBeInTheDocument()
-    expect(screen.getByText("교육용 논리 위치 · 실제 OEM 배치 아님")).toBeInTheDocument()
+    expect(
+      screen.getByText("교육용 논리 위치 · 실제 OEM 배치 아님"),
+    ).toBeInTheDocument()
+  })
+
+  it("keeps live playback status stable while frame and segment details advance", () => {
+    const secondTrace = {
+      ...executedAlertTrace,
+      traceId: "attempt-second",
+      attemptId: "attempt-second",
+      commandLabel: "second synthetic script line",
+      sequence: 2,
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 7,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 0,
+        }}
+        accent="#d94b4b"
+      />,
+    )
+
+    const liveStatus = screen.getByRole("status")
+    expect(screen.getAllByRole("status")).toHaveLength(1)
+    expect(liveStatus).toHaveTextContent("재생 상태: 자동 재생 중")
+    expect(liveStatus).not.toHaveTextContent(/Frame|현재 장치/)
+    const initialDetail = screen.getByText(
+      "Frame 1/2 · 현재 장치 Lab Terminal · 상태 자동 재생 중",
+    )
+    expect(initialDetail).toHaveClass("sr-only")
+    expect(initialDetail).not.toHaveAttribute("role")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 7,
+          phase: "playing",
+          trace: secondTrace,
+          traceIndex: 1,
+          traceCount: 2,
+          segmentIndex: 3,
+        }}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "재생 상태: 자동 재생 중",
+    )
+    expect(screen.getByRole("status")).not.toHaveTextContent(
+      /Frame|현재 장치/,
+    )
+    expect(
+      screen.getByText(
+        "Frame 2/2 · 현재 장치 Toy Gateway · 상태 자동 재생 중",
+      ),
+    ).not.toHaveAttribute("role")
+  })
+
+  it("updates the polite live status with the guided frame, step, and current device", () => {
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 12,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 0,
+        }}
+        playbackMode="step"
+        isPaused
+        onNextStep={() => undefined}
+        accent="#d94b4b"
+      />,
+    )
+
+    const liveStatus = screen.getByRole("status")
+    expect(liveStatus).toHaveTextContent(
+      "Frame 1/1 · 단계 1/6 · 현재 장치 Lab Terminal",
+    )
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 12,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 1,
+          segmentIndex: 1,
+        }}
+        playbackMode="step"
+        isPaused
+        onNextStep={() => undefined}
+        accent="#d94b4b"
+      />,
+    )
+
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent(
+      "Frame 1/1 · 단계 2/6 · 현재 장치 Training OBD-II",
+    )
+  })
+
+  it("lets a learner pause the automatic trace and advance exactly one playback boundary at a time", async () => {
+    const user = userEvent.setup()
+    const onPause = vi.fn()
+    const onResume = vi.fn()
+    const onNextStep = vi.fn()
+    const playback = {
+      playbackId: 9,
+      phase: "playing" as const,
+      trace: executedAlertTrace,
+      traceIndex: 0,
+      traceCount: 1,
+      segmentIndex: 2,
+    }
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        accent="#d94b4b"
+        isPaused={false}
+        onPause={onPause}
+        onResume={onResume}
+        onNextStep={onNextStep}
+      />,
+    )
+
+    const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+    expect(within(controls).getByText("자동 재생 중")).toBeInTheDocument()
+    expect(
+      within(controls).getByRole("button", { name: "한 단계 진행" }),
+    ).toBeDisabled()
+    await user.click(within(controls).getByRole("button", { name: "일시정지" }))
+    expect(onPause).toHaveBeenCalledOnce()
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={playback}
+        accent="#d94b4b"
+        isPaused
+        onPause={onPause}
+        onResume={onResume}
+        onNextStep={onNextStep}
+      />,
+    )
+
+    expect(within(controls).getByText("일시정지됨")).toBeInTheDocument()
+    await user.click(
+      within(controls).getByRole("button", { name: "한 단계 진행" }),
+    )
+    await user.click(
+      within(controls).getByRole("button", { name: "계속 재생" }),
+    )
+    expect(onNextStep).toHaveBeenCalledOnce()
+    expect(onResume).toHaveBeenCalledOnce()
+  })
+
+  it.each([
+    ["idle", false, "재생 대기"],
+    ["playing", false, "자동 재생 중"],
+    ["playing", true, "일시정지됨"],
+    ["complete", false, "재생 완료"],
+    ["cancelled", false, "재생 취소됨"],
+  ] as const)(
+    "reports the %s playback lifecycle accurately when paused is %s",
+    (phase, isPaused, expectedStatus) => {
+      render(
+        <VehicleFlowRail
+          scenarioTitle="Door attack route"
+          route={["obd", "ids", "gateway", "body", "leftDoor"]}
+          playback={
+            phase === "idle"
+              ? {
+                  playbackId: 0,
+                  phase,
+                  trace: null,
+                  traceIndex: 0,
+                  traceCount: 0,
+                  segmentIndex: 0,
+                }
+              : {
+                  playbackId: 9,
+                  phase,
+                  trace: executedAlertTrace,
+                  traceIndex: 0,
+                  traceCount: 1,
+                  segmentIndex: 2,
+                }
+          }
+          accent="#d94b4b"
+          isPaused={isPaused}
+          onPause={() => undefined}
+          onResume={() => undefined}
+          onNextStep={() => undefined}
+        />,
+      )
+
+      const controls = screen.getByRole("group", { name: "3D 흐름 재생 제어" })
+      expect(within(controls).getByText(expectedStatus)).toBeInTheDocument()
+    },
+  )
+
+  it("announces pause, completion, and cancellation playback boundaries", () => {
+    const view = render(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 2,
+        }}
+        accent="#d94b4b"
+        isPaused={false}
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+
+    const liveStatus = screen.getByRole("status")
+    expect(liveStatus).toHaveTextContent("재생 상태: 자동 재생 중")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "playing",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 2,
+        }}
+        accent="#d94b4b"
+        isPaused
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 일시정지됨")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "complete",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 5,
+        }}
+        accent="#d94b4b"
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 재생 완료")
+
+    view.rerender(
+      <VehicleFlowRail
+        scenarioTitle="Door attack route"
+        route={["obd", "ids", "gateway", "body", "leftDoor"]}
+        playback={{
+          playbackId: 9,
+          phase: "cancelled",
+          trace: executedAlertTrace,
+          traceIndex: 0,
+          traceCount: 2,
+          segmentIndex: 3,
+        }}
+        accent="#d94b4b"
+        onPause={() => undefined}
+        onResume={() => undefined}
+        onNextStep={() => undefined}
+      />,
+    )
+    expect(screen.getByRole("status")).toBe(liveStatus)
+    expect(liveStatus).toHaveTextContent("재생 상태: 재생 취소됨")
+    expect(liveStatus).not.toHaveTextContent(/Frame|현재 장치/)
   })
 })

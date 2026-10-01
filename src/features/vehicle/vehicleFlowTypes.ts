@@ -13,6 +13,8 @@ export type VehicleFlowOutcome =
   | "EXECUTED"
   | "REJECTED"
 
+export type VehicleFlowPlaybackMode = "auto" | "step"
+
 export interface VehicleFlowTrace {
   traceId: string
   attemptId: string | null
@@ -39,6 +41,43 @@ export interface VehicleFlowPlaybackSnapshot {
   traceIndex: number
   traceCount: number
   segmentIndex: number
+}
+
+export type VehicleFlowFeedbackStatus =
+  | "PROCESSING"
+  | "PASSED"
+  | "OBSERVED"
+  | "ACCEPTED"
+  | "REJECTED"
+  | "EFFECT APPLIED"
+  | "NO VEHICLE PATH"
+
+export interface VehicleFlowNodeFeedback {
+  nodeId: VehicleFlowNodeId
+  title: string
+  status: VehicleFlowFeedbackStatus
+  detail: string
+  source: "Terminal" | "Toy ECU" | "Toy IDS" | "교육용 분석"
+  persist: boolean
+}
+
+export interface VehicleFlowPresentation {
+  commandLabel: string
+  phase: VehicleFlowPlaybackSnapshot["phase"]
+  traceIndex: number
+  traceCount: number
+  canId: string | null
+  dlc: number
+  data: readonly string[]
+  currentTransition: string | null
+  currentNodeId: VehicleFlowNodeId | null
+  outcome: VehicleFlowOutcome | null
+  stoppedAt: VehicleFlowNodeId | null
+  effectTarget: "leftDoor" | "tailgate" | null
+  effectApplied: boolean
+  ecuVerdict: string | null
+  idsVerdict: "NORMAL" | "ALERT" | null
+  nodeFeedback: VehicleFlowNodeFeedback | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

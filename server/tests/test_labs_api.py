@@ -4,12 +4,14 @@ import asyncio
 from collections import deque
 import json
 import threading
+from typing import get_type_hints
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pytest
 
 from server.routers import can, labs
+from server.labs.door_blackbox import ScriptResult
 
 
 class _SnapshotSocket:
@@ -267,7 +269,7 @@ def test_session_routes_emit_only_accepted_frames_with_toy_metadata() -> None:
             "action": "LEFT_DOOR_OPEN",
         },
         "processing": {"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
-        "monitoring": {"idsObserved": True, "status": "NORMAL"},
+        "monitoring": {"idsObserved": True},
         "lab": {
             "labId": "door-blackbox-v1",
             "sessionId": session_id,
@@ -926,7 +928,46 @@ def test_door_results_expose_authoritative_flow_traces() -> None:
     assert all(item["outcome"] == "EXECUTED" for item in accepted["flowTraces"])
     assert accepted["flowTraces"][0]["route"][-2:] == ["body", "leftDoor"]
     assert accepted["flowTraces"][0]["effectState"] == "open"
+    assert [item["idsVerdict"] for item in accepted["flowTraces"]] == [None, None, "NORMAL"]
+    assert emitted[-3]["monitoring"] == {"idsObserved": True}
+    assert emitted[-2]["monitoring"] == {"idsObserved": True}
+    assert emitted[-1]["monitoring"] == {"idsObserved": True, "status": "NORMAL"}
     assert emitted[-1]["lab"]["attemptId"] == accepted["flowTraces"][-1]["attemptId"]
+
+
+def test_door_script_alert_is_observed_only_on_the_final_emitted_attempt() -> None:
+    emitted: list[dict[str, object]] = []
+
+    async def record(can_id: str, data: list[str], **metadata: object) -> bool:
+        emitted.append({"can_id": can_id, "data": data, **metadata})
+        return True
+
+    app = FastAPI()
+    app.include_router(labs.router)
+    app.dependency_overrides[labs.get_frame_emitter] = lambda: record
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={
+            "script": "interval_ms=50\n"
+            "cansend vcan0 456#000113B7\n"
+            "cansend vcan0 456#000114B0\n"
+            "cansend vcan0 456#000115B1"
+        },
+    ).json()
+
+    assert all(attempt["verdict"] == "EXECUTED" for attempt in result["attempts"])
+    assert result["idsStatus"] == "ALERT"
+    assert [trace["idsVerdict"] for trace in result["flowTraces"]] == [None, None, "ALERT"]
+    assert emitted[0]["monitoring"] == {"idsObserved": True}
+    assert emitted[1]["monitoring"] == {"idsObserved": True}
+    assert emitted[2]["monitoring"] == {"idsObserved": True, "status": "ALERT"}
+
+
+def test_door_script_result_ids_status_is_nullable() -> None:
+    assert get_type_hints(ScriptResult)["ids_status"] == str | None
 
 
 @pytest.mark.parametrize("command", ["cat missing.log", "candump vcan1"])
@@ -963,7 +1004,7 @@ def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str
             "route": ["terminal"],
             "stoppedAt": "terminal",
             "outcome": "REJECTED",
-            "ecuVerdict": "COMMAND_REJECTED",
+            "ecuVerdict": None,
             "idsVerdict": None,
             "effectTarget": None,
             "effectState": None,
@@ -975,6 +1016,24 @@ def test_failed_observation_like_commands_stop_at_the_door_terminal(command: str
         "rightDoor": "closed",
     }
     assert emitted == []
+
+
+@pytest.mark.parametrize("script", ["interval_ms=invalid", "echo no-frame"])
+def test_door_script_grammar_and_local_validation_do_not_claim_ids_observation(script: str) -> None:
+    app = FastAPI()
+    app.include_router(labs.router)
+    client = TestClient(app)
+    session_id = client.post("/labs/door-blackbox/sessions").json()["sessionId"]
+
+    result = client.post(
+        f"/labs/door-blackbox/sessions/{session_id}/run",
+        json={"script": script},
+    ).json()
+
+    assert result["attempts"] == []
+    assert result["idsStatus"] is None
+    assert result["flowTraces"][0]["ecuVerdict"] is None
+    assert result["flowTraces"][0]["idsVerdict"] is None
 
 
 def test_terminal_flow_trace_normalizes_leading_whitespace_for_cansend() -> None:

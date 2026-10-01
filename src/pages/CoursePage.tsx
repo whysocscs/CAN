@@ -8,6 +8,7 @@ import {
   Clock,
   LockSimple,
   Medal,
+  Scan,
   ShieldWarning,
   TerminalWindow,
 } from "@phosphor-icons/react"
@@ -15,13 +16,13 @@ import { BookOpen20Regular } from "@fluentui/react-icons/svg/book-open"
 import { Clock16Regular } from "@fluentui/react-icons/svg/clock"
 import { DataUsage20Regular } from "@fluentui/react-icons/svg/data-usage"
 import { LockClosed16Regular } from "@fluentui/react-icons/svg/lock-closed"
+import { Radar20Regular } from "@fluentui/react-icons/svg/radar"
 import { Reward16Regular } from "@fluentui/react-icons/svg/reward"
 import { Shield20Regular } from "@fluentui/react-icons/svg/shield"
 import { Checkmark12Regular } from "@fluentui/react-icons/svg/checkmark"
 import { designVersion, previewAccessOpen } from "@/design/version"
-import { badgeCatalog } from "@/features/badges/catalog"
 
-type CourseIconKey = "theory" | "practice" | "attack"
+type CourseIconKey = "theory" | "practice" | "attack" | "ids"
 
 function CourseIcon({ kind }: { kind: CourseIconKey }) {
   if (designVersion === "ver1") {
@@ -29,6 +30,7 @@ function CourseIcon({ kind }: { kind: CourseIconKey }) {
       theory: "◈",
       practice: "▷",
       attack: "⬡",
+      ids: "◉",
     }
     return legacy[kind]
   }
@@ -36,14 +38,14 @@ function CourseIcon({ kind }: { kind: CourseIconKey }) {
     if (kind === "theory") return <BookOpen20Regular />
     if (kind === "practice") return <DataUsage20Regular />
     if (kind === "attack") return <Shield20Regular />
-    return <Shield20Regular />
+    return <Radar20Regular />
   }
 
   const props = { size: 19, weight: "regular" as const, "aria-hidden": true }
   if (kind === "theory") return <BookOpenText {...props} />
   if (kind === "practice") return <TerminalWindow {...props} />
   if (kind === "attack") return <ShieldWarning {...props} />
-  return <ShieldWarning {...props} />
+  return <Scan {...props} />
 }
 
 function LockIcon() {
@@ -112,7 +114,7 @@ const courses = [
     difficulty: "입문",
     totalItems: 3,
     maxScore: 300,
-    badge: "CAN 기초 완료",
+    badge: "Frame Reader",
     items: ["CAN 프로토콜", "CAN 프레임", "ECU와 Gateway"],
     resumeLabel: "CAN 프레임",
     startRoute: "can-basics/protocol" as Route,
@@ -126,13 +128,13 @@ const courses = [
     id: "practice",
     icon: "practice" as CourseIconKey,
     title: "CAN 실습",
-    desc: "vcan 환경에서 CAN 메시지를 직접 송수신하고 프레임 동작을 확인합니다.",
-    time: "약 60분",
+    desc: "vcan 환경에서 CAN 메시지를 직접 송수신하고 CAN Monitor로 분석합니다.",
+    time: "약 90분",
     difficulty: "초급",
-    totalItems: 2,
-    maxScore: 300,
-    badge: "CAN 실습 완료",
-    items: ["정상 CAN 송수신", "CAN Frame 송신기"],
+    totalItems: 3,
+    maxScore: 450,
+    badge: "Bus Observer",
+    items: ["정상 CAN 송수신", "CAN Frame 송신기", "CAN Monitor"],
     resumeLabel: "정상 CAN 송수신",
     startRoute: "practice/normal" as Route,
     prerequisite: "CAN 기초 완료",
@@ -145,20 +147,39 @@ const courses = [
     id: "attacks",
     icon: "attack" as CourseIconKey,
     title: "공격 실습",
-    desc: "전체 공격 체인, Spoofing, Replay 공격을 격리된 Toy 환경에서 단계별로 실습합니다.",
-    time: "약 90분",
+    desc: "Door, Spoofing, Replay를 격리된 Toy CAN 환경에서 실행하고, KUKSA 권한과 SWUpdate 업로드 실습을 수행합니다.",
+    time: "약 180분",
     difficulty: "중급",
-    totalItems: 3,
-    maxScore: 450,
-    badge: "공격 실습 완료",
-    items: ["전체 공격 체인", "Spoofing", "Replay"],
-    resumeLabel: "전체 공격 체인",
+    totalItems: 6,
+    maxScore: 900,
+    badge: "Spoofing Analyst",
+    items: ["Door 공격 체인", "Spoofing", "Replay", "DoS (정적 미리보기)", "KUKSA 권한", "SWUpdate 업로드"],
+    resumeLabel: "Door 공격 체인",
     startRoute: "attacks/chain" as Route,
     prerequisite: "CAN 실습 완료",
     unlockKey: "practice",
     accent: "var(--course-attacks-accent)",
     bg: "var(--course-attacks-bg)",
     border: "var(--course-attacks-border)",
+  },
+  {
+    id: "ids",
+    icon: "ids" as CourseIconKey,
+    title: "IDS/IPS 실습",
+    desc: "화이트리스트, 주기와 상태 검증, IPS 차단 규칙을 실습합니다.",
+    time: "약 120분",
+    difficulty: "중급",
+    totalItems: 4,
+    maxScore: 600,
+    badge: "IDS/IPS Operator",
+    items: ["규칙 기반 IDS", "주기 기반 IDS", "카운터/상태 검증", "IPS 차단"],
+    resumeLabel: "규칙 기반 IDS",
+    startRoute: "ids/rule-based" as Route,
+    prerequisite: "공격 실습 완료",
+    unlockKey: "attacks",
+    accent: "var(--course-ids-accent)",
+    bg: "var(--course-ids-bg)",
+    border: "var(--course-ids-border)",
   },
 ]
 
@@ -171,9 +192,6 @@ const difficultyColor: Record<string, string> = {
 
 export default function CoursePage() {
   const { navigate, progress, devMode } = useApp()
-  const earnedBadgeCount = badgeCatalog.filter((badge) =>
-    badge.isEarned(progress),
-  ).length
 
   const isLocked = (unlockKey: string | null) => {
     if (previewAccessOpen || devMode || !unlockKey) return false
@@ -181,16 +199,9 @@ export default function CoursePage() {
   }
 
   const totalPct = Math.round(
-    courses.reduce(
-      (total, course) => total + (progress.courseProgress[course.id] || 0),
-      0,
-    ) / courses.length,
+    Object.values(progress.courseProgress).reduce((a, b) => a + b, 0) / 4,
   )
-  const completedCount = progress.completedItems.filter(
-    (itemId) =>
-      itemId !== "practice/monitor" &&
-      courses.some((course) => itemId.startsWith(course.id)),
-  ).length
+  const completedCount = progress.completedItems.length
 
   return (
     <div
@@ -226,8 +237,8 @@ export default function CoursePage() {
               }}
             >
               {previewAccessOpen
-                ? "프리뷰 기간에는 CAN 기초부터 공격 실습까지 원하는 과정부터 바로 살펴볼 수 있습니다."
-                : "CAN 기초부터 공격 실습까지 3개 과정을 순서대로 완료하세요."}
+                ? "프리뷰 기간에는 CAN 기초부터 IDS 실습까지 원하는 과정부터 바로 살펴볼 수 있습니다."
+                : "CAN 기초부터 IDS 실습까지 4개 과정을 순서대로 완료하세요."}
             </p>
           </div>
           {devMode && !previewAccessOpen && (
@@ -257,7 +268,7 @@ export default function CoursePage() {
               value: `${progress.totalScore.toLocaleString()}점`,
             },
             { label: "완료 수업", value: `${completedCount}개` },
-            { label: "획득 배지", value: `${earnedBadgeCount}개` },
+            { label: "획득 배지", value: `${progress.badges.length}개` },
           ].map((stat) => (
             <CourseSurface
               className="course-summary__stat"

@@ -36,8 +36,12 @@ docker compose down
 - 화면별 구현/스캐폴드 구분: [기능 구현 현황](docs/feature-status.md)
 - 자동·수동 합격 조건: [검증 절차](docs/verification.md)
 - 리뷰 배점과 확인 근거: [코드 품질 검토표](docs/quality-review.md)
+- 학습자·개발자 로드맵(정답지 아님): [CANLite Zero-to-Lab 학습 로드맵](docs/learning/canlite-zero-to-lab-roadmap.md)
 - 학습자용(정답 없음): [Black-box CAN Door Attack 실습 가이드](docs/labs/blackbox-can-door-attack.md)
 - 학습자용(정답 없음): [CAN Spoofing·Replay 기초 실습 가이드](docs/labs/can-spoofing-replay-basics.md)
+- 현재 실습 순서: [KUKSA 문 신호](docs/labs/kuksa-hands-on.md), [SWUpdate multipart](docs/labs/swupdate-hands-on.md)
+- 초기 구현·검증 이력: [KUKSA / SWUpdate 교육 모델](docs/labs/cve-education-labs.md)
+- 원본 소스부터 재준비: [WSL KUKSA·SWUpdate 빌드 절차](docs/labs/cve-upstream-build.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN 공격 실습 빠른 통과표](docs/instructors/can-attack-lab-quick-pass.md)
 - **교사용(정답 포함, 학습자 배포 금지)**: [CAN Attack Lab 검증 가이드](docs/instructors/can-attack-lab-validation.md)
 
@@ -47,9 +51,9 @@ Python 3.12, Node.js 22, pnpm `10.34.3` 기준이다. 먼저 backend 환경을 �
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\python -m pip install -r server\requirements.txt -r server\requirements-dev.txt
+& .\.venv\Scripts\python.exe -m pip install -r server\requirements.txt -r server\requirements-dev.txt
 $env:CANLITE_CAN_MODE = "loopback"
-.venv\Scripts\python -m uvicorn server.main:app --host 127.0.0.1 --port 8010
+& .\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8010
 ```
 
 다른 PowerShell에서 frontend를 실행한다. pnpm 버전을 명시해 Corepack의 자동 버전 선택을 피한다.
@@ -57,10 +61,16 @@ $env:CANLITE_CAN_MODE = "loopback"
 ```powershell
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"
 corepack pnpm@10.34.3 install --frozen-lockfile
-corepack pnpm@10.34.3 dev:ver4
+corepack pnpm@10.34.3 exec vite --host 127.0.0.1 --port 8447 --mode ver4
 ```
 
 개발 화면은 `http://127.0.0.1:8447`이다.
+
+ver4의 **공격 실습 → KUKSA 권한 / SWUpdate 업로드**에서 새 실습을 실행한다.
+현재 두 화면은 원본 프로그램에 제한된 요청을 직접 보내는 실습이다. WSL에 KUKSA·SWUpdate 원본/패치 빌드와 해당 환경 변수 설정이 필요하며, Docker Compose 기본 실행에는 이 빌드가 없어 실물 실습은 준비 오류를 표시한다. [원본 빌드 절차](docs/labs/cve-upstream-build.md)와 각 실습 문서를 따른다. 웹 기반 가상 터미널은 필요 없다. 서버 실행 전
+`$env:CANLITE_ENABLE_REAL_TERMINAL = "false"`, 프론트 실행 전
+`$env:VITE_ENABLE_REAL_TERMINAL = "false"`를 지정한다.
+KUKSA 세션은 서버 메모리에만 있고 SWUpdate는 요청마다 별도 프로세스를 실행·종료한다. 두 화면 모두 실제 차량·물리 CAN에는 연결하지 않는다.
 
 ## 터미널 두 종류
 
@@ -71,8 +81,8 @@ corepack pnpm@10.34.3 dev:ver4
 ## 검사와 빌드
 
 ```powershell
-.venv\Scripts\python -m pytest server\tests -q
-.venv\Scripts\python -m compileall -q server
+& .\.venv\Scripts\python.exe -m pytest server\tests -q
+& .\.venv\Scripts\python.exe -m compileall -q server
 $env:COREPACK_ENABLE_PROJECT_SPEC = "0"
 corepack pnpm@10.34.3 test
 corepack pnpm@10.34.3 typecheck

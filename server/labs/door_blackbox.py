@@ -68,7 +68,7 @@ class TerminalResult:
 @dataclass(frozen=True)
 class ScriptResult:
     attempts: tuple[FrameAttempt, ...]
-    ids_status: str
+    ids_status: str | None
     state: dict[str, object]
     interval_ms: int | None = None
     error: str | None = None
@@ -288,7 +288,7 @@ class DoorBlackboxSession:
 
     def _script_error(self, code: str) -> ScriptResult:
         self._completed = False
-        return ScriptResult((), "ALERT", self.public_state(), error=code)
+        return ScriptResult((), None, self.public_state(), error=code)
 
     @staticmethod
     def _normalize_can_id(can_id: str) -> str:

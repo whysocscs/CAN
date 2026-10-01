@@ -8,7 +8,7 @@ import {
 } from "react"
 import { designVersion } from "../design/version"
 
-export type Route = "courses" | "dashboard" | "can-basics/protocol" | "can-basics/frame" | "can-basics/ecu" | "practice/normal" | "practice/sender" | "practice/monitor" | "attacks/chain" | "attacks/spoofing" | "attacks/replay" | "ids/unknown-id" | "ids/frequency" | "ids/payload-jump" | "ids/gateway" | "ids/rule-based" | "ids/period-based" | "ids/counter-status" | "ids/ips-blocking" | "results" | "badges" | "profile" | "models" | "about"
+export type Route = "courses" | "dashboard" | "can-basics/protocol" | "can-basics/frame" | "can-basics/ecu" | "practice/normal" | "practice/sender" | "practice/monitor" | "attacks/chain" | "attacks/spoofing" | "attacks/replay" | "attacks/dos" | "attacks/kuksa" | "attacks/swupdate" | "ids/unknown-id" | "ids/frequency" | "ids/payload-jump" | "ids/gateway" | "ids/rule-based" | "ids/period-based" | "ids/counter-status" | "ids/ips-blocking" | "results" | "badges" | "profile" | "models" | "about"
 
 export interface BadgeInfo {
   id: string
@@ -86,7 +86,8 @@ const initialBadges: BadgeInfo[] = [
 const courseItemCounts: Record<string, number> = {
   "can-basics": 3,
   practice: 2,
-  attacks: 3,
+  attacks: 6,
+  ids: 4,
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
