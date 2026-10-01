@@ -29,6 +29,7 @@ export interface DoorAttackVehicleProps {
   onPlaybackResume?: () => void
   onPlaybackNextStep?: () => void
   playbackMode?: VehicleFlowPlaybackMode
+  showTargetMap?: boolean
 }
 
 export default function DoorAttackVehicle({
@@ -41,6 +42,7 @@ export default function DoorAttackVehicle({
   onPlaybackResume,
   onPlaybackNextStep,
   playbackMode,
+  showTargetMap,
 }: DoorAttackVehicleProps) {
   return (
     <VehicleNetworkViewport
@@ -58,6 +60,7 @@ export default function DoorAttackVehicle({
       onPlaybackResume={onPlaybackResume}
       onPlaybackNextStep={onPlaybackNextStep}
       playbackMode={playbackMode}
+      showTargetMap={showTargetMap}
     />
   )
 }

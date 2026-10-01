@@ -23,6 +23,13 @@ import RuleBasedIDSPage from "@/pages/IDS_IPS_practice/RuleBasedIDSPage"
 import PeriodBasedIDSPage from "@/pages/IDS_IPS_practice/PeriodBasedIDSPage"
 import CounterStatusCheckIDSPage from "@/pages/IDS_IPS_practice/CounterStatusCheckIDSPage"
 import IpsBlockingPage from "@/pages/IDS_IPS_practice/IpsBlockingPage"
+import {
+  COUNTER_STATUS_IDS_INTRO,
+  IPS_BLOCKING_INTRO,
+  PERIOD_BASED_IDS_INTRO,
+  RULE_BASED_IDS_INTRO,
+} from "@/pages/IDS_IPS_practice/idsIntros"
+import LabIntroGate from "@/features/lab-layout/LabIntroGate"
 
 const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "practice/normal": {
@@ -319,10 +326,11 @@ function Router() {
       return <CanFrameSenderPage />
     }
 
-    if (currentRoute === "ids/rule-based") return <RuleBasedIDSPage />
-    if (currentRoute === "ids/period-based") return <PeriodBasedIDSPage />
-    if (currentRoute === "ids/counter-status") return <CounterStatusCheckIDSPage />
-    if (currentRoute === "ids/ips-blocking") return <IpsBlockingPage />
+    // IDS/IPS 실습도 설명 화면 → 실습 화면 순서다. key로 실습이 바뀌면 상태가 모두 초기화된다.
+    if (currentRoute === "ids/rule-based") return <LabIntroGate key={currentRoute} intro={RULE_BASED_IDS_INTRO}><RuleBasedIDSPage /></LabIntroGate>
+    if (currentRoute === "ids/period-based") return <LabIntroGate key={currentRoute} intro={PERIOD_BASED_IDS_INTRO}><PeriodBasedIDSPage /></LabIntroGate>
+    if (currentRoute === "ids/counter-status") return <LabIntroGate key={currentRoute} intro={COUNTER_STATUS_IDS_INTRO}><CounterStatusCheckIDSPage /></LabIntroGate>
+    if (currentRoute === "ids/ips-blocking") return <LabIntroGate key={currentRoute} intro={IPS_BLOCKING_INTRO}><IpsBlockingPage /></LabIntroGate>
 
     if (designVersion === "ver4" && currentRoute.startsWith("attacks/")) {
       return <AttackPracticePage route={currentRoute as AttackRoute} />

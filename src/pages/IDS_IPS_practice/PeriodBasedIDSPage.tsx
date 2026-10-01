@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Badge } from "@fluentui/react-components"
-import { Play } from "@phosphor-icons/react"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import IdsBottomTabs from "./IdsBottomTabs"
+import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import { idsConsoleTabs } from "./IdsBottomTabs"
+import IdsLabFrame from "./IdsLabFrame"
 import PeriodTimeline, { type PeriodTimelineFrame } from "./PeriodTimeline"
 
 const WHITELIST = ["0x101", "0x200", "0x201"] as const
@@ -168,46 +168,59 @@ export default function PeriodBasedIDSPage() {
       ? "정상 ECU와 별개로 Frame을 주입해 주기를 깨뜨리세요."
       : "정상 Frame은 100ms마다 전송됩니다. 어느 Frame이 비정상적으로 삽입되었는지 선택하세요."
 
+  const progress = phase === "complete" ? 100 : phaseIndex(phase) * 50
   return (
-    <main className="canlab canlab--embedded" aria-label="Period-based IDS practice">
-      <section className="canlab__shell" style={{ padding: 24 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 310px", gap: 18 }}>
-          <section>
-            <PeriodTimeline frames={activeFrames} quizMode={phase === "quiz" || phase === "complete"} quizSelection={quizSelection} onSelect={setQuizSelection} anomaly={anomaly} />
-            {(phase === "quiz" || phase === "complete") && (
-              <section className="canlab__status-box" style={{ marginTop: 12 }}>
-                <strong>{mission}</strong>
-                {phase === "quiz" && <button type="button" className="is-primary" style={{ marginLeft: 12, background: "#c92a22", borderColor: "#c92a22" }} onClick={submitQuiz} disabled={quizSelection === null}>제출</button>}
-                {quizFeedback && <p>{quizFeedback}</p>}
-                {phase === "complete" && <p>정상 ECU와 별개로 추가 Frame을 삽입하여 주기를 깨뜨리는 단순 Spoofing을 탐지할 수 있다.</p>}
-              </section>
-            )}
-            <div style={{ marginTop: 12 }}>
-              <IdsBottomTabs
-                onClear={(tab) => {
-                  if (tab === "terminal") setClearSignal((value) => value + 1)
-                  if (tab === "monitor") setMonitorClearedAt(entryIdRef.current)
-                  if (tab === "idsLog") setLogClearedAt(entryIdRef.current)
-                }}
-                terminal={<CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} />}
-                monitor={<div className="canlab__data-pane"><table><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table></div>}
-                idsLog={<div className="canlab__data-pane">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "ANOMALY" ? "ALERT" : entry.verdict}]</b> {entry.reason}</p>)}</div>}
-              />
-            </div>
+    <IdsLabFrame
+      ariaLabel="Period-based IDS practice"
+      kicker="IDS / IPS 실습 · STEP 2"
+      title="주기(Period) 기반 IDS"
+      status={[
+        { label: "감시 ID", value: MONITORED_CAN_ID },
+        { label: "기준 주기", value: "100 ms" },
+      ]}
+      started={practiceStarted}
+      onStart={start}
+      main={<>
+        <section className="lab-v2__panel">
+          <PeriodTimeline frames={activeFrames} quizMode={phase === "quiz" || phase === "complete"} quizSelection={quizSelection} onSelect={setQuizSelection} anomaly={anomaly} />
+        </section>
+        {(phase === "quiz" || phase === "complete") && (
+          <section className="lab-v2__panel">
+            <header><h2>{phase === "quiz" ? "문제" : "학습 완료"}</h2></header>
+            <p>{mission}</p>
+            {phase === "quiz" && <button type="button" className="lab-v2__button is-primary" onClick={submitQuiz} disabled={quizSelection === null}>제출</button>}
+            {quizFeedback && <p>{quizFeedback}</p>}
+            {phase === "complete" && <div className="lab-v2__result">정상 ECU와 별개로 추가 Frame을 삽입하여 주기를 깨뜨리는 단순 Spoofing을 탐지할 수 있다.</div>}
           </section>
-
-          <aside className="canlab__guide" aria-label="Period-based IDS 안내">
-            <div className="canlab__guide-body" style={{ display: "block" }}>
-              <div className="canlab__guide-progress"><span>STEP 2 : 주기(Period) 검사</span><b>{phase === "complete" ? "100%" : `${phaseIndex(phase) * 50}%`}</b><i><em style={{ width: `${phase === "complete" ? 100 : phaseIndex(phase) * 50}%` }} /></i></div>
-              <section className="canlab__steps"><h2>진행 단계</h2>{["관찰", "공격", "문제"].map((label, index) => <article key={label} className={phaseIndex(phase) === index ? "is-current" : ""}><div><p>{index + 1}. {label}</p></div></article>)}</section>
-              <section className="canlab__status-box"><h2>현재 미션</h2><p>{mission}</p>{phase === "observe" && practiceStarted && normalFrameCount >= 5 && <button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={() => changePhase("attack")}>공격 실습으로</button>}</section>
-              <section className="canlab__status-box"><h2>IDS 판정</h2><Badge appearance="filled" color={verdict === "ALERT" || verdict === "ANOMALY" ? "danger" : verdict === "PASS" ? "success" : "informative"}>{verdict === "IDLE" ? "대기" : verdict}</Badge><p>100ms 기준에서 80ms 미만 간격을 이상으로 탐지합니다.</p></section>
-              <section className="canlab__hint"><h2>힌트</h2><p>{phase === "attack" ? `Spoofing 명령 형식: cansend vcan0 101#${SPOOFING_DATA}` : "먼저 100ms 간격으로 도착하는 정상 Frame을 관찰하세요."}</p></section>
-              <div className="door-attack-lab__editor-actions" style={{ marginTop: 16 }}><button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={start}><Play size={15} weight="fill" aria-hidden="true" />{practiceStarted ? "다시 시작" : "시작"}</button></div>
-            </div>
-          </aside>
-        </div>
-      </section>
-    </main>
+        )}
+      </>}
+      guide={{
+        progressLabel: "STEP 2 : 주기(Period) 검사",
+        progress,
+        steps: ["관찰", "공격", "문제"],
+        currentStep: phaseIndex(phase),
+        mission,
+        missionAction: phase === "observe" && practiceStarted && normalFrameCount >= 5
+          ? <button type="button" className="lab-v2__button is-primary" onClick={() => changePhase("attack")}>공격 실습으로</button>
+          : undefined,
+        verdict: {
+          title: "IDS 판정",
+          label: verdict === "IDLE" ? "대기" : verdict,
+          tone: verdict === "ALERT" || verdict === "ANOMALY" ? "danger" : verdict === "PASS" ? "ok" : "neutral",
+          note: "100ms 기준에서 80ms 미만 간격을 이상으로 탐지합니다.",
+        },
+        hint: phase === "attack" ? `Spoofing 명령 형식: cansend vcan0 101#${SPOOFING_DATA}` : "먼저 100ms 간격으로 도착하는 정상 Frame을 관찰하세요.",
+      }}
+      tabs={idsConsoleTabs({
+        onClear: (tab) => {
+          if (tab === "terminal") setClearSignal((value) => value + 1)
+          if (tab === "monitor") setMonitorClearedAt(entryIdRef.current)
+          if (tab === "idsLog") setLogClearedAt(entryIdRef.current)
+        },
+        terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["period-based"]} />,
+        monitor: <table className="lab-v2__table"><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table>,
+        idsLog: <div className="lab-v2__log">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "ANOMALY" ? "ALERT" : entry.verdict}]</b> {entry.reason}</p>)}</div>,
+      })}
+    />
   )
 }

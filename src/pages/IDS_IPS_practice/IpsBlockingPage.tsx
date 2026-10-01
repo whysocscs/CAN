@@ -1,7 +1,6 @@
 import { useState } from "react"
-import { Badge } from "@fluentui/react-components"
-import { Play } from "@phosphor-icons/react"
-import IpsBlockingTabs from "./IpsBlockingTabs"
+import { idsConsoleTabs } from "./IdsBottomTabs"
+import IdsLabFrame from "./IdsLabFrame"
 import IpsBlockingTimeline, { type IpsFrame, type IpsRule } from "./IpsBlockingTimeline"
 
 const REPLAY_FRAMES: IpsFrame[] = [
@@ -57,12 +56,47 @@ export default function IpsBlockingPage() {
   const idsLog = attack.ids === "REPLAY" ? "Replay detected: expected counter 14, received 11." : "Period anomaly: expected 100 ms, observed 50 ms."
   const mission = phase === "s1" ? "탐지된 공격 Frame에 IPS 규칙을 적용해 공격만 차단하세요. 정상 통신은 유지되어야 합니다." : phase === "s2" ? "이번 탐지 이유에 맞는 IPS 규칙으로 공격 Frame만 차단하세요." : "CAN ID 전체 차단 규칙의 문제점으로 옳은 것을 고르세요."
 
-  return <main className="canlab canlab--embedded" aria-label="IPS blocking practice"><section className="canlab__shell" style={{ padding: 24 }}><div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 310px", gap: 18 }}><section>
-    <IpsBlockingTimeline frames={frames} activeRule={activeRule} popoverFrame={popoverFrame} selectedRule={selectedRule} onOpenFrame={setPopoverFrame} onSelectRule={setSelectedRule} onApply={applyRule} />
-    <div style={{ display: "flex", justifyContent: "flex-end", margin: "10px 0" }}><button type="button" onClick={resetRule}>규칙 초기화</button></div>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 12 }}><section className="canlab__status-box"><strong>정상 Frame ECU 전달 {normalDelivered} / 4</strong><p style={{ color: normalDelivered < 4 ? "#b45309" : "var(--text-secondary)" }}>{normalDelivered < 4 ? "정상 통신까지 과도하게 차단되었습니다." : "정상 통신이 유지됩니다."}</p></section><section className="canlab__status-box"><strong>공격 Frame ECU 전달 {attackDelivered} / 1</strong><p style={{ color: messageColor }}>{message}</p></section></div>
-    {phase === "quiz" && <section className="canlab__status-box" style={{ marginBottom: 12 }}><strong>{mission}</strong><div style={{ display: "grid", gap: 8, marginTop: 12 }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, cursor: "pointer" }}><input type="radio" name="ips-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="is-primary" style={{ marginTop: 12, background: "#c92a22", borderColor: "#c92a22" }} disabled={!quizAnswer} onClick={() => setQuizFeedback(quizAnswer === "scope" ? "정답입니다. 차단 범위가 넓을수록 정상 통신까지 막을 수 있어 과잉 차단입니다." : "다시 생각해 보세요. ID 전체 차단 시 정상 Frame도 몇 개가 전달되는지 확인하세요.")}>제출</button>{quizFeedback && <p>{quizFeedback}</p>}{quizAnswer === "scope" && <button type="button" onClick={() => setPhase("complete")}>완료</button>}</section>}
-    {phase === "complete" && <section className="canlab__status-box" style={{ marginBottom: 12 }}><strong>실습 완료</strong><p>IDS는 이상을 탐지하고 알려주는 역할을 하고, IPS는 탐지된 프레임을 실제로 차단하는 역할입니다.</p><p>IPS는 탐지 이유에 맞는 규칙을 써야 하며, 차단 범위가 넓으면 정상 통신까지 막힐 수 있습니다.</p></section>}
-    <IpsBlockingTabs onClear={(tab) => tab === "monitor" ? setMonitorCleared(true) : setLogCleared(true)} monitor={<div className="canlab__data-pane"><table><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th><th>처리</th></tr></thead><tbody>{!monitorCleared && entries.map(({ frame, no, action }) => <tr key={frame.id}><td>{no}</td><td>{(frame.time / 1000).toFixed(2)}</td><td>{frame.canId}</td><td>{frame.data}</td><td>{frame.ids}</td><td style={{ color: action === "BLOCKED" ? "#991b1b" : "#166534" }}>{action}</td></tr>)}</tbody></table></div>} idsLog={<div className="canlab__data-pane">{started && !logCleared && <><p><b>[ALERT]</b> {idsLog}</p><p><b>[{attackDelivered ? "ALLOWED" : "BLOCKED"}]</b> {attackDelivered ? "Frame delivered to ECU." : activeRule === "id" ? `CAN ID ${attack.canId} is blocked by rule.` : "Frame dropped before reaching ECU."}</p></>}</div>} />
-  </section><aside className="canlab__guide" aria-label="IPS 차단 안내"><div className="canlab__guide-body" style={{ display: "block" }}><div className="canlab__guide-progress"><span>STEP 4 : IPS 차단</span><b>{phase === "complete" ? "100%" : `${phaseIndex * 50}%`}</b><i><em style={{ width: `${phase === "complete" ? 100 : phaseIndex * 50}%` }} /></i></div><section className="canlab__steps"><h2>진행 단계</h2>{["시나리오 1", "시나리오 2", "문제"].map((label, index) => <article key={label} className={phaseIndex === index ? "is-current" : ""}><div><p>{index + 1}. {label}</p></div></article>)}</section><section className="canlab__status-box"><h2>현재 미션</h2><p>{mission}</p>{phase === "s1" && success && <button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={goS2}>시나리오 2로</button>}{phase === "s2" && success && <button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={() => setPhase("quiz")}>문제 풀기</button>}</section><section className="canlab__hint"><h2>안내</h2><p>타임라인에서 탐지된 공격 Frame(빨간 ×)을 클릭해 IPS 규칙을 적용하세요.</p><p>실제 차량에서는 IDS/IPS 파이프라인이 탐지·판정 로직을 선행합니다. 이 화면은 교육용 시뮬레이션입니다.</p></section><div className="door-attack-lab__editor-actions" style={{ marginTop: 16 }}><button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={start}><Play size={15} weight="fill" aria-hidden="true" />{started ? "다시 시작" : "시작"}</button></div></div></aside></div></section></main>
+  const normalTone = normalDelivered < 4 ? "danger" : "ok"
+  return <IdsLabFrame
+    ariaLabel="IPS blocking practice"
+    kicker="IDS / IPS 실습 · STEP 4"
+    title="IPS 차단"
+    status={[
+      { label: "정상 전달", value: `${normalDelivered} / 4`, tone: started ? normalTone : undefined },
+      { label: "공격 전달", value: `${attackDelivered} / 1`, tone: started ? (attackDelivered ? "danger" : "ok") : undefined },
+    ]}
+    started={started}
+    onStart={start}
+    main={<>
+      <section className="lab-v2__panel">
+        <IpsBlockingTimeline frames={frames} activeRule={activeRule} popoverFrame={popoverFrame} selectedRule={selectedRule} onOpenFrame={setPopoverFrame} onSelectRule={setSelectedRule} onApply={applyRule} />
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}><button type="button" className="lab-v2__button" onClick={resetRule}>규칙 초기화</button></div>
+      </section>
+      <section className="lab-v2__panel" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div><strong>정상 Frame ECU 전달 {normalDelivered} / 4</strong><p style={{ color: normalDelivered < 4 ? "#b45309" : "var(--text-secondary)" }}>{normalDelivered < 4 ? "정상 통신까지 과도하게 차단되었습니다." : "정상 통신이 유지됩니다."}</p></div>
+        <div><strong>공격 Frame ECU 전달 {attackDelivered} / 1</strong><p style={{ color: messageColor }}>{message}</p></div>
+      </section>
+      {phase === "quiz" && <section className="lab-v2__panel"><header><h2>문제</h2></header><p>{mission}</p><div style={{ display: "grid", gap: 8, margin: "12px 0" }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, cursor: "pointer", fontSize: 13 }}><input type="radio" name="ips-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="lab-v2__button is-primary" disabled={!quizAnswer} onClick={() => setQuizFeedback(quizAnswer === "scope" ? "정답입니다. 차단 범위가 넓을수록 정상 통신까지 막을 수 있어 과잉 차단입니다." : "다시 생각해 보세요. ID 전체 차단 시 정상 Frame도 몇 개가 전달되는지 확인하세요.")}>제출</button>{quizFeedback && <p>{quizFeedback}</p>}{quizAnswer === "scope" && <button type="button" className="lab-v2__button" onClick={() => setPhase("complete")}>완료</button>}</section>}
+      {phase === "complete" && <section className="lab-v2__panel"><div className="lab-v2__result"><b>실습 완료</b><p>IDS는 이상을 탐지하고 알려주는 역할을 하고, IPS는 탐지된 프레임을 실제로 차단하는 역할입니다.</p><p>IPS는 탐지 이유에 맞는 규칙을 써야 하며, 차단 범위가 넓으면 정상 통신까지 막힐 수 있습니다.</p></div></section>}
+    </>}
+    guide={{
+      progressLabel: "STEP 4 : IPS 차단",
+      progress: phase === "complete" ? 100 : phaseIndex * 50,
+      steps: ["시나리오 1", "시나리오 2", "문제"],
+      currentStep: phaseIndex,
+      mission,
+      missionAction: phase === "s1" && success
+        ? <button type="button" className="lab-v2__button is-primary" onClick={goS2}>시나리오 2로</button>
+        : phase === "s2" && success
+          ? <button type="button" className="lab-v2__button is-primary" onClick={() => setPhase("quiz")}>문제 풀기</button>
+          : undefined,
+      hint: "타임라인에서 탐지된 공격 Frame(빨간 ×)을 클릭해 IPS 규칙을 적용하세요. 실제 차량에서는 IDS/IPS 파이프라인이 탐지·판정 로직을 선행합니다. 이 화면은 교육용 시뮬레이션입니다.",
+    }}
+    tabs={idsConsoleTabs({
+      status: "고정 시나리오 결과",
+      onClear: (tab) => tab === "monitor" ? setMonitorCleared(true) : setLogCleared(true),
+      monitor: <table className="lab-v2__table"><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th><th>처리</th></tr></thead><tbody>{!monitorCleared && entries.map(({ frame, no, action }) => <tr key={frame.id}><td>{no}</td><td>{(frame.time / 1000).toFixed(2)}</td><td>{frame.canId}</td><td>{frame.data}</td><td>{frame.ids}</td><td style={{ color: action === "BLOCKED" ? "#991b1b" : "#166534" }}>{action}</td></tr>)}</tbody></table>,
+      idsLog: <div className="lab-v2__log">{started && !logCleared && <><p><b>[ALERT]</b> {idsLog}</p><p><b>[{attackDelivered ? "ALLOWED" : "BLOCKED"}]</b> {attackDelivered ? "Frame delivered to ECU." : activeRule === "id" ? `CAN ID ${attack.canId} is blocked by rule.` : "Frame dropped before reaching ECU."}</p></>}</div>,
+    })}
+  />
 }

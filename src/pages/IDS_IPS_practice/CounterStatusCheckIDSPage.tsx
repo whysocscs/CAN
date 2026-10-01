@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react"
-import { Badge } from "@fluentui/react-components"
-import { Play } from "@phosphor-icons/react"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import IdsBottomTabs from "./IdsBottomTabs"
+import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import { idsConsoleTabs } from "./IdsBottomTabs"
+import IdsLabFrame from "./IdsLabFrame"
 import CounterSequence, { type CounterSequenceFrame } from "./CounterSequence"
 
 const MONITORED_CAN_ID = "0x456"
@@ -201,19 +201,47 @@ export default function CounterStatusCheckIDSPage() {
   const canEnterReplay = lastAcceptedCounter === 13
   const mission = phase === "observe" ? "정상 Frame의 Counter가 어떻게 증가하는지 관찰하세요." : phase === "replay" ? "Frame 2를 캡처해서 Replay 공격하세요." : phase === "quiz" ? "공격이 탐지된 이유를 고르세요." : "이미 열린 도어를 또 여는 명령을 보내 보세요. Counter는 마지막 값 다음 숫자를 사용하세요."
 
-  return <main className="canlab canlab--embedded" aria-label="Counter and status IDS practice"><section className="canlab__shell" style={{ padding: 24 }}>
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 310px", gap: 18 }}><section>
-      <CounterSequence frames={frames} expectedCounter={expectedCounter} alert={alert} />
-      {phase === "quiz" && <section className="canlab__status-box" style={{ marginTop: 12 }}><strong>{mission}</strong><div style={{ display: "grid", gap: 8, marginTop: 12 }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" }}><input type="radio" name="counter-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="is-primary" style={{ marginTop: 12, background: "#c92a22", borderColor: "#c92a22" }} onClick={submitQuiz} disabled={!quizAnswer}>제출</button>{quizFeedback && <><p>{quizFeedback}</p>{quizAnswer === "counter" && <button type="button" onClick={openDoorForStateCheck}>상태 검증으로</button>}</>}</section>}
-      {phase === "complete" && <section className="canlab__status-box" style={{ marginTop: 12 }}><strong>학습 완료</strong><p>카운터를 정확히 맞춰도 현재 상태와 맞지 않는 명령은 상태 검증으로 걸러낼 수 있습니다.</p><p>카운터가 매번 증가하므로, 캡처해 두었다가 다시 보낸 과거 프레임은 카운터가 과거 값이라 탐지됩니다.</p></section>}
-      <div style={{ marginTop: 12 }}><IdsBottomTabs onClear={(tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(frameIdRef.current); if (tab === "idsLog") setLogClearedAt(frameIdRef.current) }} terminal={<CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} />} monitor={<div className="canlab__data-pane"><table><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.no}</td><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table></div>} idsLog={<div className="canlab__data-pane">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "PASS" && entry.reason.startsWith("CAN ID") ? "INFO" : entry.verdict}]</b> {entry.reason}</p>)}</div>} /></div>
-    </section><aside className="canlab__guide" aria-label="Counter and status IDS 안내"><div className="canlab__guide-body" style={{ display: "block" }}>
-      <div className="canlab__guide-progress"><span>STEP 3 : 카운터/상태 검증</span><b>{phase === "complete" ? "100%" : `${Math.round((currentStage / 3) * 100)}%`}</b><i><em style={{ width: `${phase === "complete" ? 100 : Math.round((currentStage / 3) * 100)}%` }} /></i></div>
-      <section className="canlab__steps"><h2>진행 단계</h2>{["관찰", "Replay", "문제", "상태"].map((label, index) => <article key={label} className={currentStage === index ? "is-current" : ""}><div><p>{index + 1}. {label}</p></div></article>)}</section>
-      <section className="canlab__status-box"><h2>현재 미션</h2><p>{mission}</p>{phase === "observe" && canEnterReplay && <button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={() => setCurrentPhase("replay")}>Replay 실습으로</button>}</section>
-      <section className="canlab__status-box"><h2>현재 상태</h2><Badge appearance="filled" color={doorState === "OPEN" ? "warning" : "informative"}>DOOR : {doorState}</Badge><p>마지막 수락 Counter : {lastAcceptedCounter === null ? "-" : counterText(lastAcceptedCounter)}</p></section>
-      <section className="canlab__hint"><h2>힌트</h2><p>{phase === "replay" ? "CAN Monitor에서 Frame 2의 ID와 DATA를 확인한 뒤 캡처하고 재전송하세요." : phase === "state" ? "COMMAND 01과 Counter 15를 사용하세요." : "Counter는 이전 값보다 하나씩 증가합니다."}</p></section>
-      <div className="door-attack-lab__editor-actions" style={{ marginTop: 16 }}><button type="button" className="is-primary" style={{ background: "#c92a22", borderColor: "#c92a22" }} onClick={start}><Play size={15} weight="fill" aria-hidden="true" />{practiceStarted ? "다시 시작" : "시작"}</button></div>
-    </div></aside></div>
-  </section></main>
+  const progress = phase === "complete" ? 100 : Math.round((currentStage / 3) * 100)
+  return <IdsLabFrame
+    ariaLabel="Counter and status IDS practice"
+    kicker="IDS / IPS 실습 · STEP 3"
+    title="카운터/상태 검증 IDS"
+    status={[
+      { label: "Door", value: doorState, tone: doorState === "OPEN" ? "danger" : undefined },
+      { label: "마지막 Counter", value: lastAcceptedCounter === null ? "-" : counterText(lastAcceptedCounter) },
+      { label: "IDS", value: verdict === "IDLE" ? "대기" : verdict, tone: verdict === "ALERT" ? "danger" : verdict === "PASS" ? "ok" : undefined },
+    ]}
+    started={practiceStarted}
+    onStart={start}
+    main={<>
+      <section className="lab-v2__panel">
+        <CounterSequence frames={frames} expectedCounter={expectedCounter} alert={alert} />
+      </section>
+      {phase === "quiz" && <section className="lab-v2__panel"><header><h2>문제</h2></header><p>{mission}</p><div style={{ display: "grid", gap: 8, margin: "12px 0" }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 13 }}><input type="radio" name="counter-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="lab-v2__button is-primary" onClick={submitQuiz} disabled={!quizAnswer}>제출</button>{quizFeedback && <><p>{quizFeedback}</p>{quizAnswer === "counter" && <button type="button" className="lab-v2__button" onClick={openDoorForStateCheck}>상태 검증으로</button>}</>}</section>}
+      {phase === "complete" && <section className="lab-v2__panel"><div className="lab-v2__result"><b>학습 완료</b><p>카운터를 정확히 맞춰도 현재 상태와 맞지 않는 명령은 상태 검증으로 걸러낼 수 있습니다.</p><p>카운터가 매번 증가하므로, 캡처해 두었다가 다시 보낸 과거 프레임은 카운터가 과거 값이라 탐지됩니다.</p></div></section>}
+    </>}
+    guide={{
+      progressLabel: "STEP 3 : 카운터/상태 검증",
+      progress,
+      steps: ["관찰", "Replay", "문제", "상태"],
+      currentStep: currentStage,
+      mission,
+      missionAction: phase === "observe" && canEnterReplay
+        ? <button type="button" className="lab-v2__button is-primary" onClick={() => setCurrentPhase("replay")}>Replay 실습으로</button>
+        : undefined,
+      verdict: {
+        title: "현재 상태",
+        label: `DOOR : ${doorState}`,
+        tone: doorState === "OPEN" ? "danger" : "neutral",
+        note: `마지막 수락 Counter : ${lastAcceptedCounter === null ? "-" : counterText(lastAcceptedCounter)}`,
+      },
+      hint: phase === "replay" ? "CAN Monitor에서 Frame 2의 ID와 DATA를 확인한 뒤 캡처하고 재전송하세요." : phase === "state" ? "COMMAND 01과 Counter 15를 사용하세요." : "Counter는 이전 값보다 하나씩 증가합니다.",
+    }}
+    tabs={idsConsoleTabs({
+      onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(frameIdRef.current); if (tab === "idsLog") setLogClearedAt(frameIdRef.current) },
+      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["counter-status"]} />,
+      monitor: <table className="lab-v2__table"><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.no}</td><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table>,
+      idsLog: <div className="lab-v2__log">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "PASS" && entry.reason.startsWith("CAN ID") ? "INFO" : entry.verdict}]</b> {entry.reason}</p>)}</div>,
+    })}
+  />
 }

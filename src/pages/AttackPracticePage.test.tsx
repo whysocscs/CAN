@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AppProvider } from "../context/AppContext"
 import AttackPracticePage, { type AttackRoute } from "./AttackPracticePage"
@@ -22,6 +22,7 @@ describe("AttackPracticePage route switch", () => {
 
   it.each([["attacks/kuksa", "KUKSA Learning Lab"], ["attacks/swupdate", "SWUpdate Learning Lab"]] as const)("renders the dedicated %s page", (route, title) => {
     render(<AppProvider><AttackPracticePage route={route} /></AppProvider>)
+    fireEvent.click(screen.getByRole("button", { name: /실습 시작/ }))
     expect(screen.getByText(title)).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "KUKSA 권한" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "SWUpdate 업로드" })).toBeInTheDocument()
@@ -39,6 +40,7 @@ describe("AttackPracticePage route switch", () => {
           <AttackPracticePage route={route} />
         </AppProvider>,
       )
+      fireEvent.click(screen.getByRole("button", { name: /실습 시작/ }))
 
       expect(screen.getByTestId("beginner-lab")).toHaveTextContent(copy)
       expect(screen.queryByText("정적 UI 미리보기")).not.toBeInTheDocument()
@@ -51,6 +53,7 @@ describe("AttackPracticePage route switch", () => {
         <AttackPracticePage route="attacks/chain" />
       </AppProvider>,
     )
+    fireEvent.click(screen.getByRole("button", { name: /실습 시작/ }))
 
     expect(screen.getByText("Door Attack Workbench")).toBeInTheDocument()
     expect(
@@ -59,5 +62,28 @@ describe("AttackPracticePage route switch", () => {
     expect(screen.getByRole("button", { name: "Spoofing" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Replay" })).toBeInTheDocument()
     expect(screen.getAllByRole("button")).toHaveLength(3)
+  })
+
+  it("shows the VERSION 2 introduction before every lab and restarts it when the lab changes", () => {
+    const { rerender } = render(
+      <AppProvider>
+        <AttackPracticePage route="attacks/spoofing" />
+      </AppProvider>,
+    )
+
+    expect(screen.getByRole("heading", { name: "CAN Spoofing Basics" })).toBeInTheDocument()
+    expect(screen.getByText("LEARNING OBJECTIVES")).toBeInTheDocument()
+    expect(screen.queryByTestId("beginner-lab")).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: /실습 시작/ }))
+    expect(screen.getByTestId("beginner-lab")).toHaveTextContent("spoofing")
+
+    rerender(
+      <AppProvider>
+        <AttackPracticePage route="attacks/replay" />
+      </AppProvider>,
+    )
+    expect(screen.getByRole("heading", { name: "CAN Replay Basics" })).toBeInTheDocument()
+    expect(screen.queryByTestId("beginner-lab")).not.toBeInTheDocument()
   })
 })

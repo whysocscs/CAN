@@ -87,6 +87,8 @@ export interface VehicleNetworkViewportProps {
   onPlaybackResume?: () => void
   onPlaybackNextStep?: () => void
   playbackMode?: VehicleFlowPlaybackMode
+  /** false면 노드 카드 줄을 숨긴다. 경로는 아래 흐름 레일과 3D 번호 마커로 이미 보인다. */
+  showTargetMap?: boolean
 }
 
 interface CameraPreset {
@@ -1060,6 +1062,7 @@ export default function VehicleNetworkViewport({
   onPlaybackResume,
   onPlaybackNextStep,
   playbackMode = "auto",
+  showTargetMap = true,
 }: VehicleNetworkViewportProps) {
   const reducedMotion = useReducedMotion()
   const playbackState = useMemo(
@@ -1306,44 +1309,46 @@ export default function VehicleNetworkViewport({
         </div>
       </div>
 
-      <ol
-        className="vehicle-network-viewport__target-map"
-        aria-label={`${scenarioTitle} target map`}
-        tabIndex={0}
-      >
-        {routeNodes.map((node) => {
-          const nodeStatus =
-            topologyFeedback?.nodeId === node.id
-              ? topologyFeedback.status
-              : node.id === activeNodeId && hasAuthoritativeTrace
-                ? "PROCESSING"
-                : null
-          return (
-            <li
-              key={node.id}
-              data-kind={node.kind}
-              data-active={node.id === activeNodeId}
-              data-feedback-status={nodeStatus ?? undefined}
-              aria-current={node.id === activeNodeId ? "step" : undefined}
-              aria-label={
-                nodeStatus ? `${node.label} · ${nodeStatus}` : undefined
-              }
-            >
-              <span className="vehicle-network-viewport__map-number">
-                {node.number}
-              </span>
-              <div>
-                <strong>{node.label}</strong>
-                <span>{node.role}</span>
-                <small data-truth={node.truth}>
-                  <strong>{node.truthTitle}</strong>
-                  <span>{node.truthDetail}</span>
-                </small>
-              </div>
-            </li>
-          )
-        })}
-      </ol>
+      {showTargetMap ? (
+        <ol
+          className="vehicle-network-viewport__target-map"
+          aria-label={`${scenarioTitle} target map`}
+          tabIndex={0}
+        >
+          {routeNodes.map((node) => {
+            const nodeStatus =
+              topologyFeedback?.nodeId === node.id
+                ? topologyFeedback.status
+                : node.id === activeNodeId && hasAuthoritativeTrace
+                  ? "PROCESSING"
+                  : null
+            return (
+              <li
+                key={node.id}
+                data-kind={node.kind}
+                data-active={node.id === activeNodeId}
+                data-feedback-status={nodeStatus ?? undefined}
+                aria-current={node.id === activeNodeId ? "step" : undefined}
+                aria-label={
+                  nodeStatus ? `${node.label} · ${nodeStatus}` : undefined
+                }
+              >
+                <span className="vehicle-network-viewport__map-number">
+                  {node.number}
+                </span>
+                <div>
+                  <strong>{node.label}</strong>
+                  <span>{node.role}</span>
+                  <small data-truth={node.truth}>
+                    <strong>{node.truthTitle}</strong>
+                    <span>{node.truthDetail}</span>
+                  </small>
+                </div>
+              </li>
+            )
+          })}
+        </ol>
+      ) : null}
 
       <VehicleFlowRail
         scenarioTitle={scenarioTitle}

@@ -13,6 +13,9 @@ import {
   TerminalWindow,
 } from "@phosphor-icons/react"
 import { FrameStructureVisual } from "@/components/learning/LessonVisuals"
+import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
+import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
+import { completeCommand } from "@/features/terminal/commandCompletion"
 import "./CanFrameSender.css"
 
 type StepKey =
@@ -947,7 +950,32 @@ function StepStage({
   }
 }
 
+// 3·4단계는 학습자가 명령을 직접 구성해야 하므로 정답 명령은 자동완성 후보에 넣지 않는다.
+const SENDER_COMPLETIONS = ["cansend vcan0 "]
+
+const SENDER_INTRO: LabIntroContent = {
+  kicker: "CAN 실습 · FRAME SENDER",
+  title: "CAN Frame 송신기",
+  description:
+    "cansend 명령 한 줄이 CAN Frame으로 바뀌어 ECU까지 전달되는 과정을 단계별 애니메이션으로 확인합니다. 단계가 올라갈수록 명령을 직접 구성합니다.",
+  flow: LEARNING_ROUTE_ORDER,
+  flowNote: STEP_SEQUENCE.map((step) => step.title).join(" · "),
+  objectives: LEARNING_STAGE_CONFIG.map((stage) => `${stage.index}단계 · ${stage.title}`),
+  facts: [
+    { label: "명령 형식", value: "cansend vcan0 <ID>#<DATA>" },
+    { label: "미션", value: `${LEARNING_STAGE_CONFIG.length}단계` },
+  ],
+}
+
 export default function CanFrameSenderPage() {
+  return (
+    <LabIntroGate intro={SENDER_INTRO}>
+      <CanFrameSenderWorkbench />
+    </LabIntroGate>
+  )
+}
+
+function CanFrameSenderWorkbench() {
   const [terminalCommand, setTerminalCommand] = useState("cansend vcan0 101#00")
   const [analysis, setAnalysis] = useState<RunAnalysis | null>(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
@@ -1187,6 +1215,7 @@ export default function CanFrameSenderPage() {
                   <small>Classical CAN 2.0 Flow Stage</small>
                 </div>
                 <div className="canlab__vehicle-controls" aria-label="단계 제어">
+                  <LabIntroButton />
                   <button type="button" onClick={() => moveStep(-1)} disabled={!canMovePrev}>
                     <CaretLeft size={14} /> 이전 STEP
                   </button>
@@ -1305,7 +1334,12 @@ export default function CanFrameSenderPage() {
                       id="senderlab-command"
                       value={terminalCommand}
                       onChange={(event) => setTerminalCommand(event.target.value)}
-                      placeholder="cansend vcan0 101#00"
+                      onKeyDown={(event) => {
+                        if (event.key !== "Tab") return
+                        event.preventDefault()
+                        setTerminalCommand(completeCommand(terminalCommand, SENDER_COMPLETIONS).value)
+                      }}
+                      placeholder="cansend vcan0 101#00 · Tab 자동완성"
                       autoComplete="off"
                     />
                   </form>

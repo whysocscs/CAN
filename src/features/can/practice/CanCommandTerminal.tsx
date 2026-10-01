@@ -2,12 +2,15 @@ import { useEffect, useRef } from "react"
 import { FitAddon } from "@xterm/addon-fit"
 import { Terminal as Xterm } from "@xterm/xterm"
 import "@xterm/xterm/css/xterm.css"
+import { completeCommand } from "@/features/terminal/commandCompletion"
 
 interface CanCommandTerminalProps {
   clearSignal: number
   onCommand: (command: string) => Promise<string[]>
   pendingCommand?: string | null
   onCommandHandled?: () => void
+  /** Tab 자동완성 후보. 실습에서 허용된 명령만 넣는다. */
+  completions?: readonly string[]
 }
 
 /**
@@ -21,15 +24,18 @@ export default function CanCommandTerminal({
   onCommand,
   pendingCommand,
   onCommandHandled,
+  completions = [],
 }: CanCommandTerminalProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Xterm | null>(null)
   const onCommandRef = useRef(onCommand)
   const onCommandHandledRef = useRef(onCommandHandled)
+  const completionsRef = useRef(completions)
 
   // 콜백이 바뀔 때마다 xterm을 재생성하면 입력 중인 줄과 스크롤이 사라진다.
   onCommandRef.current = onCommand
   onCommandHandledRef.current = onCommandHandled
+  completionsRef.current = completions
 
   useEffect(() => {
     terminalRef.current?.clear()
@@ -144,6 +150,18 @@ export default function CanCommandTerminal({
             running = false
             terminal.write("$ ")
           })
+        return
+      }
+
+      if (data === "\t") {
+        const { value, matches } = completeCommand(commandLine, completionsRef.current)
+        if (value !== commandLine) {
+          commandLine = value
+          // 대소문자가 후보 표기로 바뀔 수 있으므로 현재 줄을 다시 그린다.
+          terminal.write(`\r\x1b[2K$ ${commandLine}`)
+        } else if (matches.length > 1) {
+          terminal.write(`\r\n${matches.map((match) => match.trimEnd()).join("    ")}\r\n$ ${commandLine}`)
+        }
         return
       }
 

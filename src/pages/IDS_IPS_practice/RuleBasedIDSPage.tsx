@@ -1,18 +1,26 @@
 import { Suspense, useEffect, useState } from "react"
-import { Badge, Button } from "@fluentui/react-components"
+import { Button } from "@fluentui/react-components"
 import { Html } from "@react-three/drei"
-import { Play } from "@phosphor-icons/react"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
 import { CAN_COMMAND_CATALOG } from "@/features/can/events/catalog"
 import { vehicle, useVehicleRig } from "@/features/vehicle"
 import { SharedVehicleCanvas, SharedVehicleOverviewController, SharedVehicleOrbitControls, SharedVehicleScene, useSharedVehicleClone } from "@/features/vehicle/SharedVehicleScene"
 import VehicleOwner, { type OwnerReaction } from "./VehicleOwner"
-import IdsBottomTabs from "./IdsBottomTabs"
+import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import { idsConsoleTabs } from "./IdsBottomTabs"
+import IdsLabFrame from "./IdsLabFrame"
 
 const WHITELIST = ["0x101", "0x200", "0x201"] as const
 const REAR_ID = CAN_COMMAND_CATALOG.TRUNK_OPEN.frame.canId
 const TRUNK_CLOSE_DATA = "01"
-const START_CAMERA_VIEW = { position: [-6.74, 5.5, -6.74] as const, target: [0, 0, 0] as const }
+// 트렁크 뒤쪽에서 눈높이로 바라보는 3/4 시점. 차주 얼굴과 열린 트렁크가 함께 보인다.
+const START_CAMERA_VIEW = { position: [-5.4, 1.9, -8.9] as const, target: [-0.6, 0.45, -2.3] as const }
+// 차주가 시작 카메라(학습자) 쪽을 바라보게 한다. 얼굴이 생겨서 방향이 중요해졌다.
+const OWNER_POSITION = [-1, -0.4109, -3.59] as const
+const OWNER_YAW = Math.atan2(
+  START_CAMERA_VIEW.position[0] - OWNER_POSITION[0],
+  START_CAMERA_VIEW.position[2] - OWNER_POSITION[2],
+)
 type Verdict = "IDLE" | "ALERT" | "PASS" | "EXECUTED"
 type Attempt = { id: number; time: string; canId: string; data: string; verdict: Verdict; reason: string }
 
@@ -55,12 +63,38 @@ export default function RuleBasedIDSPage() {
     if (next < 3) window.setTimeout(() => { setTrunkState("open"); vehicle.set("tailgate", 1) }, 1500)
     return [`[PASS] CAN ID ${frame.canId} is allowed.`, "[EXECUTED] TRUNK_CLOSE"]
   }
-  return <main className="canlab canlab--embedded" aria-label="Rule-based IDS practice"><section className="canlab__shell" style={{ padding: 24 }}>
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div><h1 style={{ margin: 0 }}>IDS / IPS 실습</h1><Badge appearance="filled" color="brand">STEP 1 : ID White List</Badge></div></div>
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 310px", gap: 18, marginTop: 18 }}><section>
-      <div style={{ height: 430, position: "relative", overflow: "hidden", borderRadius: 12, border: "1px solid var(--border-default)" }}><SharedVehicleCanvas background="#d1d5db" fog={false}><Suspense fallback={null}><SharedVehicleScene xray={false} fixedCamera={practiceStarted}><SharedVehicleOverviewController resetRevision={viewRevision} cameraView={practiceStarted ? START_CAMERA_VIEW : undefined} /><VehicleRig />{practiceStarted && <VehicleOwner position={[-1, -0.4109, -3.59]} rotation={[0, 0, 0]} scale={1.1} ownerReaction={ownerReaction} />}{idsVerdict === "ALERT" && <Html center><div style={{ width: 310, padding: 18, textAlign: "center", border: "3px solid #dc2626", borderRadius: 12, background: "#fff", color: "#991b1b" }}><h2>⚠ IDS ALERT</h2><b>Unknown CAN ID</b><p>{attempts.at(-1)?.reason}</p><Button onClick={() => setIdsVerdict("IDLE")}>다시 시도</Button></div></Html>}</SharedVehicleScene></Suspense><SharedVehicleOrbitControls makeDefault enableDamping /></SharedVehicleCanvas><div className="door-attack-lab__editor-actions" style={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}><button type="button" className="is-primary" onClick={start} style={{ background: "#c92a22", borderColor: "#c92a22" }}><Play size={15} weight="fill" aria-hidden="true" />{practiceStarted ? "다시 시작" : "시작"}</button></div><span style={{ position: "absolute", left: 12, bottom: 12, padding: "7px 10px", background: "#0f172acc", color: "white", borderRadius: 7 }}>TRUNK: {trunkState.toUpperCase()} · OWNER: {ownerReaction.toUpperCase()}</span></div>
-      {complete && <div className="canlab__status-box" style={{ marginTop: 12 }}><b>차주를 화나게 하는 데 성공했습니다.</b><p>허용된 CAN ID를 사용했기 때문에 공격 Frame도 ID 화이트리스트 검사를 통과했습니다.</p><p>화이트리스트는 허용되지 않은 ID를 막는 데 효과적이지만, 정상 ID를 악용하는 공격까지 구분할 수는 없습니다.</p></div>}
-      <div style={{ marginTop: 12 }}><IdsBottomTabs onClear={(tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(Date.now()); if (tab === "idsLog") setIdsLogClearedAt(Date.now()) }} terminal={<CanCommandTerminal clearSignal={clearSignal} onCommand={command} />} monitor={<div className="canlab__data-pane"><table><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{attempts.filter((a) => a.id > monitorClearedAt).map((a) => <tr key={a.id}><td>{a.time}</td><td>{a.canId}</td><td>{a.data}</td><td>{a.verdict === "ALERT" ? "ALERT" : "PASS"}</td></tr>)}</tbody></table></div>} idsLog={<div className="canlab__data-pane">{[...attempts].filter((a) => a.id > idsLogClearedAt).reverse().map((a) => <p key={a.id}><b>[{a.verdict}]</b> {a.reason}</p>)}</div>} /></div>
-    </section><aside className="canlab__guide" aria-label="IDS 실습 안내"><div className="canlab__guide-body" style={{ display: "block" }}><div className="canlab__guide-progress"><span>STEP 1 : ID White List</span><b>{Math.round((successfulCloses / 3) * 100)}%</b><i><em style={{ width: `${(successfulCloses / 3) * 100}%` }} /></i></div><section className="canlab__steps"><h2>현재 미션</h2><article className="is-current"><div><p>트렁크를 3번 닫아 차주를 화나게 하세요.</p></div></article></section><section className="canlab__status-box"><h2>성공</h2><strong style={{ fontSize: 28 }}>{successfulCloses} / 3</strong><p>{[0, 1, 2].map((n) => n < successfulCloses ? "●" : "○").join("")}</p></section><section className="canlab__status-box"><h2>IDS 판정</h2><Badge color={idsVerdict === "ALERT" ? "danger" : idsVerdict === "PASS" || idsVerdict === "EXECUTED" ? "success" : "informative"} appearance="filled">{idsVerdict === "IDLE" ? "대기" : idsVerdict === "ALERT" ? "ALERT" : "PASS"}</Badge><p>CAN ID가 화이트리스트에 없으면 차단합니다.</p></section><section className="canlab__hint"><h2>힌트</h2><p>해당 차량의 Rear ECU ID는 무엇일까요?</p><p><code>cat whitelist.yaml</code></p></section></div></aside></div>
-  </section></main>
+  const verdictTone = idsVerdict === "ALERT" ? "danger" : idsVerdict === "IDLE" ? "neutral" : "ok"
+  return <IdsLabFrame
+    ariaLabel="Rule-based IDS practice"
+    kicker="IDS / IPS 실습 · STEP 1"
+    title="규칙 기반 IDS · ID White List"
+    status={[
+      { label: "Trunk", value: trunkState.toUpperCase() },
+      { label: "성공", value: `${successfulCloses} / 3`, tone: complete ? "ok" : undefined },
+    ]}
+    started={practiceStarted}
+    onStart={start}
+    main={<>
+      <div className="lab-v2__stage">
+        <SharedVehicleCanvas background="#d1d5db" fog={false}><Suspense fallback={null}><SharedVehicleScene xray={false} fixedCamera={practiceStarted}><SharedVehicleOverviewController resetRevision={viewRevision} cameraView={practiceStarted ? START_CAMERA_VIEW : undefined} /><VehicleRig />{practiceStarted && <VehicleOwner position={OWNER_POSITION} rotation={[0, OWNER_YAW, 0]} scale={1.1} ownerReaction={ownerReaction} />}{idsVerdict === "ALERT" && <Html center><div style={{ width: 310, padding: 18, textAlign: "center", border: "3px solid #dc2626", borderRadius: 12, background: "#fff", color: "#991b1b" }}><h2>⚠ IDS ALERT</h2><b>Unknown CAN ID</b><p>{attempts.at(-1)?.reason}</p><Button onClick={() => setIdsVerdict("IDLE")}>다시 시도</Button></div></Html>}</SharedVehicleScene></Suspense><SharedVehicleOrbitControls makeDefault enableDamping /></SharedVehicleCanvas>
+        <span className="lab-v2__stage-caption">TRUNK: {trunkState.toUpperCase()} · OWNER: {ownerReaction.toUpperCase()}</span>
+      </div>
+      {complete && <section className="lab-v2__panel"><div className="lab-v2__result"><b>차주를 화나게 하는 데 성공했습니다.</b><p>허용된 CAN ID를 사용했기 때문에 공격 Frame도 ID 화이트리스트 검사를 통과했습니다.</p><p>화이트리스트는 허용되지 않은 ID를 막는 데 효과적이지만, 정상 ID를 악용하는 공격까지 구분할 수는 없습니다.</p></div></section>}
+    </>}
+    guide={{
+      progressLabel: "STEP 1 : ID White List",
+      progress: (successfulCloses / 3) * 100,
+      steps: ["화이트리스트 확인", "트렁크 닫기 ×3"],
+      currentStep: successfulCloses > 0 ? 1 : 0,
+      mission: "트렁크를 3번 닫아 차주를 화나게 하세요.",
+      verdict: { title: "IDS 판정", label: idsVerdict === "IDLE" ? "대기" : idsVerdict === "ALERT" ? "ALERT" : "PASS", tone: verdictTone, note: "CAN ID가 화이트리스트에 없으면 차단합니다." },
+      hint: <>해당 차량의 Rear ECU ID는 무엇일까요? <code>cat whitelist.yaml</code></>,
+    }}
+    tabs={idsConsoleTabs({
+      onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(Date.now()); if (tab === "idsLog") setIdsLogClearedAt(Date.now()) },
+      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={command} completions={IDS_COMPLETIONS["rule-based"]} />,
+      monitor: <table className="lab-v2__table"><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{attempts.filter((a) => a.id > monitorClearedAt).map((a) => <tr key={a.id}><td>{a.time}</td><td>{a.canId}</td><td>{a.data}</td><td>{a.verdict === "ALERT" ? "ALERT" : "PASS"}</td></tr>)}</tbody></table>,
+      idsLog: <div className="lab-v2__log">{[...attempts].filter((a) => a.id > idsLogClearedAt).reverse().map((a) => <p key={a.id}><b>[{a.verdict}]</b> {a.reason}</p>)}</div>,
+    })}
+  />
 }

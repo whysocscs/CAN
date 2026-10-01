@@ -303,9 +303,15 @@ export function SharedVehicleOrbitControls({
 export function SharedVehicleOverviewController({
   active = true,
   resetRevision,
+  cameraView,
 }: {
   active?: boolean
   resetRevision: number
+  /** 지정하면 자동 fit 대신 이 시점으로 고정한다(IDS 규칙 기반 실습의 차주 시점). */
+  cameraView?: {
+    position: readonly [number, number, number]
+    target: readonly [number, number, number]
+  }
 }) {
   const camera = useThree((state) => state.camera)
   const controls = useThree(
@@ -318,8 +324,8 @@ export function SharedVehicleOverviewController({
     if (!active) return
     // 이미 overview인 상태에서도 Reset 버튼은 다시 fit되어야 한다. 그래서 boolean
     // 상태 대신 호출할 때마다 증가하는 resetRevision을 effect 경계로 사용한다.
-    const position = NORMAL_CAN_SCENE_PRESET.camera.position
-    const target = NORMAL_CAN_SCENE_PRESET.camera.target
+    const position = cameraView?.position ?? NORMAL_CAN_SCENE_PRESET.camera.position
+    const target = cameraView?.target ?? NORMAL_CAN_SCENE_PRESET.camera.target
     camera.position.set(...position)
     if (controls) {
       controls.target.set(...target)
@@ -327,8 +333,8 @@ export function SharedVehicleOverviewController({
     } else {
       camera.lookAt(...target)
     }
-    bounds.refresh().reset().fit()
-  }, [active, bounds, camera, controls, resetRevision])
+    if (!cameraView) bounds.refresh().reset().fit()
+  }, [active, bounds, camera, cameraView, controls, resetRevision])
 
   return null
 }

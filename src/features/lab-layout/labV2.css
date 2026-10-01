@@ -1,0 +1,1238 @@
+/*
+ * 실습 공통 VERSION 2 레이아웃.
+ * 설명 화면(.lab-intro) → 실습 화면(.lab-v2: 상단 바 + 왼쪽 시각화 + 오른쪽 안내/탭)
+ * 색은 여기의 --lv-* 토큰만 쓴다. 강조색을 바꾸려면 --lv-accent 한 줄만 고치면 된다.
+ */
+.lab-intro,
+.lab-v2 {
+  --lv-accent: var(--route-active, #2563eb);
+  --lv-surface: var(--surface-default, #fff);
+  --lv-muted-surface: var(--surface-muted, #f8fafc);
+  --lv-line: var(--border-default, #e2e8f0);
+  --lv-text: var(--text-primary, #172033);
+  --lv-muted: var(--text-secondary, #64748b);
+  --lv-mono: "JetBrains Mono Variable", "Noto Sans KR Variable", monospace;
+  --dal-accent: var(--lv-accent);
+  --dal-surface: var(--lv-surface);
+  --dal-muted-surface: var(--lv-muted-surface);
+  --dal-line: var(--lv-line);
+  --dal-text: var(--lv-text);
+  --dal-muted: var(--lv-muted);
+  color: var(--lv-text);
+  font-family: "Noto Sans KR Variable", "Noto Sans KR", sans-serif;
+}
+
+/* ---------------------------------------------------------------- intro -- */
+
+.lab-intro {
+  display: flex;
+  box-sizing: border-box;
+  min-height: 100%;
+  flex-direction: column;
+  justify-content: center;
+  gap: 22px;
+  padding: 28px clamp(20px, 3vw, 44px);
+  background: var(--lv-surface);
+}
+
+.lab-intro__header { max-width: 760px; }
+
+.lab-intro__kicker,
+.lab-intro__label {
+  color: var(--lv-accent);
+  font-family: var(--lv-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.lab-intro__header h1 {
+  margin: 7px 0 8px;
+  color: var(--lv-text);
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 850;
+  line-height: 1.2;
+}
+
+.lab-intro__header p {
+  max-width: 700px;
+  margin: 0;
+  color: var(--lv-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.lab-intro__facts {
+  display: flex;
+  width: min(100%, 1000px);
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.lab-intro__facts > div {
+  min-width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--lv-line);
+  border-radius: 6px;
+  background: var(--lv-surface);
+}
+
+.lab-intro__facts dt {
+  color: var(--lv-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.lab-intro__facts dd {
+  margin: 2px 0 0;
+  font-family: var(--lv-mono);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lab-intro__grid {
+  display: grid;
+  width: min(100%, 1000px);
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr);
+  gap: 14px;
+}
+
+.lab-intro__card {
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--lv-line);
+  border-radius: 8px;
+  background: var(--lv-muted-surface);
+}
+
+.lab-intro__flow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 20px 0 16px;
+  color: var(--lv-accent);
+}
+
+.lab-intro__flow strong {
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--lv-accent) 30%, var(--lv-line));
+  border-radius: 5px;
+  background: var(--lv-surface);
+  color: var(--lv-text);
+  font-family: var(--lv-mono);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.lab-intro__card p {
+  margin: 0;
+  color: var(--lv-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.lab-intro__card h2 {
+  margin: 7px 0 12px;
+  color: var(--lv-text);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.lab-intro__card ol {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding-left: 20px;
+  color: var(--lv-text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.lab-intro__card li::marker {
+  color: var(--lv-accent);
+  font-family: var(--lv-mono);
+  font-weight: 800;
+}
+
+.lab-intro__notes {
+  width: min(100%, 1000px);
+  box-sizing: border-box;
+  padding: 12px 16px;
+  border-left: 3px solid var(--lv-accent);
+  background: var(--lv-muted-surface);
+  color: var(--lv-muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.lab-intro__notes p { margin: 0; }
+.lab-intro__notes p + p { margin-top: 4px; }
+.lab-intro__notes ol { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 6px 0 0; padding-left: 18px; }
+
+.lab-intro__footer {
+  display: flex;
+  width: min(100%, 1000px);
+  justify-content: flex-end;
+}
+
+.lab-intro__start {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--lv-accent);
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lab-intro__start:hover { filter: brightness(.92); }
+.lab-intro__start:focus-visible { outline: 2px solid var(--lv-accent); outline-offset: 3px; }
+
+.lab-v2__gate-body { height: 100%; min-height: 0; }
+
+/* 공격 실습 페이지도 CAN 실습처럼 콘텐츠 영역 전체를 쓴다.
+   index.css의 .attack-preview(max-width 1260px, 큰 여백)가 나중에 로드되어도 이기도록 선택자를 구체화했다. */
+main.attack-preview.attack-preview--door-lab {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* 공격 실습 탭 아래 영역: 설명 화면과 실습 화면이 남은 높이를 채운다. */
+.attack-preview__lab-body { min-height: 0; flex: 1; overflow: auto; }
+
+.lab-intro__notes ol { list-style: decimal; }
+
+/* ------------------------------------------------------------ workbench -- */
+
+.lab-v2 {
+  display: flex;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  background: var(--lv-surface);
+}
+
+/* 기존 공격 실습 셸의 넓은 여백·배경 이미지를 덮어쓴다. */
+.door-attack-lab.lab-v2 {
+  overflow: hidden;
+  padding: 0;
+  background: var(--lv-surface);
+}
+
+.lab-v2__bar {
+  display: flex;
+  min-height: 56px;
+  flex: none;
+  align-items: center;
+  gap: 16px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2__title { min-width: 0; flex: 1; }
+
+.lab-v2 .lab-v2__title > p {
+  margin: 0;
+  color: var(--lv-accent);
+  font-family: var(--lv-mono);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.lab-v2 .lab-v2__title h1 {
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 17px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-v2__title { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 8px; }
+.lab-v2 .lab-v2__title > p { flex-basis: 100%; }
+
+.lab-v2__title > small {
+  color: var(--lv-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.lab-v2__status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+}
+
+.lab-v2__status > div {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  border: 1px solid var(--lv-line);
+  border-radius: 5px;
+  background: var(--lv-muted-surface);
+}
+
+.lab-v2__status dt {
+  color: var(--lv-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.lab-v2__status dd {
+  margin: 0;
+  font-family: var(--lv-mono);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.lab-v2__status dd[data-status="open"],
+.lab-v2__status dd[data-tone="ok"] { color: var(--state-success, #157347); }
+.lab-v2__status dd[data-status="closed"],
+.lab-v2__status dd[data-tone="danger"] { color: var(--state-danger, #b42318); }
+
+.lab-v2 .lab-v2__intro-button,
+.lab-v2 .lab-v2__button {
+  display: inline-flex;
+  min-height: 30px;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding: 0 10px;
+  border: 1px solid var(--lv-line);
+  border-radius: 5px;
+  background: var(--lv-surface);
+  color: var(--lv-text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lab-v2 .lab-v2__intro-button:hover,
+.lab-v2 .lab-v2__button:hover { border-color: var(--lv-accent); color: var(--lv-accent); }
+
+.lab-v2 .lab-v2__button.is-primary {
+  border-color: var(--lv-accent);
+  background: var(--lv-accent);
+  color: #fff;
+}
+
+.lab-v2 .lab-v2__button.is-primary:hover { color: #fff; filter: brightness(.92); }
+.lab-v2 .lab-v2__button:disabled { cursor: not-allowed; opacity: .5; }
+
+/* 단계 레일은 설명 화면보다 낮게, 바로 아래 한 줄로 */
+.lab-v2 > .door-attack-lab__stages,
+.lab-v2__rail {
+  flex: none;
+  padding: 10px 20px 8px;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2 .door-attack-lab__stages li { min-width: 96px; grid-template-rows: 22px auto; gap: 4px; }
+.lab-v2 .door-attack-lab__stage-marker { width: 22px; height: 22px; }
+.lab-v2 .door-attack-lab__stage-connector { top: 10px; left: calc(50% + 11px); width: calc(100% - 22px); }
+.lab-v2 .door-attack-lab__stage-label { font-size: 11px; }
+.lab-v2 .door-attack-lab__stages { grid-template-columns: repeat(var(--attack-stage-count, 7), minmax(96px, 1fr)); }
+
+.lab-v2 > [role="alert"],
+.lab-v2 > .beginner-can-attack-lab__loading { flex: none; margin: 8px 20px 0; }
+
+.lab-v2__workbench {
+  display: grid;
+  min-height: 560px;
+  flex: 1;
+  grid-template-columns: minmax(0, 1.35fr) minmax(380px, 1fr);
+}
+
+.lab-v2__main {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+  border-right: 1px solid var(--lv-line);
+}
+
+.lab-v2__main > * { min-height: 0; }
+
+.lab-v2__side {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--lv-surface);
+}
+
+/* CVE 실습의 세로 카드 배치(.cve-lab)를 작업 화면 배치로 덮어쓴다. */
+.cve-lab.lab-v2 { gap: 0; }
+.cve-lab.lab-v2 > .lab-v2__workbench { flex-shrink: 1; }
+.cve-lab.lab-v2 > .cve-lab__error { margin: 8px 20px 0; }
+.cve-lab.lab-v2 .lab-v2__main { gap: 12px; padding: 16px; }
+.cve-lab.lab-v2 .lab-tabs__panel > .cve-lab__card { border: 0; border-radius: 0; }
+.lab-v2__guide .cve-lab__notice { padding: 0; border: 0; background: transparent; font-size: 12px; }
+
+/* 공격 실습 패널은 탭/칼럼 안에 들어가므로 카드 테두리를 걷어 낸다. */
+.lab-v2 .door-attack-lab__vehicle-flow {
+  min-height: 0;
+  flex: 1;
+  border: 0;
+}
+
+.lab-v2 .door-attack-lab__editor,
+.lab-v2 .door-attack-lab__binary,
+.lab-v2 .door-attack-lab__monitor,
+.lab-v2 .door-attack-lab__terminal {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+}
+
+.lab-v2 .door-attack-lab__terminal { display: flex; flex-direction: column; }
+
+.lab-v2 .door-attack-lab__terminal-output {
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  flex: 1;
+}
+
+.lab-v2 .door-attack-lab__editor textarea { min-height: 180px; flex: 1; }
+.lab-v2 .door-attack-lab__monitor-scroll { max-height: none; }
+
+.lab-v2 .door-attack-lab__learning {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+}
+
+/* 현재 단계 안내: 흰 바탕 + 강조색 한 줄. "지금 할 일"만 크게, 나머지는 보조 정보. */
+.lab-v2__side > .attack-lab-guidance {
+  display: block;
+  flex: none;
+  margin: 0;
+  padding: 12px 16px 12px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--lv-line);
+  border-left: 3px solid var(--lv-accent);
+  background: var(--lv-surface);
+  box-shadow: none;
+}
+
+.lab-v2__side > .attack-lab-guidance > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.lab-v2__side > .attack-lab-guidance > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.lab-v2__side > .attack-lab-guidance > header > div > span {
+  color: var(--lv-accent);
+  font-family: var(--lv-mono);
+  font-weight: 800;
+  text-transform: none;
+  font-size: 10px;
+  letter-spacing: .06em;
+}
+
+.lab-v2__side > .attack-lab-guidance > header h2 {
+  color: var(--lv-text);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.lab-v2__side > .attack-lab-guidance > header > div > span::after {
+  margin-left: 6px;
+  content: "·";
+}
+
+/* 모드 선택은 작은 세그먼트 토글로 */
+.lab-v2__side > .attack-lab-guidance > header fieldset {
+  display: inline-flex;
+  flex: none;
+  gap: 0;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid var(--lv-line);
+  border-radius: 6px;
+  background: var(--lv-muted-surface);
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lv-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset label:has(input:checked) {
+  background: var(--lv-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+  color: var(--lv-text);
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset label:has(input:focus-visible) {
+  outline: 2px solid var(--lv-accent);
+  outline-offset: 1px;
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset label span {
+  color: inherit;
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.lab-v2__side > .attack-lab-guidance > header fieldset:disabled label { cursor: not-allowed; opacity: .6; }
+
+.lab-v2__side > .attack-lab-guidance > [role="region"] {
+  margin-top: 10px;
+  padding: 0;
+  border: 0;
+}
+
+.lab-v2__side > .attack-lab-guidance dl,
+.lab-v2__side > .attack-lab-guidance[data-guidance-mode="challenge"] dl {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.lab-v2__side > .attack-lab-guidance dl > div {
+  display: contents;
+}
+
+.lab-v2__side > .attack-lab-guidance dt {
+  padding-top: 1px;
+  color: var(--lv-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.lab-v2__side > .attack-lab-guidance dd {
+  margin: 0;
+  color: var(--lv-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* 주인공: 지금 할 일. 라벨 없이 문장만 크게 보여준다(라벨은 스크린리더용). */
+.lab-v2__side > .attack-lab-guidance [role="region"] > dl {
+  display: block;
+}
+
+.lab-v2__side > .attack-lab-guidance [role="region"] > dl > [data-field="action"] > dt {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.lab-v2__side > .attack-lab-guidance [role="region"] > dl > [data-field="action"] > dd {
+  color: var(--lv-text);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.55;
+}
+
+/* 나머지 근거 정보는 접어 둔다 */
+.attack-lab-guidance__more { margin-top: 8px; }
+
+.attack-lab-guidance__more > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--lv-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.attack-lab-guidance__more > summary::-webkit-details-marker { display: none; }
+
+.attack-lab-guidance__more > summary::before {
+  content: "▸";
+  font-size: 10px;
+  transition: transform .15s;
+}
+
+.attack-lab-guidance__more[open] > summary::before { transform: rotate(90deg); }
+.attack-lab-guidance__more > summary:hover { color: var(--lv-text); }
+
+.lab-v2__side > .attack-lab-guidance .attack-lab-guidance__more > dl {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--lv-muted-surface);
+}
+
+/* ------------------------------------------------------- 공격 경로(왼쪽) -- */
+
+.lab-v2 .door-attack-lab__vehicle-flow { position: relative; }
+
+.lab-v2 .vehicle-network-viewport__toolbar {
+  padding: 8px 14px;
+  background: var(--lv-surface);
+}
+
+.lab-v2 .vehicle-network-viewport__toolbar > strong { font-size: 13px; font-weight: 800; }
+
+.lab-v2 .vehicle-network-viewport__toolbar > div {
+  flex-wrap: nowrap;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--lv-line);
+  border-radius: 6px;
+  background: var(--lv-muted-surface);
+}
+
+.lab-v2 .vehicle-network-viewport__toolbar button {
+  min-height: 24px;
+  padding: 2px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--lv-muted);
+  font-size: 11px;
+}
+
+.lab-v2 .vehicle-network-viewport__toolbar button[aria-pressed="true"] {
+  background: var(--lv-surface);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
+  color: var(--lv-text);
+}
+
+.lab-v2 .vehicle-network-viewport__toolbar .vehicle-network-viewport__reset {
+  margin-left: 4px;
+  border-left: 1px solid var(--lv-line);
+  border-radius: 0 4px 4px 0;
+}
+
+/* 경로 레일: 카드 대신 번호가 붙은 한 줄 스테퍼 */
+.lab-v2 .vehicle-flow-rail {
+  border-bottom: 1px solid var(--lv-line);
+  background: var(--lv-surface);
+}
+
+.lab-v2 .vehicle-flow-rail__nodes {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 14px;
+  counter-reset: flow-node;
+}
+
+.lab-v2 .vehicle-flow-rail__node {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 0;
+  grid-template-columns: 20px minmax(0, 1fr);
+  column-gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+  counter-increment: flow-node;
+}
+
+.lab-v2 .vehicle-flow-rail__node::before {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  grid-row: span 2;
+  place-items: center;
+  border: 1px solid var(--lv-line);
+  border-radius: 50%;
+  background: var(--lv-surface);
+  color: var(--lv-muted);
+  content: counter(flow-node);
+  font-family: var(--lv-mono);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.lab-v2 .vehicle-flow-rail__node:not(:last-child)::after {
+  position: static;
+  display: none;
+}
+
+.lab-v2 .vehicle-flow-rail__node strong {
+  overflow: hidden;
+  color: var(--lv-text);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-v2 .vehicle-flow-rail__node span {
+  color: var(--lv-muted);
+  font-size: 10px;
+}
+
+.lab-v2 .vehicle-flow-rail__node + .vehicle-flow-rail__node {
+  border-left: 0;
+}
+
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="active"],
+.lab-v2 .vehicle-flow-rail__node[data-selected="true"] {
+  background: color-mix(in srgb, var(--lv-accent) 7%, transparent);
+  box-shadow: none;
+}
+
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="active"]::before,
+.lab-v2 .vehicle-flow-rail__node[data-selected="true"]::before {
+  border-color: var(--lv-accent);
+  background: var(--lv-accent);
+  color: #fff;
+}
+
+.lab-v2 .vehicle-flow-rail__node[data-selected="true"] strong,
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="active"] strong { color: var(--lv-accent); }
+
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="passed"]::before {
+  border-color: var(--lv-accent);
+  color: var(--lv-accent);
+}
+
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="effect"] { background: var(--state-success-bg, #f0faf4); }
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="effect"]::before { border-color: #287a52; background: #287a52; color: #fff; }
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="rejected"] { background: var(--state-danger-bg, #fff1f1); }
+.lab-v2 .vehicle-flow-rail__node[data-flow-state="rejected"]::before { border-color: #d12f2f; background: #d12f2f; color: #fff; }
+
+/* 재생 정보 줄: 어두운 띠 대신 얇은 보조 줄. 모드/OEM 문구는 다른 곳에 이미 있어 숨긴다. */
+.lab-v2 .vehicle-flow-rail__hud {
+  gap: 8px;
+  padding: 5px 14px;
+  border-top: 1px solid var(--lv-line);
+  background: var(--lv-muted-surface);
+  color: var(--lv-muted);
+  font-size: 10px;
+}
+
+.lab-v2 .vehicle-flow-rail__hud code { color: var(--lv-text); }
+.lab-v2 .vehicle-flow-rail__hud strong { color: var(--lv-accent); }
+.lab-v2 .vehicle-flow-rail__mode,
+.lab-v2 .vehicle-flow-rail__qualifier { display: none; }
+
+.lab-v2 .vehicle-flow-rail__controls {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.lab-v2 .vehicle-flow-rail__controls > span { min-width: 0; color: var(--lv-muted); }
+
+.lab-v2 .vehicle-flow-rail__controls button {
+  min-height: 24px;
+  border: 1px solid var(--lv-accent);
+  border-radius: 4px;
+  background: var(--lv-accent);
+  color: #fff;
+}
+
+.lab-v2 .vehicle-flow-rail__controls button:hover:not(:disabled) {
+  border-color: var(--lv-accent);
+  background: var(--lv-accent);
+  filter: brightness(.92);
+}
+
+.lab-v2 .vehicle-flow-rail__controls button:disabled {
+  border-color: var(--lv-line);
+  background: var(--lv-surface);
+  color: var(--lv-muted);
+}
+
+/* "실제 OEM 아님" 안내는 3D 좌하단에 한 번만 */
+.lab-v2 .door-attack-lab__vehicle-flow > .door-attack-lab__truth-qualifier {
+  position: absolute;
+  z-index: 3;
+  bottom: 10px;
+  left: 12px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(10, 18, 28, .6);
+  color: #d5dde8;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* DoS 정적 미리보기: 기존 attack-preview 패널을 작업 화면 칸에 맞춘다. */
+.attack-preview--v2 > .attack-preview__procedure {
+  flex: none;
+  margin: 0;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.attack-preview--v2 .attack-preview__network,
+.attack-preview--v2 .attack-preview__conditions,
+.attack-preview--v2 .attack-preview__ledger {
+  margin: 0;
+  border: 0;
+  box-shadow: none;
+}
+
+.attack-preview--v2 .lab-tabs__panel { padding: 4px 16px 16px; }
+.attack-preview--v2 .attack-preview__ledger-grid { grid-template-columns: minmax(0, 1fr); }
+
+/* ------------------------------------------------------------------ tabs -- */
+
+.lab-tabs {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+.lab-tabs__list {
+  display: flex;
+  flex: none;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--lv-line, var(--border-default, #e2e8f0));
+}
+
+.lab-tabs__list button,
+.lab-v2 .lab-tabs__list button {
+  display: inline-flex;
+  height: 40px;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  padding: 0 13px;
+  min-height: 0;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--lv-muted, var(--text-secondary, #64748b));
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.lab-tabs__list button small {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--lv-muted-surface, var(--surface-muted, #f1f5f9));
+  font-family: var(--lv-mono, monospace);
+  font-size: 10px;
+}
+
+.lab-tabs__list button.is-active,
+.lab-v2 .lab-tabs__list button.is-active {
+  border-bottom-color: var(--lv-accent, var(--route-active, #2563eb));
+  background: color-mix(in srgb, var(--lv-accent, var(--route-active, #2563eb)) 7%, transparent);
+  color: var(--lv-accent, var(--route-active, #2563eb));
+}
+
+.lab-tabs__list button:focus-visible { outline: 2px solid var(--lv-accent, #2563eb); outline-offset: -2px; }
+
+.lab-tabs__panel {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* 비활성 패널은 언마운트하지 않고 숨긴다. LabTabs 주석 참고. */
+.lab-tabs__panel[data-active="false"] { display: none; }
+
+/* ------------------------------------------------------------ IDS 패널 -- */
+
+.lab-v2__stage {
+  position: relative;
+  min-height: 360px;
+  flex: 1;
+  overflow: hidden;
+  background: #d1d5db;
+}
+
+.lab-v2__stage-actions {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  display: flex;
+  gap: 6px;
+}
+
+.lab-v2__stage-caption {
+  position: absolute;
+  z-index: 2;
+  left: 12px;
+  bottom: 12px;
+  padding: 6px 10px;
+  border-radius: 5px;
+  background: rgba(12, 22, 32, .78);
+  color: #fff;
+  font-family: var(--lv-mono);
+  font-size: 11px;
+}
+
+.lab-v2__panel {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2__panel > header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.lab-v2 .lab-v2__panel h2 { margin: 0; font-size: 14px; font-weight: 800; }
+.lab-v2__panel header small { color: var(--lv-muted); font-size: 11px; }
+
+.lab-v2__guide {
+  display: grid;
+  flex: none;
+  gap: 0;
+  border-bottom: 1px solid var(--lv-line);
+  border-left: 3px solid var(--lv-accent);
+}
+
+.lab-v2__guide > section {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2__guide > section:last-child { border-bottom: 0; }
+
+.lab-v2 .lab-v2__guide h2 {
+  margin: 0 0 5px;
+  color: var(--lv-muted);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.lab-v2 .lab-v2__guide p { margin: 0; font-size: 12px; line-height: 1.6; }
+.lab-v2__guide code { font-family: var(--lv-mono); font-size: 11px; }
+
+.lab-v2__progress {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+  align-items: center;
+  font-size: 11px;
+}
+
+.lab-v2__progress b { color: var(--lv-accent); font-family: var(--lv-mono); }
+
+.lab-v2__progress i {
+  grid-column: 1 / -1;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--lv-muted-surface);
+}
+
+.lab-v2__progress em {
+  display: block;
+  height: 100%;
+  background: var(--lv-accent);
+}
+
+.lab-v2__steps {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lab-v2__steps li {
+  padding: 5px 8px;
+  border: 1px solid var(--lv-line);
+  border-radius: 5px;
+  color: var(--lv-muted);
+  font-size: 11px;
+}
+
+.lab-v2__steps li[aria-current="step"] {
+  border-color: var(--lv-accent);
+  background: color-mix(in srgb, var(--lv-accent) 7%, transparent);
+  color: var(--lv-text);
+  font-weight: 700;
+}
+
+.lab-v2__verdict {
+  display: inline-block;
+  margin-bottom: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--lv-muted-surface);
+  font-family: var(--lv-mono);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.lab-v2__verdict[data-tone="ok"] { background: var(--state-success-bg, #ecfdf5); color: var(--state-success, #157347); }
+.lab-v2__verdict[data-tone="danger"] { background: var(--state-danger-bg, #fef2f2); color: var(--state-danger, #b42318); }
+
+.lab-v2__result {
+  padding: 10px 12px;
+  border: 1px solid var(--state-success-border, #a7f3d0);
+  border-radius: 6px;
+  background: var(--state-success-bg, #ecfdf5);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.lab-v2__result p { margin: 4px 0 0; }
+
+.lab-v2__console-toolbar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--lv-line);
+  font-size: 11px;
+}
+
+.lab-v2__console-toolbar strong { flex: 1; }
+
+.lab-v2__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--lv-mono);
+  font-size: 11px;
+}
+
+.lab-v2__table th,
+.lab-v2__table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--lv-line);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lab-v2__table th {
+  position: sticky;
+  top: 0;
+  background: var(--lv-muted-surface);
+  color: var(--lv-muted);
+  font-weight: 700;
+}
+
+.lab-v2__log { margin: 0; padding: 10px 12px; font-family: var(--lv-mono); font-size: 11px; }
+.lab-v2__log p { margin: 0 0 4px; }
+.lab-v2__empty { margin: 0; padding: 14px 12px; color: var(--lv-muted); font-size: 12px; }
+
+.lab-v2 .canlab__shell-terminal { min-height: 0; flex: 1; }
+
+.lab-v2__completion {
+  flex: none;
+  margin: 0;
+  padding: 4px 12px;
+  background: #151b27;
+  color: #91a0b8;
+  font-family: var(--lv-mono);
+  font-size: 10px;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 1100px) {
+  .lab-v2__workbench { grid-template-columns: minmax(0, 1fr) minmax(330px, .9fr); }
+}
+
+@media (max-width: 860px) {
+  .lab-intro__grid { grid-template-columns: minmax(0, 1fr); }
+  .lab-intro__footer .lab-intro__start { width: 100%; justify-content: center; }
+  .door-attack-lab.lab-v2,
+  .lab-v2 { height: auto; overflow: visible; }
+  .lab-v2__bar { flex-wrap: wrap; padding-inline: 14px; }
+  .lab-v2__workbench { display: block; min-height: 0; }
+  .lab-v2__main { min-height: 420px; border-right: 0; border-bottom: 1px solid var(--lv-line); }
+  .lab-v2__side { overflow: visible; }
+  .lab-tabs__panel { min-height: 360px; }
+}
+
+/* 한 단계씩 재생할 때 나오는 설명 띠도 밝은 톤으로 맞춘다. */
+.lab-v2 .vehicle-flow-rail__guided-cause {
+  border-top: 1px solid var(--lv-line);
+  background: color-mix(in srgb, var(--lv-accent) 5%, var(--lv-surface));
+  color: var(--lv-text);
+}
+
+.lab-v2 .vehicle-flow-rail__guided-cause > div + div { border-left-color: var(--lv-line); }
+.lab-v2 .vehicle-flow-rail__guided-progress strong { color: var(--lv-accent); }
+.lab-v2 .vehicle-flow-rail__guided-progress span,
+.lab-v2 .vehicle-flow-rail__guided-meta span,
+.lab-v2 .vehicle-flow-rail__guided-detail p { color: var(--lv-muted); }
+.lab-v2 .vehicle-flow-rail__guided-detail strong { color: var(--lv-text); }
+.lab-v2 .vehicle-flow-rail__guided-detail b { border-color: var(--lv-accent); color: var(--lv-accent); }
+.lab-v2 .vehicle-flow-rail__guided-meta code {
+  border-color: var(--lv-line);
+  background: var(--lv-surface);
+  color: var(--lv-text);
+}
+
+/* 레일 번호를 3D 마커 번호(진입점 = 1)와 맞추기 위해 터미널 칸은 번호 대신 $로 표시한다. */
+.lab-v2 .vehicle-flow-rail__node[data-node-id="terminal"] { counter-increment: none; }
+.lab-v2 .vehicle-flow-rail__node[data-node-id="terminal"]::before { content: "$"; }
+
+/* 좌우 기준선 맞추기 (공격 경로 실습)
+   작업 화면을 4개 행으로 나누고 왼쪽·오른쪽이 CSS subgrid로 같은 행을 공유한다.
+     행 1: 경로 툴바          | 단계 안내 (행 1~2)
+     행 2: 경로 줄            |
+     행 3: 재생 줄            | 탭 목록
+     행 4: 3D                 | 탭 내용(터미널)
+   각 행 높이는 양쪽 중 큰 쪽으로 정해지므로 폰트·화면 폭이 달라도 선이 항상 맞는다. */
+.lab-v2__workbench--aligned {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.lab-v2__workbench--aligned > .lab-v2__main,
+.lab-v2__workbench--aligned > .lab-v2__main > .door-attack-lab__vehicle-flow,
+.lab-v2__workbench--aligned .door-attack-lab__vehicle-flow > .vehicle-network-viewport,
+.lab-v2__workbench--aligned > .lab-v2__side {
+  display: grid;
+  min-height: 0;
+  grid-column: auto;
+  grid-row: 1 / -1;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: subgrid;
+  overflow: hidden;
+}
+
+/* 예전 2열 배치의 grid-area(vehicle 등)가 남아 있으면 빈 열이 생기므로 열 지정을 되돌린다. */
+.lab-v2__workbench--aligned > .lab-v2__main > .door-attack-lab__vehicle-flow { grid-column: 1; }
+
+.lab-v2__workbench--aligned .vehicle-network-viewport { height: auto; }
+.lab-v2__workbench--aligned .vehicle-network-viewport__toolbar { grid-row: 1; }
+.lab-v2__workbench--aligned .vehicle-network-viewport__canvas { grid-row: 4; min-height: 0; }
+
+.lab-v2__workbench--aligned .vehicle-flow-rail {
+  position: relative;
+  display: grid;
+  grid-row: 2 / 4;
+  grid-template-rows: subgrid;
+  overflow: visible;
+}
+
+.lab-v2__workbench--aligned .vehicle-flow-rail__nodes {
+  grid-row: 1;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2__workbench--aligned .vehicle-flow-rail__hud { grid-row: 2; border-top: 0; }
+
+/* 한 단계씩 재생할 때의 설명 띠는 행을 늘리지 않도록 3D 위에 띄운다. */
+.lab-v2__workbench--aligned .vehicle-flow-rail__guided-cause {
+  position: absolute;
+  z-index: 3;
+  top: 100%;
+  right: 0;
+  left: 0;
+  box-shadow: 0 8px 18px rgba(12, 22, 32, .18);
+}
+
+.lab-v2__workbench--aligned > .lab-v2__side > .attack-lab-guidance { grid-row: 1 / 3; }
+
+.lab-v2__workbench--aligned > .lab-v2__side > .lab-tabs {
+  display: grid;
+  min-height: 0;
+  grid-row: 3 / 5;
+  grid-template-rows: subgrid;
+}
+
+.lab-v2__workbench--aligned .lab-tabs__list { grid-row: 1; }
+.lab-v2__workbench--aligned .lab-tabs__panel[data-active="true"] { grid-row: 2; min-height: 0; }
+
+.lab-v2__side--guide-top > .attack-lab-guidance {
+  position: relative;
+  align-self: stretch;
+  z-index: 4;
+  box-sizing: border-box;
+  padding: 8px 14px 8px 12px;
+  border-top: 0;
+  border-bottom: 1px solid var(--lv-line);
+}
+
+.lab-v2__side--guide-top > .attack-lab-guidance > [role="region"] { margin-top: 4px; }
+
+.lab-v2__side--guide-top > .attack-lab-guidance [role="region"] > dl > [data-field="action"] > dd {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.lab-v2__side--guide-top .attack-lab-guidance__more { margin-top: 4px; }
+
+/* 펼친 근거 정보는 높이를 늘리지 않고 터미널 위에 떠서 보인다. */
+.lab-v2__side--guide-top .attack-lab-guidance__more[open] > dl {
+  position: absolute;
+  z-index: 5;
+  top: calc(100% - 4px);
+  right: 10px;
+  left: 10px;
+  margin: 0;
+  border: 1px solid var(--lv-line);
+  background: var(--lv-surface);
+  box-shadow: 0 10px 24px rgba(12, 22, 32, .16);
+}
+
+/* 터미널 탭 안의 제목 줄은 탭 이름과 중복이라 숨긴다(입력창 안내문에 같은 정보를 둔다). */
+.lab-v2 .lab-tabs__panel > .door-attack-lab__terminal > .door-attack-lab__panel-heading { display: none; }
+

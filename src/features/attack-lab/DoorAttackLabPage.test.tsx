@@ -517,9 +517,8 @@ describe("DoorAttackLabPage", () => {
     expect(await screen.findByText("BODY ECU")).toBeInTheDocument()
     expect(screen.getByText("UNKNOWN")).toBeInTheDocument()
 
-    const stageRail = screen.getByRole("list", { name: "공격 단계" })
-    expect(within(stageRail).getAllByRole("listitem")).toHaveLength(7)
-    expect(within(stageRail).getByText("캡처")).toBeInTheDocument()
+    expect(screen.getByText("1/7")).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "정찰" })).toBeInTheDocument()
 
     const editor = screen.getByRole("textbox", { name: "공격 스크립트" })
     const initialScript = (editor as HTMLTextAreaElement).value
@@ -574,14 +573,37 @@ describe("DoorAttackLabPage", () => {
     expect(within(guidance).queryByText("완료 기준")).not.toBeInTheDocument()
   })
 
-  it("keeps the terminal column at its content height instead of stretching it to the Activity column", async () => {
+  it("keeps the terminal mounted while switching workbench tabs", async () => {
     render(<DoorAttackLabPage />)
     await screen.findByText("BODY ECU")
 
-    expect(document.querySelector(".door-attack-lab__secondary")).not.toBeNull()
-    expect(doorAttackLabCss).toMatch(
-      /\.door-attack-lab__secondary\s*\{[^}]*align-items:\s*start;/,
+    const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+    fireEvent.change(input, { target: { value: "candump" } })
+    fireEvent.click(screen.getByRole("tab", { name: /Monitor/ }))
+    expect(screen.getByRole("tab", { name: /Monitor/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
     )
+    fireEvent.click(screen.getByRole("tab", { name: /Terminal/ }))
+
+    expect(screen.getByRole("textbox", { name: "제한 터미널 명령" })).toBe(input)
+    expect(input).toHaveValue("candump")
+  })
+
+  it("completes allowlisted terminal commands with Tab", async () => {
+    render(<DoorAttackLabPage />)
+    await screen.findByText("BODY ECU")
+    const input = screen.getByRole("textbox", { name: "제한 터미널 명령" })
+
+    fireEvent.change(input, { target: { value: "cat d" } })
+    fireEvent.keyDown(input, { key: "Tab" })
+    expect(input).toHaveValue("cat door-open.log")
+
+    fireEvent.change(input, { target: { value: "cand" } })
+    fireEvent.keyDown(input, { key: "Tab" })
+    expect(input).toHaveValue("candump ")
+    fireEvent.keyDown(input, { key: "Tab" })
+    expect(screen.getByText(/candump vcan0\s+candump -L vcan0/)).toBeInTheDocument()
   })
 
   it("uses one intrinsic learning-grid rule so narrow panels never force two unreadable columns", () => {

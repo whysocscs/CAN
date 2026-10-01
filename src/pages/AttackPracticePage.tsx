@@ -1,7 +1,6 @@
 import {
   CarProfile,
   Check,
-  Eye,
   Gauge,
   Radio,
   ShieldWarning,
@@ -13,6 +12,11 @@ import BeginnerCanAttackLabPage from "@/features/attack-lab/BeginnerCanAttackLab
 import DoorAttackLabPage from "@/features/attack-lab/DoorAttackLabPage"
 import KuksaLabPage from "@/features/cve-labs/KuksaLabPage"
 import SwupdateLabPage from "@/features/cve-labs/SwupdateLabPage"
+import { beginnerAttackIntro, DOOR_ATTACK_INTRO } from "@/features/attack-lab/attackLabIntros"
+import { KUKSA_INTRO, SWUPDATE_INTRO } from "@/features/cve-labs/cveLabIntros"
+import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
+import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
+import LabTabs from "@/features/lab-layout/LabTabs"
 
 export type AttackRoute = Extract<Route, `attacks/${string}`>
 
@@ -535,59 +539,94 @@ function EvidenceLedger({ scenario }: { scenario: AttackScenario }) {
   )
 }
 
-export default function AttackPracticePage({ route }: { route: AttackRoute }) {
-  if (route === "attacks/kuksa" || route === "attacks/swupdate") {
-    return <main className="attack-preview attack-preview--door-lab">
-      <ScenarioTabs current={route} />
-      {route === "attacks/kuksa" ? <KuksaLabPage key={route} /> : <SwupdateLabPage key={route} />}
-    </main>
+function staticPreviewIntro(scenario: AttackScenario): LabIntroContent {
+  return {
+    kicker: "정적 UI 미리보기 · 실행 및 통신 기능 제외",
+    title: scenario.title,
+    description: scenario.description,
+    flowLabel: "ATTACK PATH",
+    flow: scenario.routeSummary.split(" → "),
+    flowNote: `${scenario.baseline} → ${scenario.expectedImpact}. ${scenario.verdict}.`,
+    objectives: scenario.steps,
+    facts: [
+      { label: "대상", value: scenario.target },
+      { label: "CAN ID", value: scenario.canId },
+      { label: "전송 간격", value: scenario.interval },
+    ],
+    notes: (
+      <p>
+        모든 값은 화면 구성용 샘플입니다. 실행, 중지, 초기화 제어는 실제 연결 단계에서 추가하며 현재 저장소에는
+        포함하지 않습니다.
+      </p>
+    ),
   }
-  if (route === "attacks/chain") {
-    return (
-      <main className="attack-preview attack-preview--door-lab">
-        <ScenarioTabs current={route} />
-        <DoorAttackLabPage />
-      </main>
-    )
-  }
+}
 
-  if (route === "attacks/spoofing" || route === "attacks/replay") {
-    const scenario = route === "attacks/spoofing" ? "spoofing" : "replay"
-    return (
-      <main className="attack-preview attack-preview--door-lab">
-        <ScenarioTabs current={route} />
-        <BeginnerCanAttackLabPage key={route} scenario={scenario} />
-      </main>
-    )
-  }
-
-  const scenario = scenarios[route]
-
+function StaticPreviewWorkbench({ scenario }: { scenario: AttackScenario }) {
   return (
-    <main className="attack-preview">
-      <header className="attack-preview__intro">
-        <div>
-          <h1>{scenario.title}</h1>
-          <p>{scenario.description}</p>
+    <section className="lab-v2 attack-preview--v2" aria-labelledby="attack-static-title">
+      <header className="lab-v2__bar">
+        <div className="lab-v2__title">
+          <p>정적 UI 미리보기 · 실행 및 통신 기능 제외</p>
+          <h1 id="attack-static-title">{scenario.title}</h1>
         </div>
-        <div className="attack-preview__preview-label">
-          <Eye size={19} aria-hidden="true" />
-          <span>
-            <strong>정적 UI 미리보기</strong>
-            <small>실행 및 통신 기능 제외</small>
-          </span>
-        </div>
+        <dl className="lab-v2__status">
+          <div><dt>대상</dt><dd>{scenario.target}</dd></div>
+          <div><dt>CAN ID</dt><dd>{scenario.canId}</dd></div>
+        </dl>
+        <LabIntroButton />
       </header>
-
-      <ScenarioTabs current={route} />
       <ProcedureRoute steps={scenario.steps} />
-
-      <div className="attack-preview__board">
-        <NetworkStage scenario={scenario} />
-        <ConditionRail scenario={scenario} />
+      <div className="lab-v2__workbench">
+        <div className="lab-v2__main">
+          <NetworkStage scenario={scenario} />
+        </div>
+        <aside className="lab-v2__side" aria-label="실습 안내와 도구">
+          <LabTabs
+            label="미리보기 도구"
+            tabs={[
+              { id: "conditions", label: "공격 조건", content: <ConditionRail scenario={scenario} /> },
+              { id: "evidence", label: "CAN 증거 비교", content: <EvidenceLedger scenario={scenario} /> },
+            ]}
+          />
+        </aside>
       </div>
+    </section>
+  )
+}
 
-      <EvidenceLedger scenario={scenario} />
+function introFor(route: AttackRoute): LabIntroContent {
+  if (route === "attacks/kuksa") return KUKSA_INTRO
+  if (route === "attacks/swupdate") return SWUPDATE_INTRO
+  if (route === "attacks/chain") return DOOR_ATTACK_INTRO
+  if (route === "attacks/spoofing") return beginnerAttackIntro("spoofing")
+  if (route === "attacks/replay") return beginnerAttackIntro("replay")
+  return staticPreviewIntro(scenarios[route])
+}
+
+function AttackLabBody({ route }: { route: AttackRoute }) {
+  if (route === "attacks/kuksa") return <KuksaLabPage />
+  if (route === "attacks/swupdate") return <SwupdateLabPage />
+  if (route === "attacks/chain") return <DoorAttackLabPage />
+  if (route === "attacks/spoofing" || route === "attacks/replay") {
+    return <BeginnerCanAttackLabPage scenario={route === "attacks/spoofing" ? "spoofing" : "replay"} />
+  }
+  return <StaticPreviewWorkbench scenario={scenarios[route]} />
+}
+
+/**
+ * 모든 공격 실습은 설명 화면(VERSION 2 · INTRODUCTION) → 실습 화면 순서로 진행한다.
+ * key={route}로 실습이 바뀌면 설명 화면부터 다시 시작하고, 이전 실습의 터미널·세션은 모두 정리된다.
+ */
+export default function AttackPracticePage({ route }: { route: AttackRoute }) {
+  return (
+    <main className="attack-preview attack-preview--door-lab">
+      <ScenarioTabs current={route} />
+      <div className="attack-preview__lab-body">
+        <LabIntroGate key={route} intro={introFor(route)}>
+          <AttackLabBody route={route} />
+        </LabIntroGate>
+      </div>
     </main>
   )
 }

@@ -12,7 +12,6 @@ import {
   ArrowClockwise,
   CircleNotch,
   Code,
-  Cpu,
   Lightbulb,
   Play,
   Radio,
@@ -77,61 +76,17 @@ import AttackLabGuidancePanel, {
 } from "./AttackLabGuidancePanel"
 import AttackLabLearningCheck from "./AttackLabLearningCheck"
 import AttackLabTerminalTranscript from "./AttackLabTerminalTranscript"
-import AttackStageRail from "./AttackStageRail"
 import { deriveAttackStageIndex } from "./attackLabStage"
 import LabScriptGuide from "./LabScriptGuide"
+import { BEGINNER_CAN_ATTACK_CONFIG } from "./attackLabScenarioData"
+import { LabIntroButton } from "../lab-layout/LabIntroGate"
+import LabTabs from "../lab-layout/LabTabs"
+import { ATTACK_LAB_COMPLETIONS, completeCommand } from "../terminal/commandCompletion"
 import {
   ATTACK_LAB_PREDICTION_PROMPTS,
   ATTACK_LAB_PRINCIPLE_QUESTIONS,
 } from "./attackLabLearning"
 import "./doorAttackLab.css"
-
-const CONFIG: Record<BeginnerCanAttackScenario, BeginnerCanAttackUiConfig> = {
-  spoofing: {
-    scenario: "spoofing",
-    title: "CAN Spoofing Basics",
-    targetSummary: "REAR ECU",
-    effectSummary: "TAILGATE",
-    routeId: "spoofing",
-    targetId: "rear",
-    effectId: "tailgate",
-    definition:
-      "공격자가 정상 기능 프레임에 사용되는 CAN ID(송신자 인증값 아님)로 새 상태 payload를 구성해 전송합니다. 이 Toy contract에는 source authentication(송신자 인증)이 없습니다.",
-    stages: ["목표 확인", "정상 관찰", "Payload 작성", "ECU 수락", "증거"],
-    initialScript:
-      "# 관찰한 근거로 새 상태 프레임을 작성하세요.\n# cansend vcan0 <ID>#<DATA>",
-    hints: [
-      "가상 작업 공간의 항목을 먼저 ls로 확인하세요.",
-      "candump -L vcan0로 정상 상태 프레임을 관찰하세요.",
-      "제공된 message-map 파일을 직접 읽고 ID와 byte 의미를 구분하세요.",
-    ],
-    objective:
-      "관찰한 메시지 계약을 근거로 새 프레임과 원본 재사용의 차이를 설명합니다.",
-    accent: "#2563eb",
-  },
-  replay: {
-    scenario: "replay",
-    title: "CAN Replay Basics",
-    targetSummary: "BODY ECU",
-    effectSummary: "LEFT DOOR",
-    routeId: "replay",
-    targetId: "body",
-    effectId: "leftDoor",
-    definition:
-      "공격자가 이전에 캡처한 유효 프레임을 byte-for-byte(바이트 그대로) 다시 전송합니다. 이 Toy contract에는 freshness protection(신선도 보호)이 없습니다.",
-    stages: ["목표 확인", "프레임 캡처", "원본 확인", "재전송", "증거"],
-    initialScript:
-      "# 관찰한 캡처를 그대로 재생하는 명령을 작성하세요.\n# canplayer -I <FILE> -l <COUNT>",
-    hints: [
-      "먼저 virtual capture를 생성하는 제한 명령을 찾아 실행하세요.",
-      "생성된 항목을 목록에서 확인한 뒤 내용을 직접 관찰하세요.",
-      "재생 전 원본의 ID, DLC, DATA가 바뀌지 않았는지 확인하세요.",
-    ],
-    objective:
-      "캡처 provenance(출처)와 동일 바이트 재전송이 필요한 이유를 설명합니다.",
-    accent: "#7c3aed",
-  },
-}
 
 const EMPTY_MONITOR: BeginnerCanAttackMonitorState = {
   frames: [],
@@ -240,7 +195,7 @@ export default function BeginnerCanAttackLabPage({
 }: {
   scenario: BeginnerCanAttackScenario
 }) {
-  const config = CONFIG[scenario]
+  const config = BEGINNER_CAN_ATTACK_CONFIG[scenario]
   const [session, setSession] = useState<BeginnerCanAttackState | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<BusyState>(null)
@@ -249,6 +204,7 @@ export default function BeginnerCanAttackLabPage({
   const [script, setScript] = useState(config.initialScript)
   const [monitor, dispatchMonitor] = useReducer(monitorReducer, EMPTY_MONITOR)
   const [terminalCommand, setTerminalCommand] = useState("")
+  const [completionMatches, setCompletionMatches] = useState<string[]>([])
   const [terminalEntries, setTerminalEntries] = useState<TranscriptEntry[]>([])
   const [activity, setActivity] = useState<AttackLabActivityEntry[]>([])
   const [selectedActivityId, setSelectedActivityId] = useState<string | null>(
@@ -723,6 +679,17 @@ export default function BeginnerCanAttackLabPage({
   }
 
   const handleTerminalKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Tab") {
+      event.preventDefault()
+      const { value, matches } = completeCommand(
+        terminalCommand,
+        ATTACK_LAB_COMPLETIONS[scenario],
+      )
+      setTerminalCommand(value)
+      setCompletionMatches(value === terminalCommand ? matches : [])
+      return
+    }
+    setCompletionMatches([])
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return
     event.preventDefault()
     setHistoryIndex((current) => {
@@ -814,24 +781,328 @@ export default function BeginnerCanAttackLabPage({
     setConfirmed(false)
   }, [])
 
+  const editorPanel = (
+    <section
+      className="door-attack-lab__editor"
+      role="region"
+      aria-label="Code editor"
+    >
+      <header className="door-attack-lab__panel-heading">
+        <div>
+          <Code size={18} aria-hidden="true" />
+          <span>
+            <strong>Restricted lab script</strong>
+            <small>comments + scenario final action</small>
+          </span>
+        </div>
+        <span>최대 20 lines</span>
+      </header>
+      <LabScriptGuide mode={scenario} />
+      <textarea
+        aria-label="공격 스크립트"
+        value={script}
+        onChange={(event) => setScript(event.target.value)}
+        spellCheck={false}
+        disabled={flow.isActive}
+      />
+      <div className="door-attack-lab__editor-actions">
+        <button
+          type="button"
+          className="is-secondary"
+          onClick={() => void handleReset()}
+          disabled={!session || busy === "reset"}
+        >
+          <ArrowClockwise size={15} aria-hidden="true" />
+          {busy === "reset" ? "초기화 중" : "실습 초기화"}
+        </button>
+        <button
+          type="button"
+          className="is-primary"
+          onClick={() => void handleRun()}
+          disabled={!session || busy !== null || flow.isActive}
+        >
+          {busy === "run" ? (
+            <CircleNotch
+              size={15}
+              className="door-attack-lab__spin"
+              aria-hidden="true"
+            />
+          ) : (
+            <Play size={15} weight="fill" aria-hidden="true" />
+          )}
+          {busy === "run" ? "검증 중" : "스크립트 실행"}
+        </button>
+      </div>
+    </section>
+  )
+
+  const binaryPanel = (
+    <section
+      className="door-attack-lab__binary"
+      role="region"
+      aria-label="Binary inspector"
+    >
+      <header className="door-attack-lab__panel-heading">
+        <div>
+          <ShieldCheck size={18} aria-hidden="true" />
+          <span>
+            <strong>Binary inspector</strong>
+            <small>선택한 frame의 byte / bit view</small>
+          </span>
+        </div>
+        <span>{selectedFrame?.canId ?? "NO FRAME"}</span>
+      </header>
+      <div className="door-attack-lab__bytes">
+        {selectedFrame ? (
+          selectedFrame.data.map((byte, index) => (
+            <div key={`${selectedFrame.key}-${index}`}>
+              <small>BYTE {index}</small>
+              <strong>{byte}</strong>
+              <code>{selectedBits[index]}</code>
+            </div>
+          ))
+        ) : (
+          <p className="door-attack-lab__empty">
+            터미널 또는 monitor에서 프레임을 선택하세요.
+          </p>
+        )}
+      </div>
+    </section>
+  )
+
+  const monitorPanel = (
+    <section
+      className="door-attack-lab__monitor"
+      role="region"
+      aria-label="Network monitor"
+    >
+      <header className="door-attack-lab__panel-heading">
+        <div>
+          <Radio size={18} aria-hidden="true" />
+          <span>
+            <strong>Network monitor</strong>
+            <small>REST rejected/capture + accepted live stream</small>
+          </span>
+        </div>
+        <span>{monitor.frames.length} / 300</span>
+      </header>
+      <div className="door-attack-lab__monitor-scroll">
+        <table>
+          <caption className="sr-only">
+            Beginner CAN lab observed frames
+          </caption>
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>ID</th>
+              <th>DATA</th>
+              <th>Source</th>
+              <th>Verdict</th>
+            </tr>
+          </thead>
+          <tbody>
+            {monitor.frames.length === 0 ? (
+              <tr>
+                <td colSpan={5}>아직 관찰된 프레임이 없습니다.</td>
+              </tr>
+            ) : (
+              monitor.frames.map((frame) => (
+                <tr
+                  key={frame.key}
+                  data-selected={frame.key === monitor.selectedKey}
+                >
+                  <td>
+                    {MONITOR_TIME_FORMATTER.format(
+                      new Date(frame.timestamp),
+                    )}
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`}
+                      onClick={() => selectMonitorFrame(frame.key)}
+                    >
+                      {frame.canId}
+                    </button>
+                  </td>
+                  <td>{formatBeginnerFrameData(frame.data)}</td>
+                  <td>{frame.source}</td>
+                  <td>{frame.verdict}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+
+  const terminalPanel = (
+    <section
+      className="door-attack-lab__terminal"
+      role="region"
+      aria-label="Virtual terminal"
+    >
+      <header className="door-attack-lab__panel-heading">
+        <div>
+          <TerminalWindow size={18} aria-hidden="true" />
+          <span>
+            <strong>Virtual terminal</strong>
+            <small>allowlisted in-memory interpreter · Tab 자동완성</small>
+          </span>
+        </div>
+        <span>{busy === "terminal" ? "RUNNING" : "READY"}</span>
+      </header>
+      <AttackLabTerminalTranscript
+        entries={terminalEntries}
+        emptyMessage="관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다."
+      />
+      {completionMatches.length > 1 ? (
+        <p className="lab-v2__completion" aria-live="polite">
+          {completionMatches.map((match) => match.trimEnd()).join("    ")}
+        </p>
+      ) : null}
+      <form
+        className="beginner-can-attack-lab__terminal-form"
+        onSubmit={(event) => void handleTerminalSubmit(event)}
+      >
+        <span aria-hidden="true">$</span>
+        <input
+          aria-label="제한 터미널 명령"
+          placeholder="허용된 명령 입력 · Tab 자동완성 · ↑↓ 기록"
+          value={terminalCommand}
+          onChange={(event) => {
+            setTerminalCommand(event.target.value)
+            setCompletionMatches([])
+          }}
+          onKeyDown={handleTerminalKeyDown}
+          disabled={!session || busy !== null || flow.isActive}
+          autoComplete="off"
+        />
+        <button
+          type="submit"
+          disabled={!session || busy !== null || flow.isActive}
+        >
+          명령 실행
+        </button>
+      </form>
+    </section>
+  )
+
+  const learningPanel = (
+    <div className="door-attack-lab__learning">
+      <AttackLabLearningCheck
+        predictionDraft={predictionDraft}
+        predictionBeforeAction={predictionBeforeAction}
+        explanation={explanation}
+        technicalComplete={technicalComplete}
+        reviewReady={reviewReady}
+        evidenceSelected={evidenceSelected}
+        confirmed={confirmed}
+        expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS[scenario]}
+        principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS[scenario]}
+        actualRows={feedback?.actualRows ?? []}
+        onPredictionChange={(value) => {
+          setPredictionDraft(value)
+          setConfirmed(false)
+        }}
+        onExplanationChange={(value) => {
+          setExplanation(value)
+          setConfirmed(false)
+        }}
+        onConfirm={() => setConfirmed(true)}
+      />
+      <section role="region" aria-label="Hints">
+        <header>
+          <Lightbulb size={17} aria-hidden="true" />
+          <strong>Hints</strong>
+        </header>
+        <p>
+          {hintIndex < 0
+            ? "힌트는 정답을 대신하지 않습니다."
+            : config.hints[hintIndex]}
+        </p>
+        <button
+          type="button"
+          onClick={() =>
+            setHintIndex((index) =>
+              Math.min(index + 1, config.hints.length - 1),
+            )
+          }
+        >
+          다음 힌트
+        </button>
+      </section>
+      <section role="region" aria-label="Learning objective">
+        <header>
+          <ShieldCheck size={17} aria-hidden="true" />
+          <strong>Learning objective</strong>
+        </header>
+        <p>{config.objective}</p>
+        <p>{config.definition}</p>
+        <p>
+          물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만
+          검증합니다.
+        </p>
+      </section>
+      <section role="region" aria-label="Evidence">
+        <header>
+          <Radio size={17} aria-hidden="true" />
+          <strong>Evidence / completion</strong>
+        </header>
+        <dl>
+          <div>
+            <dt>Stage</dt>
+            <dd>
+              {session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}
+            </dd>
+          </div>
+          <div>
+            <dt>Attempts</dt>
+            <dd>{session?.attemptCount ?? 0}</dd>
+          </div>
+          <div>
+            <dt>Last verdict</dt>
+            <dd>
+              {busy && busy !== "reset"
+                ? "PENDING"
+                : (lastResult?.code ?? session?.lastVerdict ?? "NONE")}
+            </dd>
+          </div>
+          <div>
+            <dt>Toy IDS</dt>
+            <dd>{idsStatus ?? "PENDING"}</dd>
+          </div>
+          <div>
+            <dt>Toy 기술 결과 달성</dt>
+            <dd>{technicalComplete ? "달성" : "미달성"}</dd>
+          </div>
+        </dl>
+      </section>
+      <AttackLabFeedbackPanel feedback={feedback} />
+      <AttackLabActivityLog
+        entries={activity}
+        selectedId={selectedActivityId}
+        onSelect={selectActivity}
+      />
+    </div>
+  )
+
   return (
     <section
-      className="door-attack-lab beginner-can-attack-lab"
+      className="door-attack-lab beginner-can-attack-lab lab-v2"
       aria-labelledby="beginner-can-attack-title"
     >
       <p className="sr-only" aria-live="polite">
         {resultSummary}
       </p>
-      <header className="door-attack-lab__header">
-        <div>
+      <header className="lab-v2__bar">
+        <div className="lab-v2__title">
           <p>CAN ATTACK BASICS · 격리된 Toy ECU 실습</p>
           <h1 id="beginner-can-attack-title">{config.title}</h1>
-          <span>{config.definition}</span>
-          <strong className="beginner-can-attack-lab__badge">
-            Toy ECU / virtual CAN
-          </strong>
+          <small>Toy ECU / virtual CAN</small>
         </div>
-        <dl className="door-attack-lab__target-summary">
+        <dl className="lab-v2__status">
           <div>
             <dt>Target</dt>
             <dd>{config.targetSummary}</dd>
@@ -855,21 +1126,9 @@ export default function BeginnerCanAttackLabPage({
             </dd>
           </div>
         </dl>
+        <LabIntroButton />
       </header>
 
-      <AttackStageRail
-        stages={config.stages}
-        currentIndex={currentStageIndex}
-        className="beginner-can-attack-lab__stages"
-      />
-
-      <AttackLabGuidancePanel
-        scenario={scenario}
-        stageIndex={currentStageIndex}
-        mode={guidanceMode}
-        disabled={busy !== null || flow.isActive}
-        onModeChange={setGuidanceMode}
-      />
 
       {loading && !offlineError ? (
         <div className="beginner-can-attack-lab__loading" role="status">
@@ -903,333 +1162,62 @@ export default function BeginnerCanAttackLabPage({
         </div>
       ) : null}
 
-      <div className="door-attack-lab__primary">
-        <section
-          className="door-attack-lab__vehicle-flow"
-          aria-labelledby="beginner-vehicle-title"
-        >
-          <header className="door-attack-lab__panel-heading">
-            <div>
-              <Cpu size={18} aria-hidden="true" />
-              <span>
-                <strong id="beginner-vehicle-title">Vehicle topology</strong>
-                <small>
-                  {config.targetSummary} → {config.effectSummary} GLB/Toy effect
-                </small>
-              </span>
-            </div>
+      <div className="lab-v2__workbench lab-v2__workbench--aligned">
+        <div className="lab-v2__main">
+          <section
+            className="door-attack-lab__vehicle-flow"
+            aria-label="Vehicle topology"
+          >
+            <VehicleNetworkViewport
+              route={VEHICLE_ROUTES[config.routeId]}
+              targetId={config.targetId}
+              effectId={config.effectId}
+              currentNodeId={currentNodeId}
+              scenarioTitle={config.title}
+              accent={config.accent}
+              playback={flow.snapshot}
+              presentation={feedback?.flow}
+              playbackPaused={flow.isPaused}
+              onPlaybackPause={flow.pause}
+              onPlaybackResume={flow.resume}
+              onPlaybackNextStep={flow.nextStep}
+              showTargetMap={false}
+              playbackMode={
+                flowPlaybackMode ??
+                (guidanceMode === "guided" ? "step" : "auto")
+              }
+            />
             <span className="door-attack-lab__truth-qualifier">
               교육용 논리 위치 · 실제 OEM 배치 아님
             </span>
-          </header>
-          <VehicleNetworkViewport
-            route={VEHICLE_ROUTES[config.routeId]}
-            targetId={config.targetId}
-            effectId={config.effectId}
-            currentNodeId={currentNodeId}
-            scenarioTitle={config.title}
-            accent={config.accent}
-            playback={flow.snapshot}
-            presentation={feedback?.flow}
-            playbackPaused={flow.isPaused}
-            onPlaybackPause={flow.pause}
-            onPlaybackResume={flow.resume}
-            onPlaybackNextStep={flow.nextStep}
-            playbackMode={
-              flowPlaybackMode ??
-              (guidanceMode === "guided" ? "step" : "auto")
-            }
-          />
-        </section>
-
-        <section
-          className="door-attack-lab__editor"
-          role="region"
-          aria-label="Code editor"
-        >
-          <header className="door-attack-lab__panel-heading">
-            <div>
-              <Code size={18} aria-hidden="true" />
-              <span>
-                <strong>Restricted lab script</strong>
-                <small>comments + scenario final action</small>
-              </span>
-            </div>
-            <span>최대 20 lines</span>
-          </header>
-          <LabScriptGuide mode={scenario} />
-          <textarea
-            aria-label="공격 스크립트"
-            value={script}
-            onChange={(event) => setScript(event.target.value)}
-            spellCheck={false}
-            disabled={flow.isActive}
-          />
-          <div className="door-attack-lab__editor-actions">
-            <button
-              type="button"
-              className="is-secondary"
-              onClick={() => void handleReset()}
-              disabled={!session || busy === "reset"}
-            >
-              <ArrowClockwise size={15} aria-hidden="true" />
-              {busy === "reset" ? "초기화 중" : "실습 초기화"}
-            </button>
-            <button
-              type="button"
-              className="is-primary"
-              onClick={() => void handleRun()}
-              disabled={!session || busy !== null || flow.isActive}
-            >
-              {busy === "run" ? (
-                <CircleNotch
-                  size={15}
-                  className="door-attack-lab__spin"
-                  aria-hidden="true"
-                />
-              ) : (
-                <Play size={15} weight="fill" aria-hidden="true" />
-              )}
-              {busy === "run" ? "검증 중" : "스크립트 실행"}
-            </button>
-          </div>
-        </section>
-
-        <section
-          className="door-attack-lab__binary"
-          role="region"
-          aria-label="Binary inspector"
-        >
-          <header className="door-attack-lab__panel-heading">
-            <div>
-              <ShieldCheck size={18} aria-hidden="true" />
-              <span>
-                <strong>Binary inspector</strong>
-                <small>선택한 frame의 byte / bit view</small>
-              </span>
-            </div>
-            <span>{selectedFrame?.canId ?? "NO FRAME"}</span>
-          </header>
-          <div className="door-attack-lab__bytes">
-            {selectedFrame ? (
-              selectedFrame.data.map((byte, index) => (
-                <div key={`${selectedFrame.key}-${index}`}>
-                  <small>BYTE {index}</small>
-                  <strong>{byte}</strong>
-                  <code>{selectedBits[index]}</code>
-                </div>
-              ))
-            ) : (
-              <p className="door-attack-lab__empty">
-                터미널 또는 monitor에서 프레임을 선택하세요.
-              </p>
-            )}
-          </div>
-        </section>
-
-        <section
-          className="door-attack-lab__monitor"
-          role="region"
-          aria-label="Network monitor"
-        >
-          <header className="door-attack-lab__panel-heading">
-            <div>
-              <Radio size={18} aria-hidden="true" />
-              <span>
-                <strong>Network monitor</strong>
-                <small>REST rejected/capture + accepted live stream</small>
-              </span>
-            </div>
-            <span>{monitor.frames.length} / 300</span>
-          </header>
-          <div className="door-attack-lab__monitor-scroll">
-            <table>
-              <caption className="sr-only">
-                Beginner CAN lab observed frames
-              </caption>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>ID</th>
-                  <th>DATA</th>
-                  <th>Source</th>
-                  <th>Verdict</th>
-                </tr>
-              </thead>
-              <tbody>
-                {monitor.frames.length === 0 ? (
-                  <tr>
-                    <td colSpan={5}>아직 관찰된 프레임이 없습니다.</td>
-                  </tr>
-                ) : (
-                  monitor.frames.map((frame) => (
-                    <tr
-                      key={frame.key}
-                      data-selected={frame.key === monitor.selectedKey}
-                    >
-                      <td>
-                        {MONITOR_TIME_FORMATTER.format(
-                          new Date(frame.timestamp),
-                        )}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          aria-label={`${frame.canId} ${formatBeginnerFrameData(frame.data)} frame 선택`}
-                          onClick={() => selectMonitorFrame(frame.key)}
-                        >
-                          {frame.canId}
-                        </button>
-                      </td>
-                      <td>{formatBeginnerFrameData(frame.data)}</td>
-                      <td>{frame.source}</td>
-                      <td>{frame.verdict}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <div className="door-attack-lab__secondary">
-        <section
-          className="door-attack-lab__terminal"
-          role="region"
-          aria-label="Virtual terminal"
-        >
-          <header className="door-attack-lab__panel-heading">
-            <div>
-              <TerminalWindow size={18} aria-hidden="true" />
-              <span>
-                <strong>Virtual terminal</strong>
-                <small>allowlisted in-memory interpreter</small>
-              </span>
-            </div>
-            <span>{busy === "terminal" ? "RUNNING" : "READY"}</span>
-          </header>
-          <AttackLabTerminalTranscript
-            entries={terminalEntries}
-            emptyMessage="관찰 명령을 직접 입력하세요. 실제 shell/host filesystem에는 연결되지 않습니다."
-          />
-          <form
-            className="beginner-can-attack-lab__terminal-form"
-            onSubmit={(event) => void handleTerminalSubmit(event)}
-          >
-            <span aria-hidden="true">$</span>
-            <input
-              aria-label="제한 터미널 명령"
-              value={terminalCommand}
-              onChange={(event) => setTerminalCommand(event.target.value)}
-              onKeyDown={handleTerminalKeyDown}
-              disabled={!session || busy !== null || flow.isActive}
-              autoComplete="off"
-            />
-            <button
-              type="submit"
-              disabled={!session || busy !== null || flow.isActive}
-            >
-              명령 실행
-            </button>
-          </form>
-        </section>
-
-        <div className="door-attack-lab__learning">
-          <AttackLabLearningCheck
-            predictionDraft={predictionDraft}
-            predictionBeforeAction={predictionBeforeAction}
-            explanation={explanation}
-            technicalComplete={technicalComplete}
-            reviewReady={reviewReady}
-            evidenceSelected={evidenceSelected}
-            confirmed={confirmed}
-            expectationPrompt={ATTACK_LAB_PREDICTION_PROMPTS[scenario]}
-            principleQuestion={ATTACK_LAB_PRINCIPLE_QUESTIONS[scenario]}
-            actualRows={feedback?.actualRows ?? []}
-            onPredictionChange={(value) => {
-              setPredictionDraft(value)
-              setConfirmed(false)
-            }}
-            onExplanationChange={(value) => {
-              setExplanation(value)
-              setConfirmed(false)
-            }}
-            onConfirm={() => setConfirmed(true)}
-          />
-          <section role="region" aria-label="Hints">
-            <header>
-              <Lightbulb size={17} aria-hidden="true" />
-              <strong>Hints</strong>
-            </header>
-            <p>
-              {hintIndex < 0
-                ? "힌트는 정답을 대신하지 않습니다."
-                : config.hints[hintIndex]}
-            </p>
-            <button
-              type="button"
-              onClick={() =>
-                setHintIndex((index) =>
-                  Math.min(index + 1, config.hints.length - 1),
-                )
-              }
-            >
-              다음 힌트
-            </button>
           </section>
-          <section role="region" aria-label="Learning objective">
-            <header>
-              <ShieldCheck size={17} aria-hidden="true" />
-              <strong>Learning objective</strong>
-            </header>
-            <p>{config.objective}</p>
-            <p>
-              물리 차량 actuation이 아닌 virtual CAN 입력과 GLB/Toy effect만
-              검증합니다.
-            </p>
-          </section>
-          <section role="region" aria-label="Evidence">
-            <header>
-              <Radio size={17} aria-hidden="true" />
-              <strong>Evidence / completion</strong>
-            </header>
-            <dl>
-              <div>
-                <dt>Stage</dt>
-                <dd>
-                  {session?.stage ?? (loading ? "LOADING" : "UNAVAILABLE")}
-                </dd>
-              </div>
-              <div>
-                <dt>Attempts</dt>
-                <dd>{session?.attemptCount ?? 0}</dd>
-              </div>
-              <div>
-                <dt>Last verdict</dt>
-                <dd>
-                  {busy && busy !== "reset"
-                    ? "PENDING"
-                    : (lastResult?.code ?? session?.lastVerdict ?? "NONE")}
-                </dd>
-              </div>
-              <div>
-                <dt>Toy IDS</dt>
-                <dd>{idsStatus ?? "PENDING"}</dd>
-              </div>
-              <div>
-                <dt>Toy 기술 결과 달성</dt>
-                <dd>{technicalComplete ? "달성" : "미달성"}</dd>
-              </div>
-            </dl>
-          </section>
-          <AttackLabFeedbackPanel feedback={feedback} />
-          <AttackLabActivityLog
-            entries={activity}
-            selectedId={selectedActivityId}
-            onSelect={selectActivity}
-          />
         </div>
+
+        <aside className="lab-v2__side lab-v2__side--guide-top" aria-label="실습 안내와 도구">
+          <AttackLabGuidancePanel
+            scenario={scenario}
+            stageIndex={currentStageIndex}
+            mode={guidanceMode}
+            disabled={busy !== null || flow.isActive}
+            onModeChange={setGuidanceMode}
+          />
+          <LabTabs
+            label="실습 도구"
+            tabs={[
+              { id: "terminal", label: "Terminal", icon: TerminalWindow, content: terminalPanel },
+              { id: "script", label: "Script", icon: Code, content: editorPanel },
+              {
+                id: "monitor",
+                label: "Monitor",
+                icon: Radio,
+                badge: monitor.frames.length,
+                content: monitorPanel,
+              },
+              { id: "binary", label: "Binary", icon: ShieldCheck, content: binaryPanel },
+              { id: "review", label: "학습 확인", icon: Lightbulb, content: learningPanel },
+            ]}
+          />
+        </aside>
       </div>
     </section>
   )

@@ -1,32 +1,64 @@
-import { useState, type ReactNode } from "react"
-import { ClipboardText, Monitor, TerminalWindow } from "@phosphor-icons/react"
+import type { ReactNode } from "react"
+import type { LabTab } from "@/features/lab-layout/LabTabs"
+import { IDS_TAB_ICONS, IdsConsolePane } from "./IdsLabFrame"
 
-type TabId = "terminal" | "monitor" | "idsLog"
+export type IdsConsoleTabId = "terminal" | "monitor" | "idsLog"
 
-interface IdsBottomTabsProps {
-  terminal: ReactNode
+interface IdsConsoleTabsOptions {
+  terminal?: ReactNode
   monitor: ReactNode
   idsLog: ReactNode
-  onClear: (tab: TabId) => void
+  onClear: (tab: IdsConsoleTabId) => void
+  status?: string
 }
 
-const tabs: Array<{ id: TabId; label: string; icon: typeof TerminalWindow }> = [
-  { id: "terminal", label: "Terminal", icon: TerminalWindow },
-  { id: "monitor", label: "CAN Monitor", icon: Monitor },
-  { id: "idsLog", label: "IDS Log", icon: ClipboardText },
-]
-
-/** IDS variant of the normal CAN practice console panel. */
-export default function IdsBottomTabs({ terminal, monitor, idsLog, onClear }: IdsBottomTabsProps) {
-  const [activeTab, setActiveTab] = useState<TabId>("terminal")
-  const content = activeTab === "terminal" ? terminal : activeTab === "monitor" ? monitor : idsLog
-  return <section className="canlab__console" aria-label="IDS 실습 콘솔" style={{ minHeight: 310 }}>
-    <div className="canlab__tabs" role="tablist" aria-label="IDS 실습 결과 보기">
-      {tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" role="tab" aria-selected={activeTab === id} className={activeTab === id ? "is-active" : ""} onClick={() => setActiveTab(id)}><Icon size={15} /> {label}</button>)}
-    </div>
-    <div className="canlab__terminal-pane" role="tabpanel" style={{ minHeight: 258, maxHeight: 258, overflow: "auto" }}>
-      <div className="canlab__console-toolbar"><strong>{tabs.find((tab) => tab.id === activeTab)?.label}</strong><span className="canlab__terminal-status is-connected"><i /> CAN 이벤트 스트림 연결됨</span><button type="button" onClick={() => onClear(activeTab)}>화면 비우기</button></div>
-      {content}
-    </div>
-  </section>
+/**
+ * IDS 실습 오른쪽 콘솔 탭(Terminal / CAN Monitor / IDS Log).
+ *
+ * LabTabs가 모든 패널을 마운트한 채로 두므로 Terminal → IDS Log → Terminal로
+ * 돌아와도 터미널 기록이 그대로 남는다. 실습을 바꾸면 페이지가 언마운트되며 초기화된다.
+ */
+export function idsConsoleTabs({
+  terminal,
+  monitor,
+  idsLog,
+  onClear,
+  status = "CAN 이벤트 스트림 연결됨",
+}: IdsConsoleTabsOptions): LabTab<IdsConsoleTabId>[] {
+  const tabs: LabTab<IdsConsoleTabId>[] = []
+  if (terminal) {
+    tabs.push({
+      id: "terminal",
+      label: "Terminal",
+      icon: IDS_TAB_ICONS.terminal,
+      content: (
+        <IdsConsolePane title="Terminal" status={`${status} · Tab 자동완성`} onClear={() => onClear("terminal")}>
+          {terminal}
+        </IdsConsolePane>
+      ),
+    })
+  }
+  tabs.push(
+    {
+      id: "monitor",
+      label: "CAN Monitor",
+      icon: IDS_TAB_ICONS.monitor,
+      content: (
+        <IdsConsolePane title="CAN Monitor" status={status} onClear={() => onClear("monitor")}>
+          {monitor}
+        </IdsConsolePane>
+      ),
+    },
+    {
+      id: "idsLog",
+      label: "IDS Log",
+      icon: IDS_TAB_ICONS.idsLog,
+      content: (
+        <IdsConsolePane title="IDS Log" status={status} onClear={() => onClear("idsLog")}>
+          {idsLog}
+        </IdsConsolePane>
+      ),
+    },
+  )
+  return tabs
 }

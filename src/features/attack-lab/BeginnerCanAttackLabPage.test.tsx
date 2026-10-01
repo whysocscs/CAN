@@ -394,11 +394,9 @@ describe("BeginnerCanAttackLabPage", () => {
         "data-route",
         route,
       )
-      copy
-        .slice(0, 5)
-        .forEach((stage) =>
-          expect(screen.getAllByText(stage).length).toBeGreaterThan(0),
-        )
+      // 전체 단계 목록은 설명 화면에 있고, 실습 화면은 현재 단계만 보여준다.
+      expect(screen.getByText("1/5")).toBeInTheDocument()
+      expect(screen.getAllByText(copy[0]).length).toBeGreaterThan(0)
       expect(
         screen
           .getByRole("textbox", { name: "공격 스크립트" })

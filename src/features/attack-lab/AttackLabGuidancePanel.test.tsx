@@ -96,7 +96,7 @@ describe("attack lab learning guidance", () => {
       within(guidance)
         .getAllByRole("term")
         .map((term) => term.textContent),
-    ).toEqual(["단계 목적", "지금 할 일", "확인할 증거", "완료 기준"])
+    ).toEqual(["지금 할 일", "단계 목적", "확인할 증거", "완료 기준"])
     expect(within(guidance).getAllByRole("definition")).toHaveLength(4)
   })
 
@@ -112,7 +112,7 @@ describe("attack lab learning guidance", () => {
       within(guidance)
         .getAllByRole("term")
         .map((term) => term.textContent),
-    ).toEqual(["단계 목적", "스스로 정할 항목"])
+    ).toEqual(["스스로 정할 항목", "단계 목적"])
     expect(within(guidance).queryByText("지금 할 일")).not.toBeInTheDocument()
     expect(within(guidance).queryByText("확인할 증거")).not.toBeInTheDocument()
     expect(within(guidance).queryByText("완료 기준")).not.toBeInTheDocument()

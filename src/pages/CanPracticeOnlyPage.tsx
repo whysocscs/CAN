@@ -37,6 +37,9 @@ import {
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
+import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
+import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
+import { CAN_PRACTICE_COMPLETIONS } from "@/features/terminal/commandCompletion"
 import {
   useCanVehicleStream,
   useSelectedVehicleModel,
@@ -58,38 +61,6 @@ const CAN_API_BASE = import.meta.env.VITE_CAN_API_BASE
 type GuideStep = "1" | "2" | "3-1" | "3-2" | "4" | "5"
 type ConsoleTab = "terminal" | "monitor" | "inspector"
 type EcuModuleId = CanNodeId
-type LayoutVersion = "v1" | "v2"
-
-function LayoutVersionSelector({
-  value,
-  onChange,
-}: {
-  value: LayoutVersion
-  onChange: (version: LayoutVersion) => void
-}) {
-  return (
-    <div className="canlab__layout-selector" aria-label="실습 버전 선택">
-      <span>실습 버전</span>
-      <button
-        type="button"
-        className={value === "v1" ? "is-active" : ""}
-        onClick={() => onChange("v1")}
-        title="버전 1: 설명 없이 바로 실습 화면으로 이동"
-      >
-        버전 1 · 바로 실습
-      </button>
-      <button
-        type="button"
-        className={value === "v2" ? "is-active" : ""}
-        onClick={() => onChange("v2")}
-        title="버전 2: 설명 페이지를 먼저 확인한 뒤 실습 화면으로 이동"
-      >
-        버전 2 · 설명 후 실습
-      </button>
-    </div>
-  )
-}
-
 const guideSteps: Array<{
   id: GuideStep
   label: string
@@ -838,15 +809,36 @@ function useReducedMotion() {
   return reducedMotion
 }
 
+const CAN_PRACTICE_INTRO: LabIntroContent = {
+  kicker: "VERSION 2 · INTRODUCTION",
+  title: "정상 CAN 메시지 송수신",
+  description:
+    "실습에 들어가기 전에 CAN 메시지가 차량 네트워크를 어떻게 통과하는지 먼저 확인합니다. 다음 화면에서 터미널 명령을 입력하고 3D 경로의 변화를 직접 관찰합니다.",
+  flow: ["Terminal", "Gateway ECU", "Target ECU"],
+  flowNote:
+    "CAN ID가 게이트웨이의 필터를 통과하면 해당 ECU로 전달되고, 같은 Event가 Monitor와 3D 경로에 표시됩니다.",
+  objectives: [
+    "정상 프레임의 CAN ID, DLC, DATA를 구분합니다.",
+    "Gateway ECU가 목적지 ECU로 메시지를 라우팅하는 구조를 이해합니다.",
+    "하나의 CAN Event가 Monitor, Inspector, 3D 경로에 공통 반영되는 것을 확인합니다.",
+  ],
+}
+
 export default function CanPracticeOnlyPage() {
+  return (
+    <LabIntroGate intro={CAN_PRACTICE_INTRO}>
+      <CanPracticeWorkbench />
+    </LabIntroGate>
+  )
+}
+
+function CanPracticeWorkbench() {
   const [activeStep, setActiveStep] = useState<GuideStep>("1")
   const [completedSteps, setCompletedSteps] = useState<GuideStep[]>([])
   const [activeTab, setActiveTab] = useState<ConsoleTab>("terminal")
   const [showLabels, setShowLabels] = useState(true)
   const [showBus, setShowBus] = useState(true)
   const [autoRotate, setAutoRotate] = useState(false)
-  const [layoutVersion, setLayoutVersion] = useState<LayoutVersion>("v1")
-  const [v2IntroComplete, setV2IntroComplete] = useState(false)
   const [vehiclePaneRatio, setVehiclePaneRatio] = useState(58)
   const [overviewRevision, setOverviewRevision] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
@@ -991,11 +983,6 @@ export default function CanPracticeOnlyPage() {
     setActiveTab("inspector")
   }
 
-  const handleLayoutVersionChange = (version: LayoutVersion) => {
-    setLayoutVersion(version)
-    if (version === "v2") setV2IntroComplete(false)
-  }
-
   const currentGuideStep = guideSteps.find((step) => step.id === activeStep)
   const inspectorEvent = selectedEvent
   const inspectorCatalogEntry = inspectorEvent?.frame.canId
@@ -1005,54 +992,9 @@ export default function CanPracticeOnlyPage() {
   return (
     <main className="canlab canlab--embedded" aria-label="정상 CAN 메시지 송수신 실습">
       <section className="canlab__shell" id="practice">
-        {layoutVersion === "v2" && !v2IntroComplete ? (
-          <section className="canlab__intro-page" aria-labelledby="canlab-intro-title">
-            <div className="canlab__intro-header">
-              <span className="canlab__section-kicker">VERSION 2 · INTRODUCTION</span>
-              <h1 id="canlab-intro-title">정상 CAN 메시지 송수신</h1>
-              <p>
-                실습에 들어가기 전에 CAN 메시지가 차량 네트워크를 어떻게 통과하는지 먼저 확인합니다.
-                다음 화면에서 터미널 명령을 입력하고 3D 경로의 변화를 직접 관찰합니다.
-              </p>
-            </div>
-
-            <div className="canlab__intro-grid">
-              <section className="canlab__intro-flow" aria-label="CAN 메시지 흐름">
-                <span className="canlab__intro-label">MESSAGE FLOW</span>
-                <div className="canlab__flow-track">
-                  <strong>Terminal</strong>
-                  <CaretRight size={18} />
-                  <strong>Gateway ECU</strong>
-                  <CaretRight size={18} />
-                  <strong>Target ECU</strong>
-                </div>
-                <p>
-                  CAN ID가 게이트웨이의 필터를 통과하면 해당 ECU로 전달되고, 같은 Event가 Monitor와 3D 경로에 표시됩니다.
-                </p>
-              </section>
-
-              <section className="canlab__intro-objectives" aria-labelledby="canlab-intro-objectives-title">
-                <span className="canlab__intro-label">LEARNING OBJECTIVES</span>
-                <h2 id="canlab-intro-objectives-title">이번 실습에서 확인할 것</h2>
-                <ol>
-                  <li>정상 프레임의 CAN ID, DLC, DATA를 구분합니다.</li>
-                  <li>Gateway ECU가 목적지 ECU로 메시지를 라우팅하는 구조를 이해합니다.</li>
-                  <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로에 공통 반영되는 것을 확인합니다.</li>
-                </ol>
-              </section>
-            </div>
-
-            <footer className="canlab__intro-footer">
-              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
-              <button className="canlab__intro-next" type="button" onClick={() => setV2IntroComplete(true)}>
-                실습 시작 <CaretRight size={16} weight="bold" />
-              </button>
-            </footer>
-          </section>
-        ) : (
-          <div className={`canlab__layout canlab__layout--${layoutVersion}`}>
+          <div className="canlab__layout canlab__layout--v2">
             <div className="canlab__workspace-tools">
-              <LayoutVersionSelector value={layoutVersion} onChange={handleLayoutVersionChange} />
+              <LabIntroButton />
               <label className="canlab__pane-size-control">
                 <span>화면 비율</span>
                 <input
@@ -1193,8 +1135,8 @@ export default function CanPracticeOnlyPage() {
                   ))}
                 </div>
 
-                {activeTab === "terminal" && (
                   <div
+                    hidden={activeTab !== "terminal"}
                     aria-labelledby="canlab-tab-terminal"
                     className="canlab__terminal-pane"
                     id="canlab-panel-terminal"
@@ -1242,23 +1184,23 @@ export default function CanPracticeOnlyPage() {
                       <button
                         type="button"
                         className="canlab__quick-chip"
-                        onClick={() => setPendingTerminalCommand("cansend vcan0 200#01")}
+                        onClick={() => setPendingTerminalCommand("cansend vcan0 200#00")}
                       >
-                        cansend 200#01 (Rear)
+                        cansend 200#00 (Rear)
                       </button>
                     </div>
 
                     <CanCommandTerminal
+                      completions={CAN_PRACTICE_COMPLETIONS}
                       clearSignal={terminalClearSignal}
                       onCommand={submitTerminalCommand}
                       pendingCommand={pendingTerminalCommand}
                       onCommandHandled={() => setPendingTerminalCommand(null)}
                     />
                   </div>
-                )}
 
-                {activeTab === "monitor" && (
                   <div
+                    hidden={activeTab !== "monitor"}
                     aria-labelledby="canlab-tab-monitor"
                     className="canlab__data-pane"
                     id="canlab-panel-monitor"
@@ -1305,10 +1247,9 @@ export default function CanPracticeOnlyPage() {
                       </p>
                     )}
                   </div>
-                )}
 
-                {activeTab === "inspector" && (
                   <div
+                    hidden={activeTab !== "inspector"}
                     aria-labelledby="canlab-tab-inspector"
                     className="canlab__data-pane canlab__inspector-pane"
                     id="canlab-panel-inspector"
@@ -1372,7 +1313,6 @@ export default function CanPracticeOnlyPage() {
                       </div>
                     )}
                   </div>
-                )}
               </section>
 
               <aside className="canlab__bottom-guide" aria-hidden="true">
@@ -1382,21 +1322,9 @@ export default function CanPracticeOnlyPage() {
                   <i><em style={{ width: `${progress}%` }} /></i>
                 </div>
 
-                {/* 버전 1: 학습 목표와 단계 지시사항을 한 패널에 함께 표시 */}
-                {layoutVersion === "v1" && (
-                  <section className="canlab__objectives">
-                    <h1>학습 목표</h1>
-                    <ol>
-                      <li>하나의 CAN Event가 Monitor, Inspector, 3D 경로 강조에 공통 반영되는 구조를 이해한다.</li>
-                      <li>정상 프레임의 CAN ID, DLC, DATA를 확인한다.</li>
-                      <li>어떤 ECU에서 어떤 ECU로 전달되는지 3D 차량 경로에서 확인한다.</li>
-                    </ol>
-                  </section>
-                )}
-
-                {/* 단계별 지시사항 (버전 1 & 버전 2 공통) */}
+                {/* 단계별 지시사항 */}
                 <section className="canlab__steps" aria-label="단계별 지시사항">
-                  <h2>{layoutVersion === "v2" ? `단계별 지시사항 (미션 ${activeStep}/5)` : "단계별 지시사항"}</h2>
+                  <h2>{`단계별 지시사항 (미션 ${activeStep}/5)`}</h2>
                   {guideSteps.map((step) => {
                     const done = completedSteps.includes(step.id)
                     const current = activeStep === step.id && !done
@@ -1503,7 +1431,6 @@ export default function CanPracticeOnlyPage() {
             </div>
           </section>
           </div>
-        )}
       </section>
     </main>
   )
