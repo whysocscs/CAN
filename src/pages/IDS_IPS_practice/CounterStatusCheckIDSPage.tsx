@@ -22,7 +22,7 @@ type MonitorFrame = CounterSequenceFrame & { time: string; canId: string; data: 
 function parseCansend(command: string) {
   const match = command.trim().match(/^cansend\s+vcan0\s+([0-9a-f]{1,3})#([0-9a-f]{4})$/i)
   if (!match) return null
-  return { canId: `0x${match[1].padStart(3, "0").toLowerCase()}`, command: match[2].slice(0, 2).toUpperCase(), counter: Number.parseInt(match[2].slice(2, 4), 16) }
+  return { canId: `0x${match[1].padStart(3, "0").toLowerCase()}`, command: match[2].slice(0, 2).toUpperCase(), counter: Number.parseInt(match[2].slice(2, 4), 16), data: match[2].toUpperCase() }
 }
 
 function counterText(counter: number) {
@@ -61,7 +61,8 @@ export default function CounterStatusCheckIDSPage() {
   const lastAcceptedRef = useRef<number | null>(null)
   const expectedRef = useRef(10)
   const frameIdRef = useRef(0)
-  const capturedFrameRef = useRef(false)
+  const historicalFramesRef = useRef<MonitorFrame[]>([])
+  const selectedHistoricalFrame = useRef<MonitorFrame | null>(null)
 
   const setCurrentPhase = (next: Phase) => { phaseRef.current = next; setPhase(next) }
   const stopNormalFrames = () => { if (timerRef.current !== null) { window.clearInterval(timerRef.current); timerRef.current = null } }
@@ -82,6 +83,7 @@ export default function CounterStatusCheckIDSPage() {
     const no = frameIdRef.current + 1
     const base = { no, canId: MONITORED_CAN_ID, command: "01", counter, data: `01${counter.toString(16).padStart(2, "0").toUpperCase()}`, verdict: "PASS" as const, reason: `Counter ${counter} matches expected.` }
     const record = appendRecord(base, false)
+    historicalFramesRef.current.push(record)
     appendChip(record)
     acceptCounter(counter)
     setVerdict("PASS")
@@ -95,7 +97,8 @@ export default function CounterStatusCheckIDSPage() {
     lastAcceptedRef.current = null
     expectedRef.current = 10
     frameIdRef.current = 0
-    capturedFrameRef.current = false
+    historicalFramesRef.current = []
+    selectedHistoricalFrame.current = null
     setPracticeStarted(true)
     setCurrentPhase("observe")
     setFrames([])
@@ -137,20 +140,20 @@ export default function CounterStatusCheckIDSPage() {
     setVerdict("PASS")
   }
 
-  const handleMonitoredFrame = (command: string, counter: number, replayed: boolean) => {
+  const handleMonitoredFrame = (frame: Pick<MonitorFrame, "canId" | "command" | "counter" | "data">, replayed: boolean) => {
+    const { canId, command, counter, data } = frame
     const no = frameIdRef.current + 1
-    const data = `${command}${counter.toString(16).toUpperCase().padStart(2, "0")}`
     if (counter !== expectedRef.current) {
       const replay = lastAcceptedRef.current !== null && counter <= lastAcceptedRef.current
       const reason = replay ? `Replay detected: expected counter ${expectedRef.current}, received ${counter}.` : `Counter mismatch: expected counter ${expectedRef.current}, received ${counter}.`
-      const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "ALERT", reason })
+      const record = appendRecord({ no, canId, command, counter, data, replayed, verdict: "ALERT", reason })
       appendChip(record)
       setVerdict("ALERT")
       setAlert({ expected: expectedRef.current, received: counter, type: "replay" })
       if (replay) setCurrentPhase("quiz")
       return [`\x1b[31m[ALERT] ${reason}\x1b[0m`]
     }
-    const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "PASS", reason: `Counter ${counter} matches expected.` })
+    const record = appendRecord({ no, canId, command, counter, data, replayed, verdict: "PASS", reason: `Counter ${counter} matches expected.` })
     appendChip(record)
     acceptCounter(counter)
     setVerdict("PASS")
@@ -170,13 +173,15 @@ export default function CounterStatusCheckIDSPage() {
     if (!practiceStarted) return ["[info] [시작] 버튼을 눌러 실습을 시작하세요."]
     if (input.trim() === "candump -L vcan0 > capture.log") {
       if (phaseRef.current !== "replay") return ["[info] Replay 실습 단계에서 Frame 2를 캡처하세요."]
-      capturedFrameRef.current = true
-      return ["captured Frame 2 (vcan0 456#010B) to capture.log"]
+      selectedHistoricalFrame.current = historicalFramesRef.current.find((frame) => frame.no === 2) ?? null
+      const captured = selectedHistoricalFrame.current
+      if (!captured) return ["[info] Frame 2 is not available to capture."]
+      return [`captured Frame ${captured.no} (vcan0 ${captured.canId.slice(2)}#${captured.data}) to capture.log`]
     }
     if (input.trim() === "canplayer -I capture.log -l 1") {
       if (phaseRef.current !== "replay") return ["[info] Replay 실습 단계에서 캡처를 재전송하세요."]
-      if (!capturedFrameRef.current) return ["[info] 먼저 candump -L vcan0 > capture.log로 Frame 2를 캡처하세요."]
-      return handleMonitoredFrame("01", 11, true)
+      if (!selectedHistoricalFrame.current) return ["[info] 먼저 candump -L vcan0 > capture.log로 Frame 2를 캡처하세요."]
+      return handleMonitoredFrame(selectedHistoricalFrame.current, true)
     }
     const frame = parseCansend(input)
     if (!frame) return ["[error] cansend vcan0 <CAN_ID>#<COMMAND><COUNTER> 형식으로 입력하세요."]
@@ -186,7 +191,13 @@ export default function CounterStatusCheckIDSPage() {
       return [`[INFO] CAN ID ${frame.canId} is not monitored.`]
     }
     if (phaseRef.current !== "replay" && phaseRef.current !== "state") return ["[info] 관찰이 끝난 뒤 Replay 실습을 진행하세요."]
-    return handleMonitoredFrame(frame.command, frame.counter, phaseRef.current === "replay")
+    if (phaseRef.current === "replay") {
+      const historicalFrame = historicalFramesRef.current.find((entry) => entry.canId === frame.canId && entry.data === frame.data)
+      if (!historicalFrame) return ["[info] Replay must reuse the CAN ID and DATA of a historical frame."]
+      selectedHistoricalFrame.current = historicalFrame
+      return handleMonitoredFrame(historicalFrame, true)
+    }
+    return handleMonitoredFrame(frame, false)
   }
 
   const submitQuiz = () => {
