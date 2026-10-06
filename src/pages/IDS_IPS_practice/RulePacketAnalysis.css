@@ -43,4 +43,7 @@
 .rule-analysis__detail dt { color: var(--text-secondary); }
 .rule-analysis__detail dd { margin: 0; overflow-wrap: anywhere; }
 .rule-analysis__detail pre { margin: 0; font-size: 11px; overflow: auto; max-height: 280px; }
+.rule-analysis__period-chart { margin-top: 12px; }
+.rule-analysis__period-chart svg { display: block; width: 100%; margin-top: 10px; }
+.rule-analysis__period-chart svg text { fill: var(--text-secondary); font-size: 10px; }
 @media (max-width: 800px) { .rule-analysis { padding: 12px; } .rule-analysis__stats { grid-template-columns: repeat(2, 1fr); } .rule-analysis__results { grid-template-columns: 1fr; } .rule-analysis__results aside { display: flex; gap: 12px; flex-wrap: wrap; border-right: 0; } .rule-analysis__results label { margin-top: 0; } .rule-analysis__detail { grid-template-columns: 1fr; } }
