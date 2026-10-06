@@ -22,7 +22,7 @@ export default function RulePacketAnalysis({ events, onClear }: { events: RulePa
   const [search, setSearch] = useState("")
   const [verdict, setVerdict] = useState("all")
   const [range, setRange] = useState("all")
-  const [bucket, setBucket] = useState<number | null>(null)
+  const [bucket, setBucket] = useState<{ start: number; end: number } | null>(null)
   const [expanded, setExpanded] = useState<number | null>(null)
   const [fields, setFields] = useState<Column[]>(["canId", "data", "ids", "execution", "reason"])
   const latest = events.at(-1)?.elapsedMs ?? 0
@@ -31,13 +31,16 @@ export default function RulePacketAnalysis({ events, onClear }: { events: RulePa
     (range === "all" || event.elapsedMs >= latest - Number(range) * 1000) &&
     `${event.canId} ${event.data} ${event.reason} ${event.verdict}`.toLowerCase().includes(search.toLowerCase().trim()),
   )
-  // Limit the chart to 24 bins while retaining every packet in the aggregation.
-  const interval = Math.max(1000, Math.ceil((latest + 1) / 24000) * 1000)
+  // Use readable intervals and at most 12 bins, including pauses between packets.
+  const minimumInterval = (latest + 1) / 12
+  const interval = [5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000]
+    .find((duration) => duration >= minimumInterval)
+    ?? Math.ceil(minimumInterval / 600000) * 600000
   const binCount = Math.max(1, Math.floor(latest / interval) + 1)
   const bins = Array.from({ length: binCount }, (_, index) => ({ index, pass: 0, alert: 0 }))
   matching.forEach((event) => { bins[Math.floor(event.elapsedMs / interval)][event.verdict === "ALERT" ? "alert" : "pass"] += 1 })
   const peak = Math.max(1, ...bins.map((bin) => bin.pass + bin.alert))
-  const filtered = matching.filter((event) => bucket === null || Math.floor(event.elapsedMs / interval) === bucket)
+  const filtered = matching.filter((event) => bucket === null || (event.elapsedMs >= bucket.start && event.elapsedMs < bucket.end))
   const alerts = events.filter((event) => event.verdict === "ALERT").length
   const executions = events.filter((event) => event.verdict === "EXECUTED").length
   const value = (event: RulePacketEvent, column: Column) => {
@@ -63,10 +66,10 @@ export default function RulePacketAnalysis({ events, onClear }: { events: RulePa
       <div className="rule-analysis__chart-heading"><strong>시간별 패킷 수</strong><span><i className="is-pass" /> PASS <i className="is-alert" /> ALERT</span></div>
       <div className="rule-analysis__chart" aria-label="시간별 패킷 발생 그래프">
         <div className="rule-analysis__axis"><span>{peak}</span><span>0</span></div>
-        <div className="rule-analysis__bins">{bins.map((bin) => <button key={bin.index} type="button" aria-pressed={bucket === bin.index} aria-label={`${bin.index * interval / 1000}초 구간: PASS ${bin.pass}, ALERT ${bin.alert}`} title={`PASS ${bin.pass} / ALERT ${bin.alert}`} onClick={() => setBucket(bucket === bin.index ? null : bin.index)}><span className="is-alert" style={{ height: `${bin.alert / peak * 100}%` }} /><span className="is-pass" style={{ height: `${bin.pass / peak * 100}%` }} /></button>)}</div>
+        <div className="rule-analysis__bins">{bins.map((bin) => <button key={bin.index} type="button" aria-pressed={bucket?.start === bin.index * interval && bucket?.end === (bin.index + 1) * interval} aria-label={`${bin.index * interval / 1000}초 구간: PASS ${bin.pass}, ALERT ${bin.alert}`} title={`PASS ${bin.pass} / ALERT ${bin.alert}`} onClick={() => setBucket(bucket?.start === bin.index * interval && bucket?.end === (bin.index + 1) * interval ? null : { start: bin.index * interval, end: (bin.index + 1) * interval })}><span className="is-alert" style={{ height: `${bin.alert / peak * 100}%` }} /><span className="is-pass" style={{ height: `${bin.pass / peak * 100}%` }} /></button>)}</div>
       </div>
       <div className="rule-analysis__chart-caption"><span>0초</span><span>실습 경과 시간 · {interval / 1000}초 단위</span><span>{binCount * interval / 1000}초</span></div>
-      {bucket !== null && <button type="button" onClick={() => setBucket(null)}>시간 구간 선택 해제 ({bucket * interval / 1000}–{(bucket + 1) * interval / 1000}초)</button>}
+      {bucket !== null && <button type="button" onClick={() => setBucket(null)}>시간 구간 선택 해제 ({bucket.start / 1000}–{bucket.end / 1000}초)</button>}
     </div>
     <div className="rule-analysis__results">
       <aside><strong>표시 필드</strong>{columns.map(([key, label]) => <label key={key}><input type="checkbox" checked={fields.includes(key)} onChange={(e) => setFields((current) => e.target.checked ? [...current, key] : current.filter((field) => field !== key))} />{label}</label>)}</aside>
