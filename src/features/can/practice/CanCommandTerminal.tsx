@@ -6,6 +6,7 @@ import "@xterm/xterm/css/xterm.css"
 interface CanCommandTerminalProps {
   clearSignal: number
   onCommand: (command: string) => Promise<string[]>
+  exampleCommand?: string
 }
 
 /**
@@ -17,10 +18,12 @@ interface CanCommandTerminalProps {
 export default function CanCommandTerminal({
   clearSignal,
   onCommand,
+  exampleCommand = "cansend vcan0 101#00",
 }: CanCommandTerminalProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Xterm | null>(null)
   const onCommandRef = useRef(onCommand)
+  const exampleCommandRef = useRef(exampleCommand)
 
   // 콜백이 바뀔 때마다 xterm을 재생성하면 입력 중인 줄과 스크롤이 사라진다.
   onCommandRef.current = onCommand
@@ -77,7 +80,7 @@ export default function CanCommandTerminal({
     terminalRef.current = terminal
     terminal.writeln("\x1b[38;2;132;183;157mCANLite 교육용 CAN Terminal\x1b[0m")
     terminal.writeln(
-      "\x1b[38;2;153;171;163m명령 예: cansend vcan0 101#00\x1b[0m",
+      `\x1b[38;2;153;171;163m명령 예: ${exampleCommandRef.current}\x1b[0m`,
     )
     terminal.write("$ ")
 

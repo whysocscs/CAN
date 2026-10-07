@@ -94,4 +94,10 @@ describe("CanCommandTerminal", () => {
     expect(terminalState.inputDispose).toHaveBeenCalledOnce()
     expect(terminalState.dispose).toHaveBeenCalledOnce()
   })
+
+  it("uses the lab-specific command example", () => {
+    render(<CanCommandTerminal clearSignal={0} onCommand={vi.fn(async () => [])} exampleCommand="cansend vcan0 456#010B" />)
+    expect(terminalState.writeln).toHaveBeenCalledWith(expect.stringContaining("명령 예: cansend vcan0 456#010B"))
+    expect(terminalState.writeln).not.toHaveBeenCalledWith(expect.stringContaining("101#00"))
+  })
 })

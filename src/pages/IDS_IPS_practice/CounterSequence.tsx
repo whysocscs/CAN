@@ -7,18 +7,21 @@ export type CounterSequenceFrame = {
   verdict: "PASS" | "ALERT"
 }
 
+export type CounterSequenceAlert = { expected: number; received: number; type: "replay" | "state" | "counter" | "command"; receivedCommand?: string }
+
 type CounterSequenceProps = {
   frames: CounterSequenceFrame[]
   expectedCounter: number
-  alert?: { expected: number; received: number; type: "replay" | "state" } | null
+  alert?: CounterSequenceAlert | null
+  receivedFrame?: CounterSequenceFrame | null
 }
 
 function counterLabel(counter: number) {
   return `${counter} (0x${counter.toString(16).toUpperCase().padStart(2, "0")})`
 }
 
-export default function CounterSequence({ frames, expectedCounter, alert }: CounterSequenceProps) {
-  const receivedFrame = frames.at(-1)
+export default function CounterSequence({ frames, expectedCounter, alert, receivedFrame: latestReceived }: CounterSequenceProps) {
+  const receivedFrame = latestReceived ?? frames.at(-1)
   return (
     <section className="canlab__console" aria-label="Counter sequence" style={{ minHeight: 292, padding: 20, position: "relative", overflow: "hidden" }}>
       <style>{`@keyframes counter-chip-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }`}</style>
@@ -27,8 +30,8 @@ export default function CounterSequence({ frames, expectedCounter, alert }: Coun
         <strong style={{ color: "var(--state-success)", fontSize: 13 }}>Expected Counter : {counterLabel(expectedCounter)}</strong>
       </header>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", maxWidth: 390, marginTop: 16, border: "1px solid var(--border-default)", borderRadius: 8, overflow: "hidden" }}>
-        <div style={{ padding: "10px 12px", borderRight: "1px solid var(--border-default)", background: "var(--surface-subtle)" }}><small>COMMAND</small><strong style={{ display: "block", marginTop: 3 }}>{receivedFrame?.command ?? "01"} · OPEN</strong></div>
-        <div style={{ padding: "10px 12px", background: "var(--surface-subtle)" }}><small>COUNTER</small><strong style={{ display: "block", marginTop: 3 }}>{receivedFrame ? `0x${receivedFrame.counter.toString(16).toUpperCase().padStart(2, "0")} · ${receivedFrame.counter}` : "0B · 11"}</strong></div>
+        <div style={{ padding: "10px 12px", borderRight: "1px solid var(--border-default)", background: "var(--surface-subtle)" }}><small>COMMAND</small><strong style={{ display: "block", marginTop: 3 }}>{receivedFrame?.command ?? "01"} · {receivedFrame && receivedFrame.command !== "01" ? "UNKNOWN" : "OPEN"}</strong></div>
+        <div style={{ padding: "10px 12px", background: "var(--surface-subtle)" }}><small>COUNTER</small><strong style={{ display: "block", marginTop: 3 }}>{receivedFrame ? `0x${receivedFrame.counter.toString(16).toUpperCase().padStart(2, "0")}: ${receivedFrame.counter}` : "0x0B: 11"}</strong></div>
       </div>
       <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 26, minHeight: 54 }}>
         {frames.length === 0 && <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>수신된 프레임이 없습니다.</span>}
@@ -40,8 +43,8 @@ export default function CounterSequence({ frames, expectedCounter, alert }: Coun
         </div>)}
       </div>
       {alert && <div role="alert" style={{ position: "absolute", right: 20, bottom: 18, width: 330, padding: "12px 16px", borderRadius: 10, border: "2px solid #dc2626", background: "#fff7ed", color: "#991b1b", textAlign: "center", boxShadow: "var(--shadow-md)" }}>
-        <strong>⚠ {alert.type === "replay" ? "REPLAY DETECTED" : "STATE ANOMALY"}</strong>
-        <p style={{ margin: "6px 0 0", fontSize: 12 }}>{alert.type === "replay" ? <>Expected Counter : {counterLabel(alert.expected)}<br />Received Counter : {counterLabel(alert.received)}</> : <>Current State : OPEN<br />Command : OPEN (already open)</>}</p>
+        <strong>⚠ {{ replay: "REPLAY DETECTED", state: "STATE ANOMALY", counter: "COUNTER MISMATCH", command: "COMMAND REJECTED" }[alert.type]}</strong>
+        <p style={{ margin: "6px 0 0", fontSize: 12 }}>{alert.type === "replay" || alert.type === "counter" ? <>Expected Counter : {counterLabel(alert.expected)}<br />Received Counter : {counterLabel(alert.received)}</> : alert.type === "command" ? <>Expected Command : 01 (OPEN)<br />Received Command : {alert.receivedCommand}</> : <>Current State : OPEN<br />Command : OPEN (already open)</>}</p>
       </div>}
     </section>
   )

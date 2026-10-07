@@ -19,6 +19,10 @@
 .rule-analysis__chart-heading i { width: 9px; height: 9px; display: inline-block; }
 .rule-analysis .is-pass { background: #56ab98; }
 .rule-analysis .is-alert { background: #d86460; }
+.rule-analysis .is-unchecked { background: #687787; }
+.rule-analysis--counter .rule-analysis__stats > div:last-child strong { font-size: 18px; overflow-wrap: anywhere; }
+.rule-analysis__period-chart svg circle[role="button"] { cursor: pointer; }
+.rule-analysis__period-chart svg circle[role="button"]:focus-visible { outline: 2px solid #2588c2; outline-offset: 3px; }
 .rule-analysis__chart { display: flex; gap: 12px; height: 130px; margin-top: 20px; }
 .rule-analysis__axis { display: flex; flex-direction: column; justify-content: space-between; color: var(--text-secondary); font-size: 11px; width: 20px; }
 .rule-analysis__bins { display: flex; gap: 4px; flex: 1; border-bottom: 1px solid var(--border-default); background: repeating-linear-gradient(to top, transparent 0, transparent 31px, var(--border-default) 32px); }
