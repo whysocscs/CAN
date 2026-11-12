@@ -42,12 +42,12 @@ def test_scenario_specs_are_immutable_and_keep_distinct_private_contracts() -> N
 
     assert (spoofing.lab_id, spoofing.target_can_id, spoofing.success_payload) == (
         "can-spoofing-basic-v1",
-        "0x5A1",
-        ("01",),
+        "0x101",
+        ("00",),
     )
     assert (replay.lab_id, replay.target_can_id, replay.captured_payload) == (
         "can-replay-basic-v1",
-        "0x5A2",
+        "0x101",
         ("00", "01"),
     )
     with pytest.raises(FrozenInstanceError):
@@ -68,7 +68,7 @@ def test_initial_public_state_has_only_safe_fields_and_no_answer_material(scenar
     assert state["stage"] == "RECON"
     assert state["completed"] is False
     serialized = repr(state).lower()
-    for private_answer in ("5a1", "5a2", "capture.log", "cansend", "canplayer", "#01", "#0001"):
+    for private_answer in ("capture.log", "cansend", "canplayer", "#00", "#0001"):
         assert private_answer not in serialized
 
 
@@ -77,13 +77,13 @@ def test_spoofing_observation_reveals_only_normal_frame_then_altered_payload_com
 
     observed = session.execute_terminal("candump -L vcan0")
     message_map = session.execute_terminal("cat message-map.txt")
-    executed = session.execute_terminal("cansend vcan0 5A1#01")
+    executed = session.execute_terminal("cansend vcan0 101#00")
 
     assert observed.ok is True
-    assert "5A1#00" in observed.output
-    assert "5A1#01" not in observed.output
-    assert "00=tailgate closed" in message_map.output
-    assert "01=tailgate open" in message_map.output
+    assert "101#01" in observed.output
+    assert "101#00" not in observed.output
+    assert "00=tailgate open" in message_map.output
+    assert "01=tailgate closed" in message_map.output
     assert executed.code == "EXECUTED"
     assert executed.ids_status == "NORMAL"
     assert "limited Toy allowlist/freshness gap" in executed.output
@@ -97,10 +97,10 @@ def test_spoofing_observation_reveals_only_normal_frame_then_altered_payload_com
 @pytest.mark.parametrize(
     ("command", "code"),
     [
-        ("cansend vcan0 5A2#01", "TARGET_ID_MISMATCH"),
-        ("cansend vcan0 5A1#0100", "LENGTH_INVALID"),
-        ("cansend vcan0 5A1#00", "STATE_NOT_ALTERED"),
-        ("cansend vcan0 5A1#02", "STATE_INVALID"),
+        ("cansend vcan0 200#00", "TARGET_ID_MISMATCH"),
+        ("cansend vcan0 101#0000", "LENGTH_INVALID"),
+        ("cansend vcan0 101#01", "STATE_NOT_ALTERED"),
+        ("cansend vcan0 101#02", "STATE_INVALID"),
         ("canplayer -I capture.log -l 1", "SCENARIO_COMMAND_UNSUPPORTED"),
     ],
 )
@@ -123,7 +123,7 @@ def test_replay_requires_current_same_session_unmodified_capture_and_exact_repea
     assert before_capture.code == "CAPTURE_REQUIRED"
     assert captured.code == "CAPTURED"
     assert len(captured.captures) == 1
-    assert "5A2#0001" in inspected.output
+    assert "101#0001" in inspected.output
 
     original = session._capture_files["capture.log"]
     variants = (
@@ -184,8 +184,8 @@ def test_replay_requires_current_same_session_unmodified_capture_and_exact_repea
         "cat /etc/passwd",
         "cat ../capture.log",
         "candump -L can0",
-        "cansend can0 5A1#01",
-        "cansend vcan0 5A1#01 > out",
+        "cansend can0 101#00",
+        "cansend vcan0 101#00 > out",
     ],
 )
 def test_virtual_terminal_rejects_injection_host_paths_and_unknown_forms(command: str) -> None:
@@ -202,14 +202,14 @@ def test_terminal_and_script_bounds_and_final_action_grammar_are_enforced() -> N
     assert spoofing.execute_terminal("x" * 513).code == "COMMAND_TOO_LARGE"
     assert spoofing.run_script("x" * 4097).code == "SCRIPT_TOO_LARGE"
     assert spoofing.run_script("\n".join("# comment" for _ in range(21))).code == "SCRIPT_TOO_MANY_LINES"
-    assert spoofing.run_script("pwd\ncansend vcan0 5A1#01").code == "SCRIPT_COMMAND_INVALID"
+    assert spoofing.run_script("pwd\ncansend vcan0 101#00").code == "SCRIPT_COMMAND_INVALID"
     assert spoofing.run_script(
-        "cansend vcan0 5A1#01\ncansend vcan0 5A1#01"
+        "cansend vcan0 101#00\ncansend vcan0 101#00"
     ).code == "SCRIPT_ACTION_COUNT_INVALID"
 
     clean = _session("spoofing")
     executed = clean.run_script(
-        "   \n  # formatted comment is allowed  \n\ncansend vcan0 5A1#01"
+        "   \n  # formatted comment is allowed  \n\ncansend vcan0 101#00"
     )
     assert executed.code == "EXECUTED"
     assert executed.state["completed"] is True
@@ -218,7 +218,7 @@ def test_terminal_and_script_bounds_and_final_action_grammar_are_enforced() -> N
 @pytest.mark.parametrize(
     ("scenario", "action"),
     [
-        ("spoofing", "cansend vcan0 5A1#01"),
+        ("spoofing", "cansend vcan0 101#00"),
         ("replay", "canplayer -I capture.log -l 1"),
     ],
 )
@@ -259,10 +259,10 @@ def test_reset_increments_generation_clears_capture_and_never_reuses_opaque_ids(
 def test_evidence_keeps_the_newest_300_entries_while_attempt_count_stays_cumulative() -> None:
     session = _session("spoofing")
 
-    session.execute_terminal("cansend vcan0 5A1#00")
+    session.execute_terminal("cansend vcan0 101#01")
     for _ in range(299):
-        session.execute_terminal("cansend vcan0 5A1#02")
-    executed = session.execute_terminal("cansend vcan0 5A1#01")
+        session.execute_terminal("cansend vcan0 101#02")
+    executed = session.execute_terminal("cansend vcan0 101#00")
 
     evidence = executed.state["evidence"]
     assert len(evidence) == 300

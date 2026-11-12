@@ -16,6 +16,7 @@ RUN python -m pip install --no-cache-dir --requirement /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 COPY --chown=10001:10001 server ./server
+COPY --chown=10001:10001 repro ./repro
 
 USER 10001:10001
 EXPOSE 8010

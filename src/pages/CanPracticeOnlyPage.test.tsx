@@ -179,7 +179,7 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
       SHARED_VEHICLE_MODEL_PATH,
     )
     expect(normalState.canvasProps).toMatchObject({
-      shadows: { type: THREE.PCFShadowMap },
+      shadows: true,
       dpr: [1, 1.5],
       camera: {
         position: [5.8, 3.8, 7.6],

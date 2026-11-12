@@ -147,7 +147,7 @@ const courses = [
     id: "attacks",
     icon: "attack" as CourseIconKey,
     title: "공격 실습",
-    desc: "Door, Spoofing, Replay를 격리된 Toy CAN 환경에서 실행하고, KUKSA 권한과 SWUpdate 업로드 실습을 수행합니다.",
+    desc: "Door, Spoofing, Replay를 격리된 Toy CAN 환경에서 실행하고, KUKSA 권한과 SWUpdate 업로드 실습을 수행합니다. DoS는 정적 미리보기로 제공합니다.",
     time: "약 180분",
     difficulty: "중급",
     totalItems: 6,

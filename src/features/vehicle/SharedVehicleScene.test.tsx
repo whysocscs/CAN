@@ -118,7 +118,7 @@ describe("SharedVehicleScene", () => {
         near: 0.05,
         far: 100,
       },
-      canvas: { shadows: { type: THREE.PCFShadowMap }, dpr: [1, 1.5] },
+      canvas: { shadows: true, dpr: [1, 1.5] },
       scene: { background: "#0b1018", fog: ["#0b1018", 7, 14] },
       lights: {
         ambient: 0.72,
@@ -136,7 +136,7 @@ describe("SharedVehicleScene", () => {
       },
     })
     expect(sharedState.canvasProps).toMatchObject({
-      shadows: { type: THREE.PCFShadowMap },
+      shadows: true,
       dpr: [1, 1.5],
       camera: {
         position: [5.8, 3.8, 7.6],
@@ -165,6 +165,21 @@ describe("SharedVehicleScene", () => {
       sharedState.canvasChildren.find(({ type }) => type === "directionalLight")
         ?.props,
     ).toMatchObject({ intensity: 2.35 })
+  })
+
+  it("allows a lab to replace the background and disable fog", () => {
+    render(
+      <SharedVehicleCanvas background="#d1d5db" fog={false}>
+        <SharedVehicleScene xray={false} />
+      </SharedVehicleCanvas>,
+    )
+
+    expect(
+      sharedState.canvasChildren.find(({ type }) => type === "color")?.props,
+    ).toMatchObject({ args: ["#d1d5db"] })
+    expect(
+      sharedState.canvasChildren.find(({ type }) => type === "fog"),
+    ).toBeUndefined()
   })
 
   it("places the cloned model and consumer overlays in one fitted coordinate root", () => {

@@ -37,8 +37,7 @@ describe("vehicle.applyCanEvent", () => {
     expect(vehicle.getState()).toEqual({ doorL: 1, doorR: 1, tailgate: 0 })
   })
 
-  it("rejects a non-single-byte state without mutation", () => {
-    const before = vehicle.getState()
+  it("applies the documented two-byte left/right door state atomically", () => {
     const listener = vi.fn()
     const unsubscribe = vehicle.subscribe(listener)
 
@@ -51,10 +50,9 @@ describe("vehicle.applyCanEvent", () => {
             data: ["00", "01"],
           }),
         ),
-      ).toBe(false)
-      expect(vehicle.getState()).toBe(before)
-      expect(vehicle.getState()).toEqual({ doorL: 0, doorR: 0, tailgate: 0 })
-      expect(listener).not.toHaveBeenCalled()
+      ).toBe(true)
+      expect(vehicle.getState()).toEqual({ doorL: 1, doorR: 0, tailgate: 0 })
+      expect(listener).toHaveBeenCalledOnce()
     } finally {
       unsubscribe()
     }
@@ -88,6 +86,7 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
 
   it.each([
     { data: ["00"], expected: { doorL: 1, doorR: 1, tailgate: 0 } },
+    { data: ["00", "01"], expected: { doorL: 1, doorR: 0, tailgate: 0 } },
   ])("accepts the documented $data.length-byte shape", ({ data, expected }) => {
     expect(vehicle.applyFrame({ canId: "0x101", data })).toBe(true)
     expect(vehicle.getState()).toEqual(expected)
@@ -102,7 +101,6 @@ describe("vehicle.applyFrame DOOR_LOCK validation", () => {
 
   it.each([
     { label: "empty", data: [] },
-    { label: "two-byte", data: ["00", "01"] },
     { label: "four-byte", data: ["00", "01", "13", "B7"] },
   ])("rejects a $label payload without mutation", ({ data }) => {
     const before = vehicle.getState()
