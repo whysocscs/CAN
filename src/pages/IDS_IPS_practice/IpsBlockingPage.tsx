@@ -1,7 +1,8 @@
 import { useState } from "react"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
-import IpsBlockingTimeline, { type IpsFrame, type IpsRule } from "./IpsBlockingTimeline"
+import IpsBlockingTimeline, { shouldBlock, type IpsFrame, type IpsRule } from "./IpsBlockingTimeline"
+import IpsPacketAnalysis from "./IpsPacketAnalysis"
 
 const REPLAY_FRAMES: IpsFrame[] = [
   { id: "r1", time: 0, canId: "0x456", data: "010A", counter: 10, kind: "normal", ids: "PASS" },
@@ -25,7 +26,6 @@ const QUIZ_ANSWERS = [
 ]
 type Phase = "s1" | "s2" | "quiz" | "complete"
 
-function blocks(frame: IpsFrame, rule: IpsRule) { return rule === "id" || (rule === "counter" && frame.ids === "REPLAY") || (rule === "period" && frame.ids === "PERIOD") }
 function shuffle<T>(items: T[]) { const copy = [...items]; for (let i = copy.length - 1; i > 0; i -= 1) { const j = Math.floor(Math.random() * (i + 1)); [copy[i], copy[j]] = [copy[j], copy[i]] } return copy }
 
 export default function IpsBlockingPage() {
@@ -39,20 +39,25 @@ export default function IpsBlockingPage() {
   const [answers, setAnswers] = useState(QUIZ_ANSWERS)
   const [monitorCleared, setMonitorCleared] = useState(false)
   const [logCleared, setLogCleared] = useState(false)
-  const scenarioFrames = phase === "s2" ? PERIOD_FRAMES : REPLAY_FRAMES
+  const [analysisCleared, setAnalysisCleared] = useState(false)
+  const [dashboardRevision, setDashboardRevision] = useState(0)
+  const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null)
+  const [selectionRevision, setSelectionRevision] = useState(0)
+  const scenarioFrames = phase === "s1" ? REPLAY_FRAMES : PERIOD_FRAMES
   const frames = started ? scenarioFrames : []
   const attack = scenarioFrames.find((frame) => frame.kind === "attack")!
-  const normalDelivered = frames.filter((frame) => frame.kind === "normal" && !blocks(frame, activeRule)).length
-  const attackDelivered = blocks(attack, activeRule) ? 0 : 1
+  const normalDelivered = frames.filter((frame) => frame.kind === "normal" && !shouldBlock(frame, activeRule)).length
+  const attackDelivered = started && !shouldBlock(attack, activeRule) ? 1 : 0
   const success = normalDelivered === 4 && attackDelivered === 0
   const phaseIndex = phase === "s1" ? 0 : phase === "s2" ? 1 : 2
   const message = normalDelivered < 4 ? "정상 통신까지 과도하게 차단되었습니다." : success ? "공격 차단 성공" : "공격이 ECU에 전달되었습니다"
   const messageColor = normalDelivered < 4 ? "#b45309" : success ? "#166534" : "#991b1b"
-  const resetRule = () => { setActiveRule("none"); setPopoverFrame(null); setMonitorCleared(false); setLogCleared(false) }
+  const resetRule = () => { setActiveRule("none"); setPopoverFrame(null); setMonitorCleared(false); setLogCleared(false); setAnalysisCleared(false); setSelectedFrameId(null); setDashboardRevision((value) => value + 1) }
+  const selectFrame = (frame: IpsFrame) => { setSelectedFrameId(frame.id); setSelectionRevision((value) => value + 1); setAnalysisCleared(false) }
   const start = () => { setStarted(true); setPhase("s1"); resetRule(); setQuizAnswer(null); setQuizFeedback(""); setAnswers(shuffle(QUIZ_ANSWERS)) }
   const applyRule = () => { setActiveRule(selectedRule); setPopoverFrame(null); setMonitorCleared(false); setLogCleared(false) }
   const goS2 = () => { setPhase("s2"); resetRule() }
-  const entries = frames.map((frame, index) => ({ frame, no: index + 1, action: blocks(frame, activeRule) ? "BLOCKED" : "ALLOWED" }))
+  const entries = frames.map((frame, index) => ({ frame, no: index + 1, action: shouldBlock(frame, activeRule) ? "BLOCKED" : "ALLOWED" }))
   const idsLog = attack.ids === "REPLAY" ? "Replay detected: expected counter 14, received 11." : "Period anomaly: expected 100 ms, observed 50 ms."
   const mission = phase === "s1" ? "탐지된 공격 Frame에 IPS 규칙을 적용해 공격만 차단하세요. 정상 통신은 유지되어야 합니다." : phase === "s2" ? "이번 탐지 이유에 맞는 IPS 규칙으로 공격 Frame만 차단하세요." : "CAN ID 전체 차단 규칙의 문제점으로 옳은 것을 고르세요."
 
@@ -69,7 +74,7 @@ export default function IpsBlockingPage() {
     onStart={start}
     main={<>
       <section className="lab-v2__panel">
-        <IpsBlockingTimeline frames={frames} activeRule={activeRule} popoverFrame={popoverFrame} selectedRule={selectedRule} onOpenFrame={setPopoverFrame} onSelectRule={setSelectedRule} onApply={applyRule} />
+        <IpsBlockingTimeline frames={frames} activeRule={activeRule} popoverFrame={popoverFrame} selectedRule={selectedRule} selectedFrameId={selectedFrameId} onSelectFrame={selectFrame} onOpenFrame={setPopoverFrame} onSelectRule={setSelectedRule} onApply={applyRule} />
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}><button type="button" className="lab-v2__button" onClick={resetRule}>규칙 초기화</button></div>
       </section>
       <section className="lab-v2__panel" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
@@ -79,6 +84,7 @@ export default function IpsBlockingPage() {
       {phase === "quiz" && <section className="lab-v2__panel"><header><h2>문제</h2></header><p>{mission}</p><div style={{ display: "grid", gap: 8, margin: "12px 0" }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, cursor: "pointer", fontSize: 13 }}><input type="radio" name="ips-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="lab-v2__button is-primary" disabled={!quizAnswer} onClick={() => setQuizFeedback(quizAnswer === "scope" ? "정답입니다. 차단 범위가 넓을수록 정상 통신까지 막을 수 있어 과잉 차단입니다." : "다시 생각해 보세요. ID 전체 차단 시 정상 Frame도 몇 개가 전달되는지 확인하세요.")}>제출</button>{quizFeedback && <p>{quizFeedback}</p>}{quizAnswer === "scope" && <button type="button" className="lab-v2__button" onClick={() => setPhase("complete")}>완료</button>}</section>}
       {phase === "complete" && <section className="lab-v2__panel"><div className="lab-v2__result"><b>실습 완료</b><p>IDS는 이상을 탐지하고 알려주는 역할을 하고, IPS는 탐지된 프레임을 실제로 차단하는 역할입니다.</p><p>IPS는 탐지 이유에 맞는 규칙을 써야 하며, 차단 범위가 넓으면 정상 통신까지 막힐 수 있습니다.</p></div></section>}
     </>}
+    analysis={<IpsPacketAnalysis key={dashboardRevision} frames={analysisCleared ? [] : frames} rule={activeRule} selectedFrameId={selectedFrameId} selectionRevision={selectionRevision} onShowAll={() => setSelectedFrameId(null)} onClear={() => { setAnalysisCleared(true); setSelectedFrameId(null) }} />}
     guide={{
       progressLabel: "STEP 4 : IPS 차단",
       progress: phase === "complete" ? 100 : phaseIndex * 50,

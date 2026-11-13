@@ -11,6 +11,7 @@ interface CanCommandTerminalProps {
   onCommandHandled?: () => void
   /** Tab 자동완성 후보. 실습에서 허용된 명령만 넣는다. */
   completions?: readonly string[]
+  exampleCommand?: string
 }
 
 /**
@@ -25,17 +26,20 @@ export default function CanCommandTerminal({
   pendingCommand,
   onCommandHandled,
   completions = [],
+  exampleCommand = "cansend vcan0 101#00",
 }: CanCommandTerminalProps) {
   const mountRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Xterm | null>(null)
   const onCommandRef = useRef(onCommand)
   const onCommandHandledRef = useRef(onCommandHandled)
   const completionsRef = useRef(completions)
+  const exampleCommandRef = useRef(exampleCommand)
 
   // 콜백이 바뀔 때마다 xterm을 재생성하면 입력 중인 줄과 스크롤이 사라진다.
   onCommandRef.current = onCommand
   onCommandHandledRef.current = onCommandHandled
   completionsRef.current = completions
+  exampleCommandRef.current = exampleCommand
 
   useEffect(() => {
     terminalRef.current?.clear()
@@ -112,7 +116,7 @@ export default function CanCommandTerminal({
     terminalRef.current = terminal
     terminal.writeln("\x1b[38;2;132;183;157mCANLite 교육용 CAN Terminal\x1b[0m")
     terminal.writeln(
-      "\x1b[38;2;153;171;163m명령 예: cansend vcan0 101#00\x1b[0m",
+      `\x1b[38;2;153;171;163m명령 예: ${exampleCommandRef.current}\x1b[0m`,
     )
     terminal.write("$ ")
 

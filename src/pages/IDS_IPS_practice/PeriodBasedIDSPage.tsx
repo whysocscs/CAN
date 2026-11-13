@@ -4,22 +4,16 @@ import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
 import PeriodTimeline, { type PeriodTimelineFrame } from "./PeriodTimeline"
+import RulePacketAnalysis, { type RulePacketEvent } from "./RulePacketAnalysis"
 
 const WHITELIST = ["0x101", "0x200", "0x201"] as const
 const MONITORED_CAN_ID = "0x101"
 const NORMAL_DATA = "01"
 const SPOOFING_DATA = "00"
-const QUIZ_FRAMES: PeriodTimelineFrame[] = [
-  { id: 1, time: 0, canId: MONITORED_CAN_ID, data: NORMAL_DATA, injected: false, verdict: "PASS" },
-  { id: 2, time: 100, canId: MONITORED_CAN_ID, data: NORMAL_DATA, injected: false, verdict: "PASS" },
-  { id: 3, time: 150, canId: MONITORED_CAN_ID, data: SPOOFING_DATA, injected: true, verdict: "ANOMALY" },
-  { id: 4, time: 200, canId: MONITORED_CAN_ID, data: NORMAL_DATA, injected: false, verdict: "PASS" },
-  { id: 5, time: 300, canId: MONITORED_CAN_ID, data: NORMAL_DATA, injected: false, verdict: "PASS" },
-]
 
 type Phase = "observe" | "attack" | "quiz" | "complete"
 type MonitorVerdict = "PASS" | "ALERT" | "ANOMALY"
-type MonitorEntry = { id: number; time: string; canId: string; data: string; verdict: MonitorVerdict; reason: string }
+type MonitorEntry = RulePacketEvent & { verdict: MonitorVerdict }
 
 function parseCansend(command: string) {
   const match = command.trim().match(/^cansend\s+vcan0\s+([0-9a-f]{1,3})#([0-9a-f]{2,16})$/i)
@@ -34,7 +28,6 @@ function phaseIndex(phase: Phase) {
 export default function PeriodBasedIDSPage() {
   const [practiceStarted, setPracticeStarted] = useState(false)
   const [phase, setPhase] = useState<Phase>("observe")
-  const [frames, setFrames] = useState<PeriodTimelineFrame[]>([])
   const [monitor, setMonitor] = useState<MonitorEntry[]>([])
   const [idsLog, setIdsLog] = useState<MonitorEntry[]>([])
   const [normalFrameCount, setNormalFrameCount] = useState(0)
@@ -45,31 +38,24 @@ export default function PeriodBasedIDSPage() {
   const [clearSignal, setClearSignal] = useState(0)
   const [monitorClearedAt, setMonitorClearedAt] = useState(0)
   const [logClearedAt, setLogClearedAt] = useState(0)
+  const [analysisClearedAt, setAnalysisClearedAt] = useState(0)
+  const [analysisRevision, setAnalysisRevision] = useState(0)
   const phaseRef = useRef<Phase>("observe")
   const startedAtRef = useRef(0)
-  const timelineStartedAtRef = useRef(0)
   const lastFrameTimeByCanId = useRef(new Map<string, number>())
   const entryIdRef = useRef(0)
-  const frameIdRef = useRef(0)
 
   const changePhase = (next: Phase) => {
     phaseRef.current = next
     setPhase(next)
   }
 
-  const appendEntry = (canId: string, data: string, nextVerdict: MonitorVerdict, reason: string, log = true) => {
-    const entry = { id: ++entryIdRef.current, time: ((performance.now() - startedAtRef.current) / 1000).toFixed(3), canId, data, verdict: nextVerdict, reason }
+  const appendEntry = (canId: string, data: string, nextVerdict: MonitorVerdict, reason: string, log = true, metadata: Pick<RulePacketEvent, "period" | "ruleId"> = {}, now = performance.now()) => {
+    const timestamp = Date.now()
+    const time = `${new Date(timestamp).toLocaleTimeString("ko-KR", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" })}.${new Date(timestamp).getMilliseconds().toString().padStart(3, "0")}`
+    const entry: MonitorEntry = { id: ++entryIdRef.current, timestamp, elapsedMs: now - startedAtRef.current, time, canId, data, verdict: nextVerdict, reason, ...metadata }
     setMonitor((old) => [...old, entry].slice(-100))
     if (log) setIdsLog((old) => [...old, entry].slice(-100))
-  }
-
-  const appendTimelineFrame = (canId: string, data: string, injected: boolean, nextVerdict: MonitorVerdict, now: number) => {
-    if (!timelineStartedAtRef.current || now - timelineStartedAtRef.current >= 1000) {
-      timelineStartedAtRef.current = now
-      setFrames([{ id: ++frameIdRef.current, time: 0, canId, data, injected, verdict: nextVerdict }])
-      return
-    }
-    setFrames((old) => [...old, { id: ++frameIdRef.current, time: now - timelineStartedAtRef.current, canId, data, injected, verdict: nextVerdict }])
   }
 
   const inspectTargetFrame = (data: string, injected: boolean) => {
@@ -80,13 +66,14 @@ export default function PeriodBasedIDSPage() {
     const shouldCheckPeriod = phaseRef.current === "attack" && interval !== null
     const isAnomaly = shouldCheckPeriod && interval < 80
     const nextVerdict: MonitorVerdict = isAnomaly ? "ANOMALY" : "PASS"
-    appendTimelineFrame(MONITORED_CAN_ID, data, injected, nextVerdict, now)
     appendEntry(
       MONITORED_CAN_ID,
       data,
       nextVerdict,
       isAnomaly ? `Period anomaly: expected 100 ms, observed ${interval} ms.` : `CAN ID ${MONITORED_CAN_ID} is allowed.`,
       injected || isAnomaly,
+      { ruleId: shouldCheckPeriod ? "CAN_PERIOD" : "CAN_PERIOD_NOT_CHECKED", period: { expectedMs: 100, observedMs: interval, checked: shouldCheckPeriod, injected } },
+      now,
     )
     setVerdict(nextVerdict)
     if (!injected) setNormalFrameCount((count) => count + 1)
@@ -109,13 +96,10 @@ export default function PeriodBasedIDSPage() {
   const start = () => {
     const now = performance.now()
     startedAtRef.current = now
-    timelineStartedAtRef.current = now
     lastFrameTimeByCanId.current.clear()
     entryIdRef.current = 0
-    frameIdRef.current = 0
     setPracticeStarted(true)
     changePhase("observe")
-    setFrames([])
     setMonitor([])
     setIdsLog([])
     setNormalFrameCount(0)
@@ -126,6 +110,8 @@ export default function PeriodBasedIDSPage() {
     setClearSignal((value) => value + 1)
     setMonitorClearedAt(0)
     setLogClearedAt(0)
+    setAnalysisClearedAt(0)
+    setAnalysisRevision((value) => value + 1)
   }
 
   const onTerminalCommand = async (input: string) => {
@@ -134,17 +120,17 @@ export default function PeriodBasedIDSPage() {
     const frame = parseCansend(input)
     if (!frame) return ["[error] cansend vcan0 <CAN_ID>#<DATA> 형식으로 입력하세요."]
     if (!WHITELIST.includes(frame.canId as typeof WHITELIST[number])) {
-      appendEntry(frame.canId, frame.data, "ALERT", `CAN ID ${frame.canId} is not in whitelist.`)
+      appendEntry(frame.canId, frame.data, "ALERT", `CAN ID ${frame.canId} is not in whitelist.`, true, { ruleId: "CAN_ID_WHITELIST" })
       setVerdict("ALERT")
       return [`\x1b[31m[ALERT] CAN ID ${frame.canId} is not in whitelist.\x1b[0m`]
     }
     if (phaseRef.current !== "attack") {
-      appendEntry(frame.canId, frame.data, "PASS", "공격 실습 단계에서 주기 검사를 수행합니다.")
+      appendEntry(frame.canId, frame.data, "PASS", "공격 실습 단계에서 주기 검사를 수행합니다.", true, { ruleId: "CAN_PERIOD_NOT_CHECKED" })
       setVerdict("PASS")
       return ["[PASS] CAN ID is allowed.", "[info] 공격 실습 단계에서 프레임을 주입하세요."]
     }
     if (frame.canId !== MONITORED_CAN_ID) {
-      appendEntry(frame.canId, frame.data, "PASS", `CAN ID ${frame.canId} is not the monitored period target.`)
+      appendEntry(frame.canId, frame.data, "PASS", `CAN ID ${frame.canId} is not the monitored period target.`, true, { ruleId: "CAN_NOT_MONITORED" })
       setVerdict("PASS")
       return [`[PASS] CAN ID ${frame.canId} is allowed.`, "[info] This frame is not subject to the period check."]
     }
@@ -153,15 +139,22 @@ export default function PeriodBasedIDSPage() {
   }
 
   const submitQuiz = () => {
-    if (quizSelection === 150) {
-      setQuizFeedback("정답입니다. 0.1초와 0.2초 사이에 100ms 주기를 벗어난 프레임이 끼어 있습니다.")
+    const selected = monitor.find((entry) => entry.id === quizSelection)
+    if (selected?.verdict === "ANOMALY" && selected.period?.checked) {
+      setQuizFeedback(`정답입니다. ${(selected.elapsedMs / 1000).toFixed(3)}초에 수신된 프레임의 간격은 ${selected.period.observedMs}ms로, 기대 주기 100ms를 벗어났습니다.`)
       changePhase("complete")
     } else {
       setQuizFeedback("다시 생각해 보세요. 100ms 간격을 벗어난 프레임을 찾아보세요.")
     }
   }
 
-  const activeFrames = phase === "quiz" || phase === "complete" ? QUIZ_FRAMES : frames
+  const targetEvents = monitor.filter((entry) => entry.period)
+  const latestTargetMs = targetEvents.at(-1)?.elapsedMs ?? 0
+  const periodWindow = { startMs: Math.max(0, latestTargetMs - 900), endMs: Math.max(1000, latestTargetMs + 100) }
+  const activeFrames: PeriodTimelineFrame[] = targetEvents.filter((entry) => entry.elapsedMs >= periodWindow.startMs).map((entry) => ({
+    id: entry.id, time: entry.elapsedMs - periodWindow.startMs, canId: entry.canId, data: entry.data,
+    injected: entry.period!.injected, observedMs: entry.period!.observedMs, verdict: entry.verdict,
+  }))
   const mission = phase === "observe"
     ? "정상 Frame이 어떤 주기로 도착하는지 관찰하세요."
     : phase === "attack"
@@ -182,7 +175,7 @@ export default function PeriodBasedIDSPage() {
       onStart={start}
       main={<>
         <section className="lab-v2__panel">
-          <PeriodTimeline frames={activeFrames} quizMode={phase === "quiz" || phase === "complete"} quizSelection={quizSelection} onSelect={setQuizSelection} anomaly={anomaly} />
+          <PeriodTimeline frames={activeFrames} windowStartMs={periodWindow.startMs} quizMode={phase === "quiz" || phase === "complete"} quizSelection={quizSelection} onSelect={setQuizSelection} anomaly={anomaly} />
         </section>
         {(phase === "quiz" || phase === "complete") && (
           <section className="lab-v2__panel">
@@ -194,6 +187,7 @@ export default function PeriodBasedIDSPage() {
           </section>
         )}
       </>}
+      analysis={<RulePacketAnalysis key={analysisRevision} mode="period" periodWindow={periodWindow} events={monitor.filter((entry) => entry.id > analysisClearedAt)} onClear={() => setAnalysisClearedAt(entryIdRef.current)} />}
       guide={{
         progressLabel: "STEP 2 : 주기(Period) 검사",
         progress,

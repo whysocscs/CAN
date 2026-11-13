@@ -3,7 +3,8 @@ import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
 import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
-import CounterSequence, { type CounterSequenceFrame } from "./CounterSequence"
+import CounterSequence, { type CounterSequenceAlert, type CounterSequenceFrame } from "./CounterSequence"
+import RulePacketAnalysis, { type CounterValidation, type RulePacketEvent } from "./RulePacketAnalysis"
 
 const MONITORED_CAN_ID = "0x456"
 const NORMAL_FRAMES = [10, 11, 12, 13]
@@ -17,7 +18,7 @@ const ANSWERS = [
 type Phase = "observe" | "replay" | "quiz" | "state" | "complete"
 type DoorState = "CLOSED" | "OPEN"
 type Verdict = "PASS" | "ALERT"
-type MonitorFrame = CounterSequenceFrame & { time: string; canId: string; data: string; reason: string }
+type MonitorFrame = CounterSequenceFrame & RulePacketEvent & { validation: CounterValidation }
 
 function parseCansend(command: string) {
   const match = command.trim().match(/^cansend\s+vcan0\s+([0-9a-f]{1,3})#([0-9a-f]{4})$/i)
@@ -48,25 +49,48 @@ export default function CounterStatusCheckIDSPage() {
   const [expectedCounter, setExpectedCounter] = useState(10)
   const [doorState, setDoorState] = useState<DoorState>("CLOSED")
   const [verdict, setVerdict] = useState<"IDLE" | Verdict>("IDLE")
-  const [alert, setAlert] = useState<{ expected: number; received: number; type: "replay" | "state" } | null>(null)
+  const [alert, setAlert] = useState<CounterSequenceAlert | null>(null)
   const [quizAnswer, setQuizAnswer] = useState<string | null>(null)
   const [answers, setAnswers] = useState(ANSWERS)
   const [quizFeedback, setQuizFeedback] = useState("")
   const [clearSignal, setClearSignal] = useState(0)
   const [monitorClearedAt, setMonitorClearedAt] = useState(0)
   const [logClearedAt, setLogClearedAt] = useState(0)
+  const [analysisClearedAt, setAnalysisClearedAt] = useState(0)
+  const [analysisRevision, setAnalysisRevision] = useState(0)
   const phaseRef = useRef<Phase>("observe")
   const timerRef = useRef<number | null>(null)
   const startedAtRef = useRef(0)
   const lastAcceptedRef = useRef<number | null>(null)
   const expectedRef = useRef(10)
   const frameIdRef = useRef(0)
-  const capturedFrameRef = useRef(false)
+  const capturedFrameRef = useRef<MonitorFrame | null>(null)
+  const historicalFramesRef = useRef<MonitorFrame[]>([])
+  const doorStateRef = useRef<DoorState>("CLOSED")
 
   const setCurrentPhase = (next: Phase) => { phaseRef.current = next; setPhase(next) }
   const stopNormalFrames = () => { if (timerRef.current !== null) { window.clearInterval(timerRef.current); timerRef.current = null } }
-  const appendRecord = (frame: Omit<MonitorFrame, "id" | "time">, includeLog = true) => {
-    const entry = { ...frame, id: ++frameIdRef.current, time: ((performance.now() - startedAtRef.current) / 1000).toFixed(3) }
+  const appendRecord = (frame: Omit<MonitorFrame, "id" | "time" | "timestamp" | "elapsedMs" | "validation">, includeLog = true, validation: Partial<CounterValidation> = {}) => {
+    const timestamp = Date.now()
+    const entry: MonitorFrame = {
+      ...frame,
+      id: ++frameIdRef.current,
+      timestamp,
+      elapsedMs: performance.now() - startedAtRef.current,
+      time: new Date(timestamp).toLocaleTimeString("ko-KR", { hour12: false }),
+      ruleId: frame.ruleId ?? "CAN_COUNTER",
+      validation: {
+        expectedCounter: expectedRef.current,
+        counterResult: frame.counter === expectedRef.current ? "PASS" : "REJECTED",
+        stateBefore: doorStateRef.current,
+        stateAfter: doorStateRef.current,
+        stateResult: "NOT_CHECKED",
+        replayed: Boolean(frame.replayed),
+        reasonCode: "COUNTER_MATCH",
+        phase: phaseRef.current,
+        ...validation,
+      },
+    }
     setMonitor((current) => [...current, entry])
     if (includeLog) setIdsLog((current) => [...current, entry])
     return entry
@@ -82,6 +106,7 @@ export default function CounterStatusCheckIDSPage() {
     const no = frameIdRef.current + 1
     const base = { no, canId: MONITORED_CAN_ID, command: "01", counter, data: `01${counter.toString(16).padStart(2, "0").toUpperCase()}`, verdict: "PASS" as const, reason: `Counter ${counter} matches expected.` }
     const record = appendRecord(base, false)
+    historicalFramesRef.current.push(record)
     appendChip(record)
     acceptCounter(counter)
     setVerdict("PASS")
@@ -95,7 +120,9 @@ export default function CounterStatusCheckIDSPage() {
     lastAcceptedRef.current = null
     expectedRef.current = 10
     frameIdRef.current = 0
-    capturedFrameRef.current = false
+    capturedFrameRef.current = null
+    historicalFramesRef.current = []
+    doorStateRef.current = "CLOSED"
     setPracticeStarted(true)
     setCurrentPhase("observe")
     setFrames([])
@@ -112,6 +139,8 @@ export default function CounterStatusCheckIDSPage() {
     setClearSignal((value) => value + 1)
     setMonitorClearedAt(0)
     setLogClearedAt(0)
+    setAnalysisClearedAt(0)
+    setAnalysisRevision((value) => value + 1)
     let index = 0
     const emit = () => {
       const counter = NORMAL_FRAMES[index]
@@ -130,39 +159,49 @@ export default function CounterStatusCheckIDSPage() {
     const counter = expectedRef.current
     const no = frameIdRef.current + 1
     const base = { no, canId: MONITORED_CAN_ID, command: "01", counter, data: `01${counter.toString(16).padStart(2, "0").toUpperCase()}`, verdict: "PASS" as const, reason: `Counter ${counter} matches expected.` }
-    const record = appendRecord(base)
+    const record = appendRecord(base, true, { stateAfter: "OPEN", stateResult: "PASS" })
     appendChip(record)
     acceptCounter(counter)
     setDoorState("OPEN")
+    doorStateRef.current = "OPEN"
     setVerdict("PASS")
   }
 
   const handleMonitoredFrame = (command: string, counter: number, replayed: boolean) => {
     const no = frameIdRef.current + 1
     const data = `${command}${counter.toString(16).toUpperCase().padStart(2, "0")}`
+    if (phaseRef.current === "state" && command !== "01") {
+      const reason = `Command rejected: expected 01 (OPEN), received ${command}.`
+      appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "ALERT", reason, ruleId: "CAN_COMMAND" }, true, { counterResult: "NOT_CHECKED", reasonCode: "COMMAND_REJECTED" })
+      setVerdict("ALERT")
+      setAlert({ expected: expectedRef.current, received: counter, type: "command", receivedCommand: command })
+      return [`\x1b[31m[ALERT] ${reason}\x1b[0m`]
+    }
     if (counter !== expectedRef.current) {
       const replay = lastAcceptedRef.current !== null && counter <= lastAcceptedRef.current
       const reason = replay ? `Replay detected: expected counter ${expectedRef.current}, received ${counter}.` : `Counter mismatch: expected counter ${expectedRef.current}, received ${counter}.`
-      const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "ALERT", reason })
+      const original = historicalFramesRef.current.find((entry) => entry.canId === MONITORED_CAN_ID && entry.data === data)
+      const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "ALERT", reason, ruleId: replay ? "CAN_REPLAY" : "CAN_COUNTER" }, true, { replayed: replay || replayed, originalEventId: original?.id, reasonCode: replay ? "REPLAY_DETECTED" : "COUNTER_MISMATCH" })
       appendChip(record)
       setVerdict("ALERT")
-      setAlert({ expected: expectedRef.current, received: counter, type: "replay" })
+      setAlert({ expected: expectedRef.current, received: counter, type: replay ? "replay" : "counter" })
       if (replay) setCurrentPhase("quiz")
       return [`\x1b[31m[ALERT] ${reason}\x1b[0m`]
     }
-    const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "PASS", reason: `Counter ${counter} matches expected.` })
-    appendChip(record)
-    acceptCounter(counter)
-    setVerdict("PASS")
-    if (phaseRef.current === "state" && command === "01" && doorState === "OPEN") {
-      const stateAlert = { ...record, id: ++frameIdRef.current, verdict: "ALERT" as const, reason: "State anomaly: door is already OPEN." }
-      setIdsLog((current) => [...current, stateAlert])
+    if (phaseRef.current === "state" && command === "01" && doorStateRef.current === "OPEN") {
+      const reason = "State anomaly: door is already OPEN."
+      const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "ALERT", reason, ruleId: "CAN_STATE" }, true, { counterResult: "PASS", stateResult: "ANOMALY", reasonCode: "STATE_ANOMALY" })
+      appendChip(record)
       setVerdict("ALERT")
       setAlert({ expected: expectedRef.current, received: counter, type: "state" })
       setCurrentPhase("complete")
       return [`[PASS] Counter ${counter} matches expected.`, "\x1b[31m[ALERT] State anomaly: door is already OPEN.\x1b[0m"]
     }
-    if (command === "01") setDoorState("OPEN")
+    const record = appendRecord({ no, canId: MONITORED_CAN_ID, command, counter, data, replayed, verdict: "PASS", reason: `Counter ${counter} matches expected.` }, true, { stateAfter: command === "01" ? "OPEN" : doorStateRef.current, stateResult: phaseRef.current === "state" ? "PASS" : "NOT_CHECKED" })
+    appendChip(record)
+    acceptCounter(counter)
+    setVerdict("PASS")
+    if (command === "01") { setDoorState("OPEN"); doorStateRef.current = "OPEN" }
     return [`[PASS] Counter ${counter} matches expected.`]
   }
 
@@ -170,22 +209,24 @@ export default function CounterStatusCheckIDSPage() {
     if (!practiceStarted) return ["[info] [시작] 버튼을 눌러 실습을 시작하세요."]
     if (input.trim() === "candump -L vcan0 > capture.log") {
       if (phaseRef.current !== "replay") return ["[info] Replay 실습 단계에서 Frame 2를 캡처하세요."]
-      capturedFrameRef.current = true
-      return ["captured Frame 2 (vcan0 456#010B) to capture.log"]
+      capturedFrameRef.current = historicalFramesRef.current.find((entry) => entry.no === 2 && entry.canId === MONITORED_CAN_ID) ?? null
+      return capturedFrameRef.current ? [`captured Frame 2 (vcan0 456#${capturedFrameRef.current.data}) to capture.log`] : ["[info] Frame 2가 아직 수신되지 않았습니다."]
     }
     if (input.trim() === "canplayer -I capture.log -l 1") {
       if (phaseRef.current !== "replay") return ["[info] Replay 실습 단계에서 캡처를 재전송하세요."]
       if (!capturedFrameRef.current) return ["[info] 먼저 candump -L vcan0 > capture.log로 Frame 2를 캡처하세요."]
-      return handleMonitoredFrame("01", 11, true)
+      return handleMonitoredFrame(capturedFrameRef.current.command, capturedFrameRef.current.counter, true)
     }
     const frame = parseCansend(input)
     if (!frame) return ["[error] cansend vcan0 <CAN_ID>#<COMMAND><COUNTER> 형식으로 입력하세요."]
     if (frame.canId !== MONITORED_CAN_ID) {
-      const info = { id: ++frameIdRef.current, no: 0, time: ((performance.now() - startedAtRef.current) / 1000).toFixed(3), canId: frame.canId, command: frame.command, counter: frame.counter, data: `${frame.command}${frame.counter.toString(16).padStart(2, "0").toUpperCase()}`, verdict: "PASS" as const, reason: `CAN ID ${frame.canId} is not monitored.` }
-      setIdsLog((current) => [...current, info])
+      appendRecord({ no: 0, canId: frame.canId, command: frame.command, counter: frame.counter, data: `${frame.command}${frame.counter.toString(16).padStart(2, "0").toUpperCase()}`, verdict: "PASS", reason: `CAN ID ${frame.canId} is not monitored.`, ruleId: "CAN_NOT_MONITORED" }, true, { expectedCounter: null, counterResult: "NOT_CHECKED", reasonCode: "CAN_NOT_MONITORED" })
       return [`[INFO] CAN ID ${frame.canId} is not monitored.`]
     }
     if (phaseRef.current !== "replay" && phaseRef.current !== "state") return ["[info] 관찰이 끝난 뒤 Replay 실습을 진행하세요."]
+    if (phaseRef.current === "replay" && !historicalFramesRef.current.some((entry) => entry.canId === frame.canId && entry.data === `${frame.command}${frame.counter.toString(16).toUpperCase().padStart(2, "0")}`)) {
+      return ["[info] Replay must reuse the CAN ID and DATA of a historical frame."]
+    }
     return handleMonitoredFrame(frame.command, frame.counter, phaseRef.current === "replay")
   }
 
@@ -220,6 +261,7 @@ export default function CounterStatusCheckIDSPage() {
       {phase === "quiz" && <section className="lab-v2__panel"><header><h2>문제</h2></header><p>{mission}</p><div style={{ display: "grid", gap: 8, margin: "12px 0" }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 13 }}><input type="radio" name="counter-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="lab-v2__button is-primary" onClick={submitQuiz} disabled={!quizAnswer}>제출</button>{quizFeedback && <><p>{quizFeedback}</p>{quizAnswer === "counter" && <button type="button" className="lab-v2__button" onClick={openDoorForStateCheck}>상태 검증으로</button>}</>}</section>}
       {phase === "complete" && <section className="lab-v2__panel"><div className="lab-v2__result"><b>학습 완료</b><p>카운터를 정확히 맞춰도 현재 상태와 맞지 않는 명령은 상태 검증으로 걸러낼 수 있습니다.</p><p>카운터가 매번 증가하므로, 캡처해 두었다가 다시 보낸 과거 프레임은 카운터가 과거 값이라 탐지됩니다.</p></div></section>}
     </>}
+    analysis={<RulePacketAnalysis key={analysisRevision} mode="counter" expectedCounter={expectedCounter} events={monitor.filter((entry) => entry.id > analysisClearedAt)} onClear={() => setAnalysisClearedAt(frameIdRef.current)} />}
     guide={{
       progressLabel: "STEP 3 : 카운터/상태 검증",
       progress,
@@ -239,7 +281,7 @@ export default function CounterStatusCheckIDSPage() {
     }}
     tabs={idsConsoleTabs({
       onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(frameIdRef.current); if (tab === "idsLog") setLogClearedAt(frameIdRef.current) },
-      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["counter-status"]} />,
+      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["counter-status"]} exampleCommand="cansend vcan0 456#010B" />,
       monitor: <table className="lab-v2__table"><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.no}</td><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table>,
       idsLog: <div className="lab-v2__log">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "PASS" && entry.reason.startsWith("CAN ID") ? "INFO" : entry.verdict}]</b> {entry.reason}</p>)}</div>,
     })}

@@ -1,8 +1,9 @@
-import type { ReactNode } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { ClipboardText, Monitor, Play, TerminalWindow } from "@phosphor-icons/react"
 import { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
 import LabTabs, { type LabTab } from "@/features/lab-layout/LabTabs"
 import "@/features/lab-layout/labV2.css"
+import "./IdsLabFrame.css"
 
 export type IdsTone = "ok" | "danger" | "neutral"
 
@@ -31,6 +32,7 @@ interface IdsLabFrameProps {
   started: boolean
   onStart: () => void
   main: ReactNode
+  analysis?: ReactNode
   guide: IdsGuide
   tabs: readonly LabTab<string>[]
 }
@@ -44,9 +46,12 @@ export default function IdsLabFrame({
   started,
   onStart,
   main,
+  analysis,
   guide,
   tabs,
 }: IdsLabFrameProps) {
+  const [activeView, setActiveView] = useState<"lab" | "analysis">("lab")
+  const viewId = useId()
   const progress = Math.max(0, Math.min(100, Math.round(guide.progress)))
   return (
     <main className="lab-v2 ids-lab" aria-label={ariaLabel}>
@@ -63,14 +68,18 @@ export default function IdsLabFrame({
             </div>
           ))}
         </dl>
-        <button type="button" className="lab-v2__button is-primary" onClick={onStart}>
+        {analysis && <div className="ids-lab__view-switch" role="tablist" aria-label="IDS 실습 보기">
+          <button type="button" role="tab" id={`${viewId}-lab-tab`} aria-controls={`${viewId}-lab-panel`} aria-selected={activeView === "lab"} onClick={() => setActiveView("lab")}>실습</button>
+          <button type="button" role="tab" id={`${viewId}-analysis-tab`} aria-controls={`${viewId}-analysis-panel`} aria-selected={activeView === "analysis"} onClick={() => setActiveView("analysis")}>패킷 분석</button>
+        </div>}
+        <button type="button" className="lab-v2__button is-primary" onClick={() => { setActiveView("lab"); onStart() }}>
           <Play size={14} weight="fill" aria-hidden="true" />
           {started ? "다시 시작" : "시작"}
         </button>
         <LabIntroButton />
       </header>
 
-      <div className="lab-v2__workbench">
+      <div className="lab-v2__workbench" role={analysis ? "tabpanel" : undefined} id={analysis ? `${viewId}-lab-panel` : undefined} aria-labelledby={analysis ? `${viewId}-lab-tab` : undefined} style={{ display: activeView === "lab" ? undefined : "none" }}>
         <div className="lab-v2__main">{main}</div>
         <aside className="lab-v2__side" aria-label="실습 안내와 콘솔">
           <div className="lab-v2__guide">
@@ -111,6 +120,7 @@ export default function IdsLabFrame({
           <LabTabs label="IDS 실습 콘솔" tabs={tabs} />
         </aside>
       </div>
+      {analysis && <div className="ids-lab__analysis" role="tabpanel" id={`${viewId}-analysis-panel`} aria-labelledby={`${viewId}-analysis-tab`} style={{ display: activeView === "analysis" ? undefined : "none" }}>{analysis}</div>}
     </main>
   )
 }

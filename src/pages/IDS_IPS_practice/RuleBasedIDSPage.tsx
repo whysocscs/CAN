@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useEffect, useRef, useState } from "react"
 import { Button } from "@fluentui/react-components"
 import { Html } from "@react-three/drei"
 import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
@@ -9,6 +9,7 @@ import VehicleOwner, { type OwnerReaction } from "./VehicleOwner"
 import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
+import RulePacketAnalysis, { type RulePacketEvent } from "./RulePacketAnalysis"
 
 const WHITELIST = ["0x101", "0x200", "0x201"] as const
 const REAR_ID = CAN_COMMAND_CATALOG.TRUNK_OPEN.frame.canId
@@ -22,7 +23,7 @@ const OWNER_YAW = Math.atan2(
   START_CAMERA_VIEW.position[2] - OWNER_POSITION[2],
 )
 type Verdict = "IDLE" | "ALERT" | "PASS" | "EXECUTED"
-type Attempt = { id: number; time: string; canId: string; data: string; verdict: Verdict; reason: string }
+type Attempt = RulePacketEvent
 
 function VehicleRig() { const scene = useSharedVehicleClone(); useVehicleRig(scene, { immediate: false }); return null }
 
@@ -44,11 +45,17 @@ export default function RuleBasedIDSPage() {
   const [viewRevision, setViewRevision] = useState(0)
   const [monitorClearedAt, setMonitorClearedAt] = useState(0)
   const [idsLogClearedAt, setIdsLogClearedAt] = useState(0)
+  const [analysisClearedAt, setAnalysisClearedAt] = useState(0)
+  const eventIdRef = useRef(0)
+  const startedAtRef = useRef(0)
   const complete = successfulCloses === 3
 
   useEffect(() => () => vehicle.set("tailgate", 0), [])
-  const start = () => { vehicle.set("tailgate", 1); setPracticeStarted(true); setTrunkState("open"); setSuccessfulCloses(0); setOwnerReaction("idle"); setIdsVerdict("IDLE"); setAttempts([]); setClearSignal((n) => n + 1); setViewRevision((n) => n + 1); setMonitorClearedAt(0); setIdsLogClearedAt(0) }
-  const record = (canId: string, data: string, verdict: Verdict, reason: string) => setAttempts((old) => [...old, { id: Date.now(), time: new Date().toLocaleTimeString(), canId, data, verdict, reason }])
+  const start = () => { vehicle.set("tailgate", 1); setPracticeStarted(true); setTrunkState("open"); setSuccessfulCloses(0); setOwnerReaction("idle"); setIdsVerdict("IDLE"); setAttempts([]); setClearSignal((n) => n + 1); setViewRevision((n) => n + 1); setMonitorClearedAt(0); setIdsLogClearedAt(0); setAnalysisClearedAt(0); eventIdRef.current = 0; startedAtRef.current = performance.now() }
+  const record = (canId: string, data: string, verdict: Verdict, reason: string) => {
+    const timestamp = Date.now()
+    setAttempts((old) => [...old, { id: ++eventIdRef.current, timestamp, elapsedMs: performance.now() - startedAtRef.current, time: new Date(timestamp).toLocaleTimeString("ko-KR", { hour12: false }), canId, data, verdict, reason, ruleId: "CAN_ID_WHITELIST" }])
+  }
   const command = async (input: string) => {
     if (!practiceStarted) return ["[error] 먼저 [시작] 버튼을 누르세요."]
     if (input.trim() === "cat whitelist.yaml") return ["Allowed CAN IDs", "", "0x101 : DOOR", "0x200 : TRUNK", "0x201 : DASHBOARD"]
@@ -81,6 +88,7 @@ export default function RuleBasedIDSPage() {
       </div>
       {complete && <section className="lab-v2__panel"><div className="lab-v2__result"><b>차주를 화나게 하는 데 성공했습니다.</b><p>허용된 CAN ID를 사용했기 때문에 공격 Frame도 ID 화이트리스트 검사를 통과했습니다.</p><p>화이트리스트는 허용되지 않은 ID를 막는 데 효과적이지만, 정상 ID를 악용하는 공격까지 구분할 수는 없습니다.</p></div></section>}
     </>}
+    analysis={<RulePacketAnalysis key={viewRevision} events={attempts.filter((event) => event.id > analysisClearedAt)} onClear={() => setAnalysisClearedAt(eventIdRef.current)} />}
     guide={{
       progressLabel: "STEP 1 : ID White List",
       progress: (successfulCloses / 3) * 100,
@@ -91,7 +99,7 @@ export default function RuleBasedIDSPage() {
       hint: <>해당 차량의 Rear ECU ID는 무엇일까요? <code>cat whitelist.yaml</code></>,
     }}
     tabs={idsConsoleTabs({
-      onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(Date.now()); if (tab === "idsLog") setIdsLogClearedAt(Date.now()) },
+      onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(eventIdRef.current); if (tab === "idsLog") setIdsLogClearedAt(eventIdRef.current) },
       terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={command} completions={IDS_COMPLETIONS["rule-based"]} />,
       monitor: <table className="lab-v2__table"><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{attempts.filter((a) => a.id > monitorClearedAt).map((a) => <tr key={a.id}><td>{a.time}</td><td>{a.canId}</td><td>{a.data}</td><td>{a.verdict === "ALERT" ? "ALERT" : "PASS"}</td></tr>)}</tbody></table>,
       idsLog: <div className="lab-v2__log">{[...attempts].filter((a) => a.id > idsLogClearedAt).reverse().map((a) => <p key={a.id}><b>[{a.verdict}]</b> {a.reason}</p>)}</div>,
