@@ -45,6 +45,7 @@ import RealLabTerminal, {
 import {
   useCanVehicleStream,
   useSelectedVehicleModel,
+  useVehicleRig,
   VehicleModelSelector,
 } from "@/features/vehicle"
 import {
@@ -716,8 +717,15 @@ class VehicleLoadBoundary extends Component<{ children: ReactNode }, { failed: b
   }
 }
 
+function VehicleRigAttachment({ immediate }: { immediate: boolean }) {
+  const scene = useSharedVehicleClone()
+  useVehicleRig(scene, { immediate })
+  return null
+}
+
 function VehicleCanvas({
   autoRotate,
+  reducedMotion,
   overviewRevision,
   orbitCommand,
   showLabels,
@@ -729,6 +737,7 @@ function VehicleCanvas({
   onSelectModule,
 }: {
   autoRotate: boolean
+  reducedMotion: boolean
   overviewRevision: number
   orbitCommand: { id: number; angle: number }
   showLabels: boolean
@@ -768,6 +777,7 @@ function VehicleCanvas({
             xray={showLabels || showBus}
             showEcuModels={showBus}
           >
+            <VehicleRigAttachment immediate={reducedMotion} />
             <SharedVehicleOverviewController
               resetRevision={overviewRevision}
             />
@@ -1048,6 +1058,7 @@ function CanPracticeWorkbench() {
               <div className="canlab__vehicle-stage canlab__vehicle-stage--large">
                 <VehicleCanvas
                   autoRotate={autoRotate && !reducedMotion}
+                  reducedMotion={reducedMotion}
                   overviewRevision={overviewRevision}
                   orbitCommand={orbitCommand}
                   showLabels={showLabels}
