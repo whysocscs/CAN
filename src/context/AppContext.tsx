@@ -53,18 +53,46 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | null>(null)
 
-const canStoryHashes = new Set([
-  "#why-can",
-  "#shared-bus",
-  "#message-based",
-  "#bus-access",
-  "#reliability",
+const canProtocolConceptIds = new Set([
+  "why-can",
+  "shared-bus",
+  "message-based",
+  "bus-access",
+  "reliability",
   // Legacy deep links remain valid and are remapped inside CanBasicsStory.
-  "#dominant-recessive",
-  "#arbitration",
-  "#frame",
-  "#ack-error-practice",
+  "dominant-recessive",
+  "arbitration",
+  "frame",
+  "ack-error-practice",
 ])
+
+const canFrameConceptIds = new Set([
+  "frame-notation",
+  "frame-map",
+  "frame-arbitration-field",
+  "frame-control-data",
+  "frame-integrity",
+  "frame-stuffing",
+  "frame-comparison-quiz",
+])
+
+const canEcuConceptIds = new Set([
+  "ecu-overview",
+  "ecu-processing-pipeline",
+  "acceptance-filtering",
+  "ecu-action",
+  "vehicle-networks",
+  "gateway-routing-policy",
+  "ecu-end-to-end",
+])
+
+export function routeForCanBasicsHash(hash: string): Route | null {
+  const conceptId = decodeURIComponent(hash.replace(/^#/, "")).split("/")[0]
+  if (canProtocolConceptIds.has(conceptId)) return "can-basics/protocol"
+  if (canFrameConceptIds.has(conceptId)) return "can-basics/frame"
+  if (canEcuConceptIds.has(conceptId)) return "can-basics/ecu"
+  return null
+}
 
 const initialBadges: BadgeInfo[] = [
   {
@@ -95,9 +123,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     designVersion === "ver2" ? "dark" : "light",
   )
   const [currentRoute, setCurrentRoute] = useState<Route>(() =>
-    typeof window !== "undefined" && canStoryHashes.has(window.location.hash)
-      ? "can-basics/protocol"
-      : "courses",
+    typeof window === "undefined"
+      ? "courses"
+      : (routeForCanBasicsHash(window.location.hash) ?? "courses"),
   )
   const [devMode, setDevMode] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -121,9 +149,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const syncCanStoryRoute = () => {
-      if (canStoryHashes.has(window.location.hash)) {
-        setCurrentRoute("can-basics/protocol")
-      }
+      const hashRoute = routeForCanBasicsHash(window.location.hash)
+      if (hashRoute) setCurrentRoute(hashRoute)
     }
     window.addEventListener("hashchange", syncCanStoryRoute)
     window.addEventListener("popstate", syncCanStoryRoute)
@@ -138,10 +165,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const navigate = useCallback((route: Route) => {
-    if (
-      route !== "can-basics/protocol" &&
-      canStoryHashes.has(window.location.hash)
-    ) {
+    const hashRoute = routeForCanBasicsHash(window.location.hash)
+    if (hashRoute && hashRoute !== route) {
       window.history.replaceState(
         null,
         "",

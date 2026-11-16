@@ -17,6 +17,7 @@ import { KUKSA_INTRO, SWUPDATE_INTRO } from "@/features/cve-labs/cveLabIntros"
 import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
 import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
 import LabTabs from "@/features/lab-layout/LabTabs"
+import LabLinuxShellPanel from "@/features/terminal/LabLinuxShellPanel"
 
 export type AttackRoute = Extract<Route, `attacks/${string}`>
 
@@ -541,7 +542,7 @@ function EvidenceLedger({ scenario }: { scenario: AttackScenario }) {
 
 function staticPreviewIntro(scenario: AttackScenario): LabIntroContent {
   return {
-    kicker: "정적 UI 미리보기 · 실행 및 통신 기능 제외",
+    kicker: "시나리오 결과는 정적 미리보기 · 격리 Linux Shell 제공",
     title: scenario.title,
     description: scenario.description,
     flowLabel: "ATTACK PATH",
@@ -555,19 +556,19 @@ function staticPreviewIntro(scenario: AttackScenario): LabIntroContent {
     ],
     notes: (
       <p>
-        모든 값은 화면 구성용 샘플입니다. 실행, 중지, 초기화 제어는 실제 연결 단계에서 추가하며 현재 저장소에는
-        포함하지 않습니다.
+        시나리오 결과 값은 화면 구성용 샘플입니다. Linux Shell은 실제 격리 컨테이너지만
+        실행, 중지, 초기화 제어와 정적 결과 표는 아직 연결되지 않았습니다.
       </p>
     ),
   }
 }
 
-function StaticPreviewWorkbench({ scenario }: { scenario: AttackScenario }) {
+function StaticPreviewWorkbench({ route, scenario }: { route: AttackRoute; scenario: AttackScenario }) {
   return (
     <section className="lab-v2 attack-preview--v2" aria-labelledby="attack-static-title">
       <header className="lab-v2__bar">
         <div className="lab-v2__title">
-          <p>정적 UI 미리보기 · 실행 및 통신 기능 제외</p>
+          <p>시나리오 결과는 정적 미리보기 · 격리 Linux Shell 제공</p>
           <h1 id="attack-static-title">{scenario.title}</h1>
         </div>
         <dl className="lab-v2__status">
@@ -587,6 +588,12 @@ function StaticPreviewWorkbench({ scenario }: { scenario: AttackScenario }) {
             tabs={[
               { id: "conditions", label: "공격 조건", content: <ConditionRail scenario={scenario} /> },
               { id: "evidence", label: "CAN 증거 비교", content: <EvidenceLedger scenario={scenario} /> },
+              {
+                id: "linux-shell",
+                label: "Linux Shell",
+                icon: TerminalWindow,
+                content: <LabLinuxShellPanel labId={route.replace("attacks/", "attack-")} />,
+              },
             ]}
           />
         </aside>
@@ -611,7 +618,7 @@ function AttackLabBody({ route }: { route: AttackRoute }) {
   if (route === "attacks/spoofing" || route === "attacks/replay") {
     return <BeginnerCanAttackLabPage scenario={route === "attacks/spoofing" ? "spoofing" : "replay"} />
   }
-  return <StaticPreviewWorkbench scenario={scenarios[route]} />
+  return <StaticPreviewWorkbench route={route} scenario={scenarios[route]} />
 }
 
 /**

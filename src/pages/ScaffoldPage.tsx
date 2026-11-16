@@ -1,4 +1,5 @@
 import { Circuitry, Clock, Path } from "@phosphor-icons/react"
+import LabLinuxShellPanel from "@/features/terminal/LabLinuxShellPanel"
 
 export interface ScaffoldPageContent {
   title: string
@@ -7,12 +8,14 @@ export interface ScaffoldPageContent {
     title: string
     description: string
   }>
+  shellLabId?: string
 }
 
 export default function ScaffoldPage({
   title,
   description,
   slots,
+  shellLabId,
 }: ScaffoldPageContent) {
   return (
     <div className="module-scaffold">
@@ -58,6 +61,11 @@ export default function ScaffoldPage({
             현재 저장소에서는 화면 구조와 이동 경로만 확인할 수 있습니다.
           </p>
         </aside>
+        {shellLabId ? (
+          <section className="module-scaffold__shell" aria-label={`${title} Linux 실습 쉘`}>
+            <LabLinuxShellPanel labId={shellLabId} />
+          </section>
+        ) : null}
       </div>
     </div>
   )

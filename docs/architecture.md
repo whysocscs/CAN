@@ -48,14 +48,19 @@ pages (화면 조합)
 
 ## 정상 CAN 흐름
 
-1. `CanCommandTerminal`은 한 줄을 모아 페이지의 제한형 command handler에 전달한다.
-2. 페이지는 허용된 `cansend`만 `POST /can/send`로 전송한다.
-3. CAN router가 loopback 또는 SocketCAN에 frame을 발행하고 마지막 frame을 보관한다.
-4. `/ws/can` event를 `useCanVehicleStream`이 받아 monitor와 `vehicleStore`에 전달한다.
-5. 정상 실습과 공격 실습은 `SharedVehicleScene`의 같은 GLB clone·좌표·카메라 계약을 쓴다.
+1. `RealLabTerminal`이 same-origin `/ws/lab-terminal`을 통해 격리된 실습 컨테이너의 Bash PTY에 연결한다.
+2. 학습자가 실행한 `cansend`는 컨테이너의 kernel SocketCAN 또는 사용자 공간 fallback bus에 frame을 발행한다.
+3. 별도 `candump -L` watcher가 버스에서 실제 관측한 frame만 browser control message로 반환한다.
+4. 정상 실습 페이지가 해당 frame을 `POST /can/send`로 전달한다.
+5. CAN router가 frame을 보관하고 `/ws/can` event로 broadcast한다.
+6. `useCanVehicleStream`이 event를 받아 monitor와 `vehicleStore`에 전달한다.
+7. 정상 실습과 공격 실습은 `SharedVehicleScene`의 같은 GLB clone·좌표·카메라 계약을 쓴다.
 
-정상 실습 터미널은 실제 셸이 아니다. 실제 PTY는 별도 `/ws/terminal`이며 frontend와
-backend opt-in, 허용 Origin을 모두 만족할 때만 열린다.
+기존 backend의 `/ws/terminal`은 backend 실행 환경 자체의 PTY이므로 Compose에서 계속
+비활성화한다. 학습자에게 노출되는 실제 셸은 전용 `lab-terminal` 컨테이너에만 존재한다.
+각 실습은 query의 allowlist profile을 `/workspace/<profile>`에 매핑하며 다른 프로필의
+학습 파일을 현재 작업 디렉터리로 사용하지 않는다. 공격 실습의 `Guided Terminal`은
+서버 판정과 단계별 피드백을 위해 실제 셸과 나란히 유지한다.
 
 ## 공격 실습 흐름
 

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import RealLabTerminal from "@/features/terminal/RealLabTerminal"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
 import CounterSequence, { type CounterSequenceFrame } from "./CounterSequence"
@@ -239,7 +238,7 @@ export default function CounterStatusCheckIDSPage() {
     }}
     tabs={idsConsoleTabs({
       onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(frameIdRef.current); if (tab === "idsLog") setLogClearedAt(frameIdRef.current) },
-      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["counter-status"]} />,
+      terminal: <RealLabTerminal labId="ids-counter-status" clearSignal={clearSignal} reconnectSignal={0} onCommandObserved={(input) => { void onTerminalCommand(input) }} />,
       monitor: <table className="lab-v2__table"><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.no}</td><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table>,
       idsLog: <div className="lab-v2__log">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "PASS" && entry.reason.startsWith("CAN ID") ? "INFO" : entry.verdict}]</b> {entry.reason}</p>)}</div>,
     })}

@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useApp } from "@/context/AppContext"
 import { designVersion } from "@/design/version"
-import CanBasicsStory from "@/components/learning/CanBasicsStory"
+import CanBasicsLessonPlayer from "@/components/learning/CanBasicsLessonPlayer"
 
 const sections = [
   { id: "what", title: "CAN이란?" },
@@ -89,7 +89,7 @@ export default function ProtocolPage() {
 
   if (designVersion === "ver4") {
     return (
-      <CanBasicsStory
+      <CanBasicsLessonPlayer
         onComplete={handleStoryComplete}
         onContinue={() => navigate("can-basics/frame")}
       />

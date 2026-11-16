@@ -1,0 +1,4 @@
+allowed_can_ids:
+  "0x101": DOOR
+  "0x200": TRUNK
+  "0x201": DASHBOARD

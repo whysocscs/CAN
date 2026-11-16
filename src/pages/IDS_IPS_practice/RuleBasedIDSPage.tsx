@@ -1,12 +1,11 @@
 import { Suspense, useEffect, useState } from "react"
 import { Button } from "@fluentui/react-components"
 import { Html } from "@react-three/drei"
-import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
+import RealLabTerminal from "@/features/terminal/RealLabTerminal"
 import { CAN_COMMAND_CATALOG } from "@/features/can/events/catalog"
 import { vehicle, useVehicleRig } from "@/features/vehicle"
 import { SharedVehicleCanvas, SharedVehicleOverviewController, SharedVehicleOrbitControls, SharedVehicleScene, useSharedVehicleClone } from "@/features/vehicle/SharedVehicleScene"
 import VehicleOwner, { type OwnerReaction } from "./VehicleOwner"
-import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
 
@@ -92,7 +91,7 @@ export default function RuleBasedIDSPage() {
     }}
     tabs={idsConsoleTabs({
       onClear: (tab) => { if (tab === "terminal") setClearSignal((value) => value + 1); if (tab === "monitor") setMonitorClearedAt(Date.now()); if (tab === "idsLog") setIdsLogClearedAt(Date.now()) },
-      terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={command} completions={IDS_COMPLETIONS["rule-based"]} />,
+      terminal: <RealLabTerminal labId="ids-rule-based" clearSignal={clearSignal} reconnectSignal={0} onCommandObserved={(input) => { void command(input) }} />,
       monitor: <table className="lab-v2__table"><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{attempts.filter((a) => a.id > monitorClearedAt).map((a) => <tr key={a.id}><td>{a.time}</td><td>{a.canId}</td><td>{a.data}</td><td>{a.verdict === "ALERT" ? "ALERT" : "PASS"}</td></tr>)}</tbody></table>,
       idsLog: <div className="lab-v2__log">{[...attempts].filter((a) => a.id > idsLogClearedAt).reverse().map((a) => <p key={a.id}><b>[{a.verdict}]</b> {a.reason}</p>)}</div>,
     })}

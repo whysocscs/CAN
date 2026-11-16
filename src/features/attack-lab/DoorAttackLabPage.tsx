@@ -71,6 +71,7 @@ import { DOOR_ATTACK_HINTS } from "./attackLabScenarioData"
 import { LabIntroButton } from "../lab-layout/LabIntroGate"
 import LabTabs from "../lab-layout/LabTabs"
 import { ATTACK_LAB_COMPLETIONS, completeCommand } from "../terminal/commandCompletion"
+import LabLinuxShellPanel from "../terminal/LabLinuxShellPanel"
 import "./doorAttackLab.css"
 
 const INITIAL_SCRIPT = `# 관찰한 규칙으로 프레임 시퀀스를 완성하세요.
@@ -1187,7 +1188,13 @@ export default function DoorAttackLabPage() {
           <LabTabs
             label="실습 도구"
             tabs={[
-              { id: "terminal", label: "Terminal", icon: TerminalWindow, content: terminalPanel },
+              { id: "terminal", label: "Guided Terminal", icon: TerminalWindow, content: terminalPanel },
+              {
+                id: "linux-shell",
+                label: "Linux Shell",
+                icon: TerminalWindow,
+                content: <LabLinuxShellPanel labId="attack-chain" />,
+              },
               { id: "script", label: "Script", icon: Code, content: editorPanel },
               {
                 id: "monitor",
