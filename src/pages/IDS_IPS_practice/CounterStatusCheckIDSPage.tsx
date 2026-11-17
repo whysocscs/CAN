@@ -258,7 +258,20 @@ export default function CounterStatusCheckIDSPage() {
       <section className="lab-v2__panel">
         <CounterSequence frames={frames} expectedCounter={expectedCounter} alert={alert} />
       </section>
-      {phase === "quiz" && <section className="lab-v2__panel"><header><h2>문제</h2></header><p>{mission}</p><div style={{ display: "grid", gap: 8, margin: "12px 0" }}>{answers.map((answer) => <label key={answer.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 13 }}><input type="radio" name="counter-quiz" checked={quizAnswer === answer.id} onChange={() => setQuizAnswer(answer.id)} />{answer.text}</label>)}</div><button type="button" className="lab-v2__button is-primary" onClick={submitQuiz} disabled={!quizAnswer}>제출</button>{quizFeedback && <><p>{quizFeedback}</p>{quizAnswer === "counter" && <button type="button" className="lab-v2__button" onClick={openDoorForStateCheck}>상태 검증으로</button>}</>}</section>}
+      {phase === "quiz" && <section className="lab-v2__panel">
+        <header><h2>문제</h2></header><p>{mission}</p>
+        <div style={{ display: "grid", gap: 8, margin: "12px 0" }}>
+          {answers.map((answer) => {
+            const result = quizFeedback && quizAnswer === answer.id ? (answer.id === "counter" ? "correct" : "incorrect") : null
+            return <label key={answer.id} style={{ display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer", fontSize: 13, padding: "10px 14px", borderRadius: 8, border: `1px solid ${result === "correct" ? "var(--state-success)" : result === "incorrect" ? "var(--state-danger)" : "var(--border-default)"}`, backgroundColor: result === "correct" ? "var(--state-success-bg)" : result === "incorrect" ? "var(--state-danger-bg)" : "var(--background-primary)" }}><input type="radio" name="counter-quiz" checked={quizAnswer === answer.id} onChange={() => { setQuizAnswer(answer.id); setQuizFeedback("") }} />{answer.text}</label>
+          })}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <button type="button" className="lab-v2__button is-primary" onClick={submitQuiz} disabled={!quizAnswer}>제출</button>
+          {quizFeedback && quizAnswer === "counter" && <button type="button" className="lab-v2__button" onClick={openDoorForStateCheck}>상태 검증으로</button>}
+        </div>
+        {quizFeedback && <p role="status" style={{ color: quizAnswer === "counter" ? "var(--state-success)" : "var(--state-danger)" }}>{quizFeedback}</p>}
+      </section>}
       {phase === "complete" && <section className="lab-v2__panel"><div className="lab-v2__result"><b>학습 완료</b><p>카운터를 정확히 맞춰도 현재 상태와 맞지 않는 명령은 상태 검증으로 걸러낼 수 있습니다.</p><p>카운터가 매번 증가하므로, 캡처해 두었다가 다시 보낸 과거 프레임은 카운터가 과거 값이라 탐지됩니다.</p></div></section>}
     </>}
     analysis={<RulePacketAnalysis key={analysisRevision} mode="counter" expectedCounter={expectedCounter} events={monitor.filter((entry) => entry.id > analysisClearedAt)} onClear={() => setAnalysisClearedAt(frameIdRef.current)} />}
