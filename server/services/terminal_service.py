@@ -71,10 +71,26 @@ async def run_terminal_session(
         start_new_session=True,
     )
     os.close(slave_fd)
+    os.set_blocking(master_fd, False)
 
     async def forward_terminal_output() -> None:
+        loop = asyncio.get_running_loop()
         while True:
-            output = await asyncio.to_thread(os.read, master_fd, 4096)
+            ready = loop.create_future()
+
+            def on_readable() -> None:
+                if not ready.done():
+                    ready.set_result(None)
+
+            loop.add_reader(master_fd, on_readable)
+            try:
+                await ready
+            finally:
+                loop.remove_reader(master_fd)
+            try:
+                output = os.read(master_fd, 4096)
+            except BlockingIOError:
+                continue
             if not output:
                 return
             if send_output is None:
@@ -111,10 +127,10 @@ async def run_terminal_session(
         pass
     finally:
         terminate_process(process)
-        with contextlib.suppress(OSError):
-            os.close(master_fd)
         output_task.cancel()
         with contextlib.suppress(asyncio.CancelledError, OSError):
             await output_task
+        with contextlib.suppress(OSError):
+            os.close(master_fd)
         with contextlib.suppress(asyncio.TimeoutError):
             await asyncio.wait_for(process.wait(), timeout=1)

@@ -675,7 +675,7 @@ button.senderlab__mission-option {
 .senderlab-page .canlab__guide-body {
   display: flex;
   min-height: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-direction: column;
   overflow-y: auto;
 }
@@ -715,7 +715,7 @@ button.senderlab__mission-option {
 
 .senderlab-page .senderlab__current-mission {
   min-height: 0;
-  flex: 1 0 auto;
+  flex: none;
 }
 
 .senderlab-page .senderlab__current-mission article {
@@ -735,13 +735,52 @@ button.senderlab__mission-option {
 .senderlab-page .senderlab__mission-complete { padding: 4px 7px; }
 
 .senderlab-page #sender-terminal {
-  flex-basis: clamp(180px, 28%, 240px);
+  flex-basis: 330px;
   margin: 0;
 }
 
 @media (max-width: 800px) {
   .senderlab-page .canlab__guide-body { max-height: none; overflow: visible; }
-  .senderlab-page #sender-terminal { flex-basis: auto; height: 220px; }
+  .senderlab-page #sender-terminal { flex-basis: auto; height: 330px; }
+}
+
+.senderlab-page .senderlab__socket-stack > div {
+  grid-template-columns: 1fr 1fr;
+  overflow: hidden;
+}
+
+.senderlab-page .senderlab__socket-stack > div > span:first-child {
+  grid-column: 1;
+}
+
+.senderlab-page .senderlab__socket-stack > .senderlab__frame-token {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: auto;
+  display: flex;
+  width: 50%;
+  height: 62px;
+  min-height: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  justify-content: center;
+  margin: 0;
+  padding: 6px;
+  border-radius: 0 17px 17px 0;
+  opacity: 1;
+  transition: transform .55s ease-in-out;
+  pointer-events: none;
+}
+
+.senderlab-page .senderlab__socket-stack > .senderlab__frame-token code {
+  overflow-wrap: anywhere;
+  text-align: center;
+  font-size: clamp(9px, 1vw, 13px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .senderlab-page .senderlab__socket-stack > .senderlab__frame-token { transition: none; }
 }
 
 /* STEP 1 command timeline: all tokens remain mounted; phases only alter style. */

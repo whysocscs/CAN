@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import {
   ArrowClockwise,
   CaretLeft,
@@ -75,14 +75,6 @@ type StepFrameStageElement =
         fieldName: "ID\n[10:0]" | "DLC" | "Data"
       }>
     }
-  | {
-      id: "frame-emphasis"
-      label: "CAN Frame 설명"
-      activateAt: 3
-      className: "senderlab__frame-emphasis"
-      kind: "emphasis"
-      description: string
-    }
 
 // STEP 2의 표시 순서, 활성화 phase, 기존 CSS 클래스를 한곳에서 관리한다.
 const STEP_FRAME_STAGE_CONFIG: StepFrameStageElement[] = [
@@ -97,14 +89,6 @@ const STEP_FRAME_STAGE_CONFIG: StepFrameStageElement[] = [
       { id: "dlc", label: "DLC", activateAt: 2, fieldName: "DLC" },
       { id: "data", label: "DATA", activateAt: 3, fieldName: "Data" },
     ],
-  },
-  {
-    id: "frame-emphasis",
-    label: "CAN Frame 설명",
-    activateAt: 3,
-    className: "senderlab__frame-emphasis",
-    kind: "emphasis",
-    description: "CAN 기초 페이지와 동일한 프레임 도식에서 ID, DLC, DATA만 현재 입력값 기준으로 집중해서 확인합니다.",
   },
 ]
 
@@ -178,33 +162,6 @@ const STEP_SEQUENCE: Array<{ key: StepKey; title: string; short: string }> = [
   // Filter 이후 결과는 아직 inspector 요약으로만 제공한다. 상호작용과 검증이 끝난
   // 세 단계만 navigation에 넣어, 빈 stage로 이동하는 링크를 만들지 않는다.
 ]
-
-const STEP_DESCRIPTIONS: Record<StepKey, string> = {
-  command:
-    "입력한 cansend 명령을 command, interface, frame expression으로 나누고 CAN ID와 DATA를 추출합니다.",
-  frame:
-    "추출한 CAN ID와 DATA로 DLC를 계산하고, Classical CAN 2.0 프레임 안에서 어떤 필드가 사용자 입력으로 결정되는지 보여줍니다.",
-  socketcan:
-    "완성된 frame object가 사용자 공간에서 SocketCAN 경로를 따라 vcan0까지 전달되는 흐름을 시각화합니다.",
-  filter:
-    "같은 CAN ID가 각 ECU의 acceptance filter에 도달했을 때 어떤 ECU가 ACCEPT 또는 DROP 하는지 비교합니다.",
-  message:
-    "ACCEPT 한 ECU 내부의 message table에서 현재 CAN ID가 어떤 message type으로 해석되는지 확인합니다.",
-  payload:
-    "DATA 영역을 payload definition에 대입해 실제 명령 의미로 변환하는 과정을 단계적으로 보여줍니다.",
-  result:
-    "최종적으로 어떤 ECU가 어떤 명령으로 해석했고, 애플리케이션 레벨에서 어떤 결과가 만들어졌는지 정리합니다.",
-}
-
-const STEP_OBSERVATIONS: Record<StepKey, string> = {
-  command: "명령 문자열이 공백과 # 구분자를 기준으로 어떻게 분해되는지 확인합니다.",
-  frame: "DLC는 직접 입력하지 않고 payload 바이트 길이에서 계산됩니다.",
-  socketcan: "프레임은 텍스트가 아니라 struct can_frame에 해당하는 객체처럼 이동합니다.",
-  filter: "Acceptance filter는 CAN ID 기준으로 1차 수신 여부를 결정하고, payload 의미 해석은 아직 하지 않습니다.",
-  message: "Message decode는 ACCEPT 된 ECU 내부에서 CAN ID를 message name에 매핑하는 단계입니다.",
-  payload: "Payload decode는 같은 CAN ID라도 data 값에 따라 결과가 달라질 수 있음을 보여줍니다.",
-  result: "여기서 보이는 결과는 교육용 해석 결과이며 실제 ECU 제어 동작 자체를 구현하는 단계는 아닙니다.",
-}
 
 const STEP_SUBSTAGE_COUNT: Record<StepKey, number> = {
   command: 10,
@@ -296,20 +253,6 @@ function formatCanId(canIdRaw: string) {
 
 function formatPayload(bytes: string[]) {
   return bytes.length ? bytes.join(" ") : "(empty)"
-}
-
-function getObservation(step: StepKey, analysis: RunAnalysis | null) {
-  if (!analysis) return "아직 실행된 명령이 없습니다. Terminal에서 cansend 명령을 입력해 흐름을 시작하세요."
-
-  if (analysis.stopAfterStep === "filter" && getStepIndex(step) > getStepIndex("filter")) {
-    return "모든 ECU가 현재 CAN ID를 DROP 했기 때문에 이후 단계는 skip 상태로 표시됩니다."
-  }
-
-  if (analysis.stopAfterStep === "message" && getStepIndex(step) > getStepIndex("message")) {
-    return "수신 ECU는 있었지만 현재 mock message table에 정의가 없어 이후 단계는 skip 상태로 표시됩니다."
-  }
-
-  return STEP_OBSERVATIONS[step]
 }
 
 function buildFrameFields(analysis: RunAnalysis) {
@@ -452,23 +395,6 @@ function analyzeCommand(input: string): RunAnalysis {
   }
 }
 
-function getStepIndex(step: StepKey) {
-  return STEP_SEQUENCE.findIndex((item) => item.key === step)
-}
-
-function StageHeadline({
-  step,
-}: {
-  step: (typeof STEP_SEQUENCE)[number]
-}) {
-  return (
-    <div className="senderlab__stage-headline">
-      <strong>{step.title}</strong>
-      <span>{STEP_DESCRIPTIONS[step.key]}</span>
-    </div>
-  )
-}
-
 function StoppedScene({
   title,
   body,
@@ -494,10 +420,9 @@ type CommandTimelineLayout = {
   moveUp: number
 }
 
-function StepCommandTimeline({ analysis, substage, onAdvance }: {
+function StepCommandTimeline({ analysis, substage }: {
   analysis: RunAnalysis
   substage: number
-  onAdvance: () => void
 }) {
   const phase = Math.min(Math.max(substage, 1), STEP_SUBSTAGE_COUNT.command)
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -600,7 +525,6 @@ function StepCommandTimeline({ analysis, substage, onAdvance }: {
       ))}
       <div className="senderlab__timeline-field senderlab__timeline-field--id" style={fieldX ? { left: `calc(50% + ${fieldX[0]}px)`, transform: "translateX(-50%)" } : undefined}><i /><strong>CAN ID</strong><code>0x{analysis.parsed.canIdRaw}</code></div>
       <div className="senderlab__timeline-field senderlab__timeline-field--data" style={fieldX ? { left: `calc(50% + ${fieldX[1]}px)`, transform: "translateX(-50%)" } : undefined}><i /><strong>DATA</strong><code>{analysis.parsed.payloadHex || "EMPTY"}</code></div>
-      <div className="senderlab__timeline-complete"><strong>STEP 1 COMPLETE</strong><button type="button" onClick={onAdvance}>STEP 2 이동</button></div>
     </div>
   )
 }
@@ -623,28 +547,14 @@ function StepFrameStage({
 
   return (
     <div className="senderlab__scene senderlab__scene--frame">
-      {STEP_FRAME_STAGE_CONFIG.map((element) => {
-        const isOn = substage >= element.activateAt
-
-        if (element.kind === "frame") {
-          return (
-            <div key={element.id} className={`${element.className} ${isOn ? "is-on" : ""}`}>
-              <FrameStructureVisual
-                fields={frameFields}
-                selectedField={selectedField}
-                frameType="standard"
-                onSelect={() => {}}
-              />
-            </div>
-          )
-        }
-
-        return (
-          <div key={element.id} className={`${element.className} ${isOn ? "is-on" : ""}`}>
-            <span>{element.description}</span>
-          </div>
-        )
-      })}
+      {frameElement && <div className={`${frameElement.className} ${substage >= frameElement.activateAt ? "is-on" : ""}`}>
+        <FrameStructureVisual
+          fields={frameFields}
+          selectedField={selectedField}
+          frameType="standard"
+          onSelect={() => {}}
+        />
+      </div>}
     </div>
   )
 }
@@ -726,11 +636,8 @@ function StepSocketStage({
         })}
         <div
           className="senderlab__frame-token"
-          style={{
-            top: 12,
-            transform: `translate(-50%, ${activeStage.top}px)`,
-            transition: "transform .45s ease",
-          }}
+          aria-label={`이동 중인 CAN 프레임: ${analysis.parsed.canId}, DLC ${analysis.parsed.len}, DATA ${formatPayload(analysis.parsed.dataBytes)}. 현재 위치: ${activeStage.name}`}
+          style={{ transform: `translateY(${activeStage.top}px)` }}
         >
           <code>{analysis.parsed.canId} · DLC {analysis.parsed.len} · {formatPayload(analysis.parsed.dataBytes)}</code>
         </div>
@@ -930,16 +837,14 @@ function StepStage({
   stepKey,
   analysis,
   substage,
-  onAdvance,
 }: {
   stepKey: StepKey
   analysis: RunAnalysis
   substage: number
-  onAdvance: () => void
 }) {
   switch (stepKey) {
     case "command":
-      return <StepCommandTimeline analysis={analysis} substage={substage} onAdvance={onAdvance} />
+      return <StepCommandTimeline analysis={analysis} substage={substage} />
     case "frame":
       return <StepFrameStage analysis={analysis} substage={substage} />
     case "socketcan":
@@ -1013,10 +918,6 @@ function CanFrameSenderWorkbench() {
     !!analysis &&
     currentStepIndex < STEP_SEQUENCE.length - 1 &&
     (currentStep.key !== "command" || substage >= STEP_SUBSTAGE_COUNT.command)
-  const currentObservation = useMemo(
-    () => getObservation(currentStep.key, analysis),
-    [analysis, currentStep.key],
-  )
 
   useEffect(() => {
     setLearningMessage(null)
@@ -1233,16 +1134,11 @@ function CanFrameSenderWorkbench() {
                     }
                   }}
                 >
-                  <div className="senderstage__title">
-                    <StageHeadline step={currentStep} />
-                  </div>
-
                   {analysis ? (
                     <StepStage
                       stepKey={currentStep.key}
                       analysis={analysis}
                       substage={substage}
-                      onAdvance={() => moveStep(1)}
                     />
                   ) : (
                     <div className="senderlab__idle-stage">
@@ -1255,17 +1151,6 @@ function CanFrameSenderWorkbench() {
                   )}
                 </div>
 
-                <div className="canlab__vehicle-badge">Single Step Focus · Parse / Filter / Decode</div>
-                <div className="canlab__vehicle-actions">
-                  <strong>{currentStep.title}</strong>
-                  <ul>
-                    <li>{currentObservation}</li>
-                    <li>{analysis ? analysis.explanation : "명령 실행 전에는 프레임 흐름이 표시되지 않습니다."}</li>
-                  </ul>
-                </div>
-                <div className="canlab__vehicle-state canlab__vehicle-state--dynamic">
-                  <i /> {analysis ? `${currentStep.short} · viewport 클릭으로 진행` : "입력 대기 중"}
-                </div>
               </div>
             </section>
 
