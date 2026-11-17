@@ -1,0 +1,10 @@
+services:
+  lab-terminal:
+    networks:
+      - default
+      - lab-terminal-internal
+    ports:
+      - target: 8020
+        published: "8020"
+        host_ip: 127.0.0.1
+        protocol: tcp

@@ -1,5 +1,45 @@
 /* CAN Frame Sender page-only styles */
 
+.senderlab-page .senderlab__guide {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+
+.senderlab-page .canlab__guide-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.senderlab-page #sender-terminal {
+  flex: 0 0 240px;
+  min-height: 0;
+  margin: 8px -12px 0;
+}
+
+.senderlab-page #sender-terminal .canlab__terminal-pane {
+  min-height: 0;
+}
+
+.senderlab-page #sender-terminal .lab-linux-shell {
+  min-height: 0;
+}
+
+.senderlab-page #sender-terminal .lab-linux-shell > .canlab__shell-terminal {
+  min-height: 0;
+}
+
+@media (max-width: 800px) {
+  .senderlab-page .senderlab__guide { height: auto; }
+  .senderlab-page .canlab__guide-body { max-height: 360px; }
+  .senderlab-page #sender-terminal { height: 240px; }
+}
+
 /* Keep the shared guide shell while making the sender's active mission compact. */
 .senderlab__learning-steps article > button:disabled {
   cursor: default;
@@ -623,6 +663,85 @@ button.senderlab__mission-option {
 .senderlab__command-timeline .senderlab__timeline-divider,
 .senderlab__command-timeline .senderlab__timeline-data {
   opacity: 1;
+}
+
+/* Match the compact IDS/IPS guide: steps and the current mission above the shell. */
+.senderlab-page .senderlab__guide {
+  padding: 0;
+  border-left: 3px solid var(--route-active, #2563eb);
+  background: var(--surface-default, #fff);
+}
+
+.senderlab-page .canlab__guide-body {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.senderlab-page .senderlab__learning-steps,
+.senderlab-page .senderlab__current-mission {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border-default, #e2e8f0);
+}
+
+.senderlab-page .senderlab__learning-steps {
+  display: grid;
+  flex: none;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.senderlab-page .senderlab__learning-steps h2 {
+  grid-column: 1 / -1;
+}
+
+.senderlab-page .senderlab__guide h2 {
+  margin: 0 0 5px;
+  color: var(--text-secondary, #64748b);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.senderlab-page .senderlab__learning-steps article {
+  margin: 0;
+  border-radius: 5px;
+}
+
+.senderlab-page .senderlab__learning-steps article > button {
+  padding: 5px 8px;
+}
+
+.senderlab-page .senderlab__current-mission {
+  min-height: 0;
+  flex: 1 0 auto;
+}
+
+.senderlab-page .senderlab__current-mission article {
+  margin: 0;
+  border: 0;
+  background: transparent;
+}
+
+.senderlab-page .senderlab__current-mission article > div {
+  gap: 6px;
+  padding: 0;
+}
+
+.senderlab-page .senderlab__mission-task { gap: 4px; padding: 7px; }
+.senderlab-page .senderlab__mission-options { gap: 4px; }
+.senderlab-page .senderlab__mission-option { padding: 5px 8px; }
+.senderlab-page .senderlab__mission-complete { padding: 4px 7px; }
+
+.senderlab-page #sender-terminal {
+  flex-basis: clamp(180px, 28%, 240px);
+  margin: 0;
+}
+
+@media (max-width: 800px) {
+  .senderlab-page .canlab__guide-body { max-height: none; overflow: visible; }
+  .senderlab-page #sender-terminal { flex-basis: auto; height: 220px; }
 }
 
 /* STEP 1 command timeline: all tokens remain mounted; phases only alter style. */

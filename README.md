@@ -66,6 +66,16 @@ corepack pnpm@10.34.3 exec vite --host 127.0.0.1 --port 8447 --mode ver4
 
 개발 화면은 `http://127.0.0.1:8447`이다.
 
+개발 서버에서 격리된 Linux 실습 쉘을 사용하려면 Docker Desktop을 실행하고,
+별도의 PowerShell에서 실습 컨테이너도 시작한다.
+
+```powershell
+docker compose -f compose.yaml -f compose.dev.yaml up -d --build lab-terminal
+```
+
+Vite가 쉘 WebSocket을 localhost의 실습 컨테이너로 전달한다. 종료할 때는
+`docker compose -f compose.yaml -f compose.dev.yaml stop lab-terminal`을 실행한다.
+
 ver4의 **공격 실습 → KUKSA 권한 / SWUpdate 업로드**에서 새 실습을 실행한다.
 현재 두 화면은 원본 프로그램에 제한된 요청을 직접 보내는 실습이다. WSL에 KUKSA·SWUpdate 원본/패치 빌드와 해당 환경 변수 설정이 필요하며, Docker Compose 기본 실행에는 이 빌드가 없어 실물 실습은 준비 오류를 표시한다. [원본 빌드 절차](docs/labs/cve-upstream-build.md)와 각 실습 문서를 따른다. 웹 기반 가상 터미널은 필요 없다. 서버 실행 전
 `$env:CANLITE_ENABLE_REAL_TERMINAL = "false"`, 프론트 실행 전

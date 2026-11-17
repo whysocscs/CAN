@@ -1,7 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import {
   ArrowClockwise,
-  CaretDown,
   CaretLeft,
   CaretRight,
   Check,
@@ -15,7 +14,6 @@ import {
 import { FrameStructureVisual } from "@/components/learning/LessonVisuals"
 import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
 import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
-import { completeCommand } from "@/features/terminal/commandCompletion"
 import LabLinuxShellPanel from "@/features/terminal/LabLinuxShellPanel"
 import "./CanFrameSender.css"
 
@@ -952,7 +950,6 @@ function StepStage({
 }
 
 // 3·4단계는 학습자가 명령을 직접 구성해야 하므로 정답 명령은 자동완성 후보에 넣지 않는다.
-const SENDER_COMPLETIONS = ["cansend vcan0 "]
 
 const SENDER_INTRO: LabIntroContent = {
   kicker: "CAN 실습 · FRAME SENDER",
@@ -977,13 +974,10 @@ export default function CanFrameSenderPage() {
 }
 
 function CanFrameSenderWorkbench() {
-  const [terminalCommand, setTerminalCommand] = useState("cansend vcan0 101#00")
-  const [shellCommandRequest, setShellCommandRequest] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<RunAnalysis | null>(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [substage, setSubstage] = useState(0)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [lastSubmittedCommand, setLastSubmittedCommand] = useState("cansend vcan0 101#00")
   const [learningStage, setLearningStage] = useState<LearningStage>(1)
   const [unlockedLearningStage, setUnlockedLearningStage] = useState<LearningStage>(4)
   const [completedLearningStages, setCompletedLearningStages] = useState<LearningStage[]>([])
@@ -1000,9 +994,6 @@ function CanFrameSenderWorkbench() {
   })
   const [routePosition, setRoutePosition] = useState(0)
   const [learningMessage, setLearningMessage] = useState<string | null>(null)
-  const [guideOpen, setGuideOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth > 800,
-  )
 
   const currentStep = STEP_SEQUENCE[currentStepIndex]
   const currentLearning = LEARNING_STAGE_CONFIG.find((stage) => stage.index === learningStage)!
@@ -1028,11 +1019,6 @@ function CanFrameSenderWorkbench() {
   )
 
   useEffect(() => {
-    if (learningStage <= 2) {
-      setTerminalCommand(currentLearning.command)
-    } else {
-      setTerminalCommand("")
-    }
     setLearningMessage(null)
   }, [currentLearning.command, learningStage])
 
@@ -1084,7 +1070,6 @@ function CanFrameSenderWorkbench() {
       setErrorMessage(null)
       setCurrentStepIndex(0)
       setSubstage(1)
-      setLastSubmittedCommand(command.trim())
       markCurrentCommandComplete()
       return true
     } catch (error) {
@@ -1137,17 +1122,6 @@ function CanFrameSenderWorkbench() {
       setSubstage((current) => current - 1)
     }
   }
-
-  const terminalLines = analysis
-    ? [
-        `> ${lastSubmittedCommand}`,
-        `[parse] CAN ID ${analysis.parsed.canId} / DATA ${formatPayload(analysis.parsed.dataBytes)} / DLC ${analysis.parsed.len}`,
-        `[filter] ${
-          analysis.acceptedEcu ? `${analysis.acceptedEcu} ACCEPT` : `all DROP for ${analysis.parsed.canId}`
-        }`,
-        `[result] ${analysis.finalResult}`,
-      ]
-    : ['입력 대기 중... 예: "cansend vcan0 101#00"']
 
   return (
     <main className="canlab canlab--embedded senderlab-page" aria-label="CAN Frame 송신기 실습">
@@ -1295,105 +1269,9 @@ function CanFrameSenderWorkbench() {
               </div>
             </section>
 
-            <section className="canlab__console" id="sender-terminal" aria-label="CAN 명령 입력">
-              <div className="canlab__tabs" role="tablist" aria-label="CAN Frame 송신기 console">
-                <button className="is-active" type="button" role="tab" aria-selected="true">
-                  <TerminalWindow size={15} /> Terminal
-                </button>
-              </div>
-
-              <div className="canlab__terminal-pane" role="tabpanel">
-                <div className="canlab__console-toolbar">
-                  <strong>Flow 분석</strong>
-                  <span className="canlab__terminal-status is-connected">
-                    <i />
-                    실제 쉘 입력과 연동됨
-                  </span>
-                </div>
-
-                <div className="senderlab__terminal-output" aria-live="polite">
-                  {terminalLines.map((line) => (
-                    <div key={line} className="senderlab__terminal-line">
-                      {line}
-                    </div>
-                  ))}
-                  {errorMessage && (
-                    <div className="senderlab__terminal-line senderlab__terminal-line--error">
-                      [error] {errorMessage}
-                    </div>
-                  )}
-                  <form
-                    className="canlab__command-form senderlab__command-form"
-                    onSubmit={(event) => {
-                      event.preventDefault()
-                      const command = terminalCommand.trim()
-                      if (command) setShellCommandRequest(command)
-                    }}
-                  >
-                    <label htmlFor="senderlab-command">$</label>
-                    <input
-                      id="senderlab-command"
-                      value={terminalCommand}
-                      onChange={(event) => setTerminalCommand(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key !== "Tab") return
-                        event.preventDefault()
-                        setTerminalCommand(completeCommand(terminalCommand, SENDER_COMPLETIONS).value)
-                      }}
-                      placeholder="cansend vcan0 101#00 · Tab 자동완성"
-                      autoComplete="off"
-                    />
-                  </form>
-                </div>
-                <LabLinuxShellPanel
-                  labId="can-frame-sender"
-                  pendingCommand={shellCommandRequest}
-                  onCommandHandled={() => {
-                    setShellCommandRequest(null)
-                    setTerminalCommand("")
-                  }}
-                  onCommandObserved={(command) => {
-                    if (normalizeCommand(command).startsWith("cansend ")) {
-                      submitCanCommand(command)
-                    }
-                  }}
-                />
-              </div>
-            </section>
-          </section>
 
           <aside className="canlab__guide senderlab__guide" id="sender-guide" aria-label="현재 단계 안내">
-            <button
-              type="button"
-              className="canlab__guide-top"
-              aria-expanded={guideOpen}
-              onClick={() => setGuideOpen((value) => !value)}
-            >
-              <span>
-                <strong>CAN Frame 송신기</strong>
-                <small>{learningStage}단계 · {currentLearning.shortTitle}</small>
-              </span>
-              <CaretDown size={16} />
-            </button>
-
-            <div className="canlab__guide-body" hidden={!guideOpen}>
-              <div className="canlab__guide-progress">
-                <span>진행률</span>
-                <b>{progress}%</b>
-                <i>
-                  <em style={{ width: `${progress}%` }} />
-                </i>
-              </div>
-
-              <section className="canlab__objectives">
-                <h1>학습 목표</h1>
-                <ol>
-                  <li><code>cansend</code> 명령어를 해석하여 <strong>CAN ID와 DATA가 어떤 의미를 가지는지 이해한다.</strong></li>
-                  <li>입력한 값이 <strong>CAN Frame의 ID·DLC·DATA 필드로 구성되는 과정을 파악한다.</strong></li>
-                  <li>생성된 CAN Frame이 <strong>CAN Bus를 통해 대상 ECU로 전달되고 실제 동작으로 이어지는 흐름을 이해한다.</strong></li>
-                </ol>
-              </section>
-
+            <div className="canlab__guide-body">
               <section className="canlab__steps senderlab__learning-steps" aria-label="단계별 학습 지시사항">
                 <h2>단계별 학습 지시사항</h2>
                 {LEARNING_STAGE_CONFIG.map((stage) => {
@@ -1617,7 +1495,33 @@ function CanFrameSenderWorkbench() {
                 </article>
               </section>
             </div>
+            <section className="canlab__console" id="sender-terminal" aria-label="CAN 명령 입력">
+              <div className="canlab__tabs" role="tablist" aria-label="CAN Frame 송신기 console">
+                <button className="is-active" type="button" role="tab" aria-selected="true">
+                  <TerminalWindow size={15} /> Terminal
+                </button>
+              </div>
+
+              <div className="canlab__terminal-pane" role="tabpanel">
+                {errorMessage && <p role="alert" className="senderlab__terminal-line senderlab__terminal-line--error">{errorMessage}</p>}
+                <LabLinuxShellPanel
+                  labId="can-frame-sender"
+                  onCommandObserved={(command) => {
+                    if (normalizeCommand(command).startsWith("cansend ") && normalizeCommand(command) !== normalizeCommand(currentLearning.command)) {
+                      submitCanCommand(command)
+                    }
+                  }}
+                  onCanFrame={(frame) => {
+                    const expected = parseCansendCommand(currentLearning.command)
+                    if (frame.channel === expected.iface && Number.parseInt(frame.canId, 16) === Number.parseInt(expected.canId, 16) && frame.data.join("").toUpperCase() === expected.payloadHex) {
+                      submitCanCommand(currentLearning.command)
+                    }
+                  }}
+                />
+              </div>
+            </section>
           </aside>
+          </section>
         </div>
       </section>
     </main>
