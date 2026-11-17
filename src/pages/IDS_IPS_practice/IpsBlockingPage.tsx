@@ -1,4 +1,5 @@
 import { useState } from "react"
+import RealLabTerminal from "@/features/terminal/RealLabTerminal"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
 import IpsBlockingTimeline, { shouldBlock, type IpsFrame, type IpsRule } from "./IpsBlockingTimeline"
@@ -40,6 +41,7 @@ export default function IpsBlockingPage() {
   const [answers, setAnswers] = useState(QUIZ_ANSWERS)
   const [monitorCleared, setMonitorCleared] = useState(false)
   const [logCleared, setLogCleared] = useState(false)
+  const [terminalClearSignal, setTerminalClearSignal] = useState(0)
   const [analysisCleared, setAnalysisCleared] = useState(false)
   const [dashboardRevision, setDashboardRevision] = useState(0)
   const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null)
@@ -130,7 +132,12 @@ export default function IpsBlockingPage() {
     }}
     tabs={idsConsoleTabs({
       status: "고정 시나리오 결과",
-      onClear: (tab) => tab === "monitor" ? setMonitorCleared(true) : setLogCleared(true),
+      onClear: (tab) => {
+        if (tab === "terminal") setTerminalClearSignal((value) => value + 1)
+        else if (tab === "monitor") setMonitorCleared(true)
+        else setLogCleared(true)
+      },
+      terminal: <RealLabTerminal labId="ids-ips-blocking" clearSignal={terminalClearSignal} reconnectSignal={0} />,
       monitor: <table className="lab-v2__table"><thead><tr><th>NO</th><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th><th>처리</th></tr></thead><tbody>{!monitorCleared && entries.map(({ frame, no, action }) => <tr key={frame.id}><td>{no}</td><td>{(frame.time / 1000).toFixed(2)}</td><td>{frame.canId}</td><td>{frame.data}</td><td>{frame.ids}</td><td style={{ color: action === "BLOCKED" ? "#991b1b" : "#166534" }}>{action}</td></tr>)}</tbody></table>,
       idsLog: <div className="lab-v2__log">{started && !logCleared && <><p><b>[ALERT]</b> {idsLog}</p><p><b>[{attackDelivered ? "ALLOWED" : "BLOCKED"}]</b> {attackDelivered ? "Frame delivered to ECU." : activeRule === "id" ? `CAN ID ${attack.canId} is blocked by rule.` : "Frame dropped before reaching ECU."}</p></>}</div>,
     })}

@@ -11,6 +11,7 @@ import pty
 import signal
 import struct
 import termios
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -26,7 +27,7 @@ def set_window_size(file_descriptor: int, rows: int, columns: int) -> None:
     )
 
 
-def shell_environment() -> dict[str, str]:
+def shell_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
     environment = os.environ.copy()
     environment.update(
         {
@@ -35,6 +36,8 @@ def shell_environment() -> dict[str, str]:
             "PS1": "\\[\\e[38;2;126;178;158m\\]can@canlite\\[\\e[0m\\]:\\[\\e[38;2;170;191;184m\\]\\w\\[\\e[0m\\]$ ",
         }
     )
+    if overrides:
+        environment.update(overrides)
     return environment
 
 
@@ -50,6 +53,8 @@ async def run_terminal_session(
     *,
     project_root: Path,
     shell: str,
+    send_output: Callable[[bytes], Awaitable[None]] | None = None,
+    environment: dict[str, str] | None = None,
 ) -> None:
     master_fd, slave_fd = pty.openpty()
     set_window_size(master_fd, rows=28, columns=112)
@@ -62,7 +67,7 @@ async def run_terminal_session(
         stdout=slave_fd,
         stderr=slave_fd,
         cwd=str(project_root),
-        env=shell_environment(),
+        env=shell_environment(environment),
         start_new_session=True,
     )
     os.close(slave_fd)
@@ -72,7 +77,10 @@ async def run_terminal_session(
             output = await asyncio.to_thread(os.read, master_fd, 4096)
             if not output:
                 return
-            await websocket.send_bytes(output)
+            if send_output is None:
+                await websocket.send_bytes(output)
+            else:
+                await send_output(output)
 
     output_task = asyncio.create_task(forward_terminal_output())
     try:

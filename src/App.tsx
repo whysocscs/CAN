@@ -59,6 +59,7 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "practice/monitor": {
     title: "CAN Monitor",
     description: "CAN 트래픽 관찰과 분석 기능을 위한 화면 구조입니다.",
+    shellLabId: "can-monitor",
     slots: [
       { title: "트래픽 목록", description: "수신 프레임 목록이 들어갈 영역" },
       { title: "필터", description: "ID와 프레임 유형 필터가 들어갈 영역" },
@@ -101,6 +102,7 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "ids/unknown-id": {
     title: "Unknown ID",
     description: "허용되지 않은 CAN ID 탐지를 위한 화면 구조입니다.",
+    shellLabId: "ids-unknown-id",
     slots: [
       { title: "허용 목록", description: "정상 CAN ID 정책 영역" },
       { title: "탐지 이벤트", description: "Unknown ID 경고 목록 영역" },
@@ -110,6 +112,7 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "ids/frequency": {
     title: "Frequency Anomaly",
     description: "메시지 빈도 이상 탐지를 위한 화면 구조입니다.",
+    shellLabId: "ids-frequency",
     slots: [
       { title: "기준 빈도", description: "정상 주기와 임계값 영역" },
       { title: "빈도 변화", description: "관찰값 비교 영역" },
@@ -119,6 +122,7 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "ids/payload-jump": {
     title: "Payload Jump",
     description: "데이터 값 급변 탐지를 위한 화면 구조입니다.",
+    shellLabId: "ids-payload-jump",
     slots: [
       { title: "정상 범위", description: "Payload 기준값 영역" },
       { title: "변화 관찰", description: "값 변화 비교 영역" },
@@ -128,6 +132,7 @@ const scaffoldPages: Partial<Record<Route, ScaffoldPageContent>> = {
   "ids/gateway": {
     title: "Gateway Policy",
     description: "게이트웨이 정책 검증을 위한 화면 구조입니다.",
+    shellLabId: "ids-gateway",
     slots: [
       { title: "정책 목록", description: "허용과 차단 규칙 영역" },
       { title: "트래픽 판정", description: "규칙 적용 결과 영역" },

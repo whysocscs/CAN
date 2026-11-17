@@ -6,6 +6,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import * as THREE from "three"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { HINGES } from "@/features/vehicle/hinges"
+import { vehicle } from "@/features/vehicle/vehicleStore"
 
 const normalState = vi.hoisted(() => ({
   canvasMounts: 0,
@@ -19,6 +21,7 @@ const normalState = vi.hoisted(() => ({
     camera: [number, number, number]
     target: [number, number, number]
   }>,
+  frameCallbacks: [] as Array<(state: unknown, delta: number) => void>,
   useGLTF: vi.fn(),
 }))
 
@@ -71,6 +74,9 @@ vi.mock("@react-three/fiber", async () => {
     },
     useThree: (selector: (state: unknown) => unknown) =>
       selector({ camera: normalState.camera, controls: normalState.controls }),
+    useFrame: (callback: (state: unknown, delta: number) => void) => {
+      normalState.frameCallbacks.push(callback)
+    },
   }
 })
 
@@ -114,6 +120,13 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
   let sourceMaterial: THREE.MeshStandardMaterial
 
   beforeEach(() => {
+    vi.stubGlobal("WebSocket", class {
+      static OPEN = 1
+      readyState = 0
+      addEventListener() {}
+      send() {}
+      close() {}
+    })
     normalState.canvasMounts = 0
     normalState.canvasProps = undefined
     normalState.orbitProps = undefined
@@ -121,7 +134,9 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
     normalState.camera.position.set(-3, 2, 8)
     normalState.controls = { target: new THREE.Vector3(), update: vi.fn() }
     normalState.overviewResets = []
+    normalState.frameCallbacks = []
     normalState.useGLTF.mockReset()
+    vehicle.reset()
     clonedScenes.length = 0
     sourceMaterial = new THREE.MeshStandardMaterial({ color: "#334455" })
     const sourceScene = new THREE.Group()
@@ -160,8 +175,22 @@ describe("CanPracticeOnlyPage vehicle scene", () => {
 
   afterEach(() => {
     cleanup()
+    vehicle.reset()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
+  })
+
+  it("connects an accepted door-open state to the rendered vehicle hinge", async () => {
+    const user = userEvent.setup()
+    render(<CanPracticeOnlyPage />)
+    await user.click(screen.getByRole("button", { name: "실습 시작" }))
+
+    await waitFor(() => expect(normalState.frameCallbacks.length).toBeGreaterThan(0))
+    expect(vehicle.applyFrame({ canId: "0x101", data: ["00"] })).toBe(true)
+    normalState.frameCallbacks.at(-1)?.({}, 10)
+
+    const doorHinge = clonedScenes.at(-1)?.getObjectByName("HINGE_doorL")
+    expect(doorHinge?.rotation.y).toBeCloseTo(HINGES.doorL.openAngle)
   })
 
   it("turns xray off truthfully while preserving labels, bus, auto-rotate, and reset controls", async () => {

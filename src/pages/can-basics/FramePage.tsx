@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useApp } from "@/context/AppContext"
 import { designVersion } from "@/design/version"
-import RouteLesson from "@/components/learning/RouteLesson"
+import CanBasicsRouteLessonPlayer from "@/components/learning/CanBasicsRouteLessonPlayer"
 import LessonQuiz, { RouteAction } from "@/components/learning/LessonQuiz"
 import {
   classicalCanFields,
@@ -124,7 +124,11 @@ function FrameFieldExplanation({ field }: { field: FrameField }) {
         <code>{field.bitLabel}</code>
       </header>
       <p>{field.overviewDescription}</p>
-      {field.overviewValue && <strong className="frame-field-explanation__value">{field.overviewValue}</strong>}
+      {field.overviewValue && (
+        <strong className="frame-field-explanation__value">
+          {field.overviewValue}
+        </strong>
+      )}
       <p className="frame-field-explanation__hint">
         오른쪽 Frame에서 다른 Field를 선택해 계속 탐색하세요.
       </p>
@@ -164,8 +168,8 @@ export default function FramePage() {
 
   if (designVersion === "ver4") {
     return (
-      <RouteLesson
-        snapScope="can-basics"
+      <CanBasicsRouteLessonPlayer
+        sectionLabel="CAN 프레임"
         title="한 CAN Frame을 Bit 단위로 해부하기"
         introduction="CAN Frame은 Identifier와 Data뿐 아니라 중재, 길이 정보, 오류 검출, 수신 확인을 위한 여러 필드로 구성됩니다. Standard Data Frame을 왼쪽에서 오른쪽으로 따라가며 실제 Bus에 전송되는 구조를 해석합니다."
         objective="Standard CAN Data Frame의 전체 필드 순서를 설명하고, Identifier·RTR·IDE·DLC·CRC·ACK·EOF의 역할과 bit 수를 구분하며, Bit Stuffing과 Intermission까지 설명할 수 있습니다."
@@ -224,9 +228,18 @@ export default function FramePage() {
               "SOF가 Frame의 시작을 알리고, Arbitration Field의 Identifier와 RTR이 메시지 종류와 Bus 중재에 필요한 정보를 전달합니다.",
             content: (
               <dl className="lesson-comparison-list">
-                <div><dt>SOF</dt><dd>1 bit · Dominant</dd></div>
-                <div><dt>Identifier</dt><dd>11 bits · 0x101</dd></div>
-                <div><dt>RTR</dt><dd>Data Frame = 0</dd></div>
+                <div>
+                  <dt>SOF</dt>
+                  <dd>1 bit · Dominant</dd>
+                </div>
+                <div>
+                  <dt>Identifier</dt>
+                  <dd>11 bits · 0x101</dd>
+                </div>
+                <div>
+                  <dt>RTR</dt>
+                  <dd>Data Frame = 0</dd>
+                </div>
               </dl>
             ),
             visual: (
@@ -244,9 +257,18 @@ export default function FramePage() {
               "Standard Frame의 Control Field에는 IDE, r0, DLC가 있으며, DLC가 뒤따르는 Data Field의 길이를 나타냅니다.",
             content: (
               <dl className="lesson-comparison-list">
-                <div><dt>IDE</dt><dd>Standard = 0</dd></div>
-                <div><dt>DLC</dt><dd>0001 = 1 byte</dd></div>
-                <div><dt>Data</dt><dd>01 = 00000001 · 8 bits</dd></div>
+                <div>
+                  <dt>IDE</dt>
+                  <dd>Standard = 0</dd>
+                </div>
+                <div>
+                  <dt>DLC</dt>
+                  <dd>0001 = 1 byte</dd>
+                </div>
+                <div>
+                  <dt>Data</dt>
+                  <dd>01 = 00000001 · 8 bits</dd>
+                </div>
               </dl>
             ),
             visual: (
@@ -264,7 +286,8 @@ export default function FramePage() {
               "CRC는 전송 오류를 검출하고, ACK는 다른 노드의 정상 수신 여부를 확인하며, EOF가 Frame의 끝을 표시합니다.",
             content: (
               <p className="lesson-note">
-                ACK는 특정 ECU가 메시지 내용을 사용했다는 의미가 아닙니다. 하나 이상의 다른 CAN 노드가 Frame을 오류 없이 수신했음을 의미합니다.
+                ACK는 특정 ECU가 메시지 내용을 사용했다는 의미가 아닙니다. 하나
+                이상의 다른 CAN 노드가 Frame을 오류 없이 수신했음을 의미합니다.
               </p>
             ),
             visual: (
@@ -282,9 +305,18 @@ export default function FramePage() {
               "CAN은 SOF부터 CRC Sequence까지 같은 값의 비트가 5개 연속되면 반대 값의 Stuff Bit를 자동으로 삽입합니다.",
             content: (
               <dl className="lesson-comparison-list">
-                <div><dt>적용 범위</dt><dd>SOF → CRC Sequence</dd></div>
-                <div><dt>Frame 길이</dt><dd>44 + 8N nominal bits</dd></div>
-                <div><dt>Intermission</dt><dd>3 Recessive · Frame 밖</dd></div>
+                <div>
+                  <dt>적용 범위</dt>
+                  <dd>SOF → CRC Sequence</dd>
+                </div>
+                <div>
+                  <dt>Frame 길이</dt>
+                  <dd>44 + 8N nominal bits</dd>
+                </div>
+                <div>
+                  <dt>Intermission</dt>
+                  <dd>3 Recessive · Frame 밖</dd>
+                </div>
               </dl>
             ),
             visual: (

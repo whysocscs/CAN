@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
-import { IDS_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import RealLabTerminal from "@/features/terminal/RealLabTerminal"
 import { idsConsoleTabs } from "./IdsBottomTabs"
 import IdsLabFrame from "./IdsLabFrame"
 import PeriodTimeline, { type PeriodTimelineFrame } from "./PeriodTimeline"
@@ -211,7 +210,7 @@ export default function PeriodBasedIDSPage() {
           if (tab === "monitor") setMonitorClearedAt(entryIdRef.current)
           if (tab === "idsLog") setLogClearedAt(entryIdRef.current)
         },
-        terminal: <CanCommandTerminal clearSignal={clearSignal} onCommand={onTerminalCommand} completions={IDS_COMPLETIONS["period-based"]} />,
+        terminal: <RealLabTerminal labId="ids-period-based" clearSignal={clearSignal} reconnectSignal={0} onCommandObserved={(input) => { void onTerminalCommand(input) }} />,
         monitor: <table className="lab-v2__table"><thead><tr><th>TIME</th><th>CAN ID</th><th>DATA</th><th>IDS</th></tr></thead><tbody>{monitor.filter((entry) => entry.id > monitorClearedAt).map((entry) => <tr key={entry.id}><td>{entry.time}</td><td>{entry.canId}</td><td>{entry.data}</td><td style={{ color: entry.verdict === "PASS" ? "var(--state-success)" : "var(--state-danger)" }}>{entry.verdict}</td></tr>)}</tbody></table>,
         idsLog: <div className="lab-v2__log">{idsLog.filter((entry) => entry.id > logClearedAt).slice().reverse().map((entry) => <p key={entry.id}><b>[{entry.verdict === "ANOMALY" ? "ALERT" : entry.verdict}]</b> {entry.reason}</p>)}</div>,
       })}

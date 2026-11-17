@@ -16,6 +16,7 @@ import { FrameStructureVisual } from "@/components/learning/LessonVisuals"
 import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
 import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
 import { completeCommand } from "@/features/terminal/commandCompletion"
+import LabLinuxShellPanel from "@/features/terminal/LabLinuxShellPanel"
 import "./CanFrameSender.css"
 
 type StepKey =
@@ -977,6 +978,7 @@ export default function CanFrameSenderPage() {
 
 function CanFrameSenderWorkbench() {
   const [terminalCommand, setTerminalCommand] = useState("cansend vcan0 101#00")
+  const [shellCommandRequest, setShellCommandRequest] = useState<string | null>(null)
   const [analysis, setAnalysis] = useState<RunAnalysis | null>(null)
   const [currentStepIndex, setCurrentStepIndex] = useState(0)
   const [substage, setSubstage] = useState(0)
@@ -1302,10 +1304,10 @@ function CanFrameSenderWorkbench() {
 
               <div className="canlab__terminal-pane" role="tabpanel">
                 <div className="canlab__console-toolbar">
-                  <strong>Terminal</strong>
+                  <strong>Flow 분석</strong>
                   <span className="canlab__terminal-status is-connected">
                     <i />
-                    Mock Sender Ready
+                    실제 쉘 입력과 연동됨
                   </span>
                 </div>
 
@@ -1324,9 +1326,8 @@ function CanFrameSenderWorkbench() {
                     className="canlab__command-form senderlab__command-form"
                     onSubmit={(event) => {
                       event.preventDefault()
-                      if (submitCanCommand(terminalCommand)) {
-                        setTerminalCommand("")
-                      }
+                      const command = terminalCommand.trim()
+                      if (command) setShellCommandRequest(command)
                     }}
                   >
                     <label htmlFor="senderlab-command">$</label>
@@ -1344,6 +1345,19 @@ function CanFrameSenderWorkbench() {
                     />
                   </form>
                 </div>
+                <LabLinuxShellPanel
+                  labId="can-frame-sender"
+                  pendingCommand={shellCommandRequest}
+                  onCommandHandled={() => {
+                    setShellCommandRequest(null)
+                    setTerminalCommand("")
+                  }}
+                  onCommandObserved={(command) => {
+                    if (normalizeCommand(command).startsWith("cansend ")) {
+                      submitCanCommand(command)
+                    }
+                  }}
+                />
               </div>
             </section>
           </section>

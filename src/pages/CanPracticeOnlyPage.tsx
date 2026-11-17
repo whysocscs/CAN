@@ -36,13 +36,16 @@ import {
   CAN_NODE_LABELS,
 } from "@/features/can/events/catalog"
 import type { CanEvent, CanNodeId } from "@/features/can/events/types"
-import CanCommandTerminal from "@/features/can/practice/CanCommandTerminal"
 import type { LabIntroContent } from "@/features/lab-layout/LabIntro"
 import LabIntroGate, { LabIntroButton } from "@/features/lab-layout/LabIntroGate"
-import { CAN_PRACTICE_COMPLETIONS } from "@/features/terminal/commandCompletion"
+import RealLabTerminal, {
+  type LabTerminalStatus,
+  type ObservedCanFrame,
+} from "@/features/terminal/RealLabTerminal"
 import {
   useCanVehicleStream,
   useSelectedVehicleModel,
+  useVehicleRig,
   VehicleModelSelector,
 } from "@/features/vehicle"
 import {
@@ -714,8 +717,15 @@ class VehicleLoadBoundary extends Component<{ children: ReactNode }, { failed: b
   }
 }
 
+function VehicleRigAttachment({ immediate }: { immediate: boolean }) {
+  const scene = useSharedVehicleClone()
+  useVehicleRig(scene, { immediate })
+  return null
+}
+
 function VehicleCanvas({
   autoRotate,
+  reducedMotion,
   overviewRevision,
   orbitCommand,
   showLabels,
@@ -727,6 +737,7 @@ function VehicleCanvas({
   onSelectModule,
 }: {
   autoRotate: boolean
+  reducedMotion: boolean
   overviewRevision: number
   orbitCommand: { id: number; angle: number }
   showLabels: boolean
@@ -766,6 +777,7 @@ function VehicleCanvas({
             xray={showLabels || showBus}
             showEcuModels={showBus}
           >
+            <VehicleRigAttachment immediate={reducedMotion} />
             <SharedVehicleOverviewController
               resetRevision={overviewRevision}
             />
@@ -843,6 +855,8 @@ function CanPracticeWorkbench() {
   const [overviewRevision, setOverviewRevision] = useState(0)
   const [orbitCommand, setOrbitCommand] = useState({ id: 0, angle: 0 })
   const [terminalClearSignal, setTerminalClearSignal] = useState(0)
+  const [terminalReconnectSignal, setTerminalReconnectSignal] = useState(0)
+  const [terminalStatus, setTerminalStatus] = useState<LabTerminalStatus>("connecting")
   const [pendingTerminalCommand, setPendingTerminalCommand] = useState<string | null>(null)
   const [hintOpen, setHintOpen] = useState(false)
   const [quizOpen, setQuizOpen] = useState(false)
@@ -870,7 +884,7 @@ function CanPracticeWorkbench() {
   ).length
   const quizPassed = quizSubmitted && quizScore === quizQuestions.length
 
-  const canStreamStatus = useCanVehicleStream({
+  useCanVehicleStream({
     onEvent: (incomingEvents) => {
       const receivedEvents = incomingEvents.map(enrichBackendEvent)
       setEvents((current) => [...current, ...receivedEvents])
@@ -916,60 +930,43 @@ function CanPracticeWorkbench() {
     }
   }
 
-  const submitTerminalCommand = async (command: string): Promise<string[]> => {
+  const observeTerminalCommand = (command: string) => {
     const normalized = command.trim().replace(/\s+/g, " ").toLowerCase()
 
     if (normalized === "ip link show vcan0") {
       markStepCompleted("1")
-      return ["[ok] vcan0: <UP,LOWER_UP> mtu 72", "[info] 가상 CAN 인터페이스가 준비되었습니다."]
+      return
     }
 
-    if (normalized === "candump vcan0") {
+    if (normalized === "candump vcan0" || normalized === "candump vcan0 &") {
       markStepCompleted("2")
-      return ["[ok] vcan0 수신 대기 상태입니다.", "[info] 다음 cansend 명령을 입력하세요."]
     }
+  }
 
-    const match = normalized.match(/^cansend vcan0 ([0-9a-f]{3})#([0-9a-f]{2})$/i)
-    if (!match) {
-      return ["\x1b[31m[error] 교육용 명령 형식만 사용할 수 있습니다. 예: cansend vcan0 101#00\x1b[0m"]
-    }
-
-    const [, canId, payload] = match
-    const frame = `${canId}#${payload}`
-    if (frame !== "101#00" && frame !== "200#00") {
-      return ["\x1b[31m[error] 현재 실습 단계에서 허용되지 않은 CAN Frame입니다.\x1b[0m"]
-    }
+  const handleObservedCanFrame = async (frame: ObservedCanFrame) => {
+    const canId = frame.canId.toLowerCase().padStart(3, "0")
+    const payload = frame.data.join("").toLowerCase()
+    const frameExpression = `${canId}#${payload}`
+    if (frameExpression !== "101#00" && frameExpression !== "200#00") return
 
     let response: Response
     try {
       response = await fetch(`${CAN_API_BASE}/can/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ can_id: canId, data: [payload.toUpperCase()] }),
+        body: JSON.stringify({ can_id: canId, data: frame.data }),
       })
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : "unknown network error"
-      return [`\x1b[31m[error] CAN API 요청 실패: ${detail}\x1b[0m`]
+    } catch {
+      return
     }
 
-    if (!response.ok) {
-      return ["\x1b[31m[error] CAN API에 연결하지 못했습니다. FastAPI 서버 상태를 확인하세요.\x1b[0m"]
-    }
+    if (!response.ok) return
 
-    if (frame === "101#00") {
+    if (frameExpression === "101#00") {
       markStepCompleted("3-1")
     } else {
       markStepCompleted("3-2")
     }
-
-    const target = frame === "101#00" ? "Body ECU" : "Rear Module"
-    const action = frame === "101#00" ? "DOOR_OPEN" : "TRUNK_OPEN"
-    return [
-      `[sent] vcan0 ${frame}`,
-      `[parse] CAN ID 0x${canId.toUpperCase()} / DLC 1 / DATA ${payload.toUpperCase()}`,
-      `[filter] ${target} ACCEPT`,
-      `[result] ${action}`,
-    ]
   }
 
   const handleSelectModule = (id: EcuModuleId) => {
@@ -1061,6 +1058,7 @@ function CanPracticeWorkbench() {
               <div className="canlab__vehicle-stage canlab__vehicle-stage--large">
                 <VehicleCanvas
                   autoRotate={autoRotate && !reducedMotion}
+                  reducedMotion={reducedMotion}
                   overviewRevision={overviewRevision}
                   orbitCommand={orbitCommand}
                   showLabels={showLabels}
@@ -1149,12 +1147,25 @@ function CanPracticeWorkbench() {
                         <span className="dot green" />
                       </div>
                       <strong>Terminal (vcan0)</strong>
-                      <span className={`canlab__terminal-status is-${canStreamStatus === "open" ? "connected" : "connecting"}`}>
+                      <span className={`canlab__terminal-status is-${terminalStatus === "open" ? "connected" : terminalStatus}`}>
                         <i />
-                        {canStreamStatus === "open" ? "CAN 스트림 연결됨" : "CAN 스트림 연결 중"}
+                        {terminalStatus === "open"
+                          ? "격리된 Linux 쉘 연결됨"
+                          : terminalStatus === "offline"
+                            ? "Linux 쉘 연결 끊김"
+                            : "Linux 쉘 연결 중"}
                       </span>
-                      <button type="button" onClick={() => setTerminalClearSignal((value) => value + 1)}>
-                        화면 비우기
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (terminalStatus === "offline") {
+                            setTerminalReconnectSignal((value) => value + 1)
+                          } else {
+                            setTerminalClearSignal((value) => value + 1)
+                          }
+                        }}
+                      >
+                        {terminalStatus === "offline" ? "재연결" : "화면 비우기"}
                       </button>
                     </div>
 
@@ -1170,9 +1181,9 @@ function CanPracticeWorkbench() {
                       <button
                         type="button"
                         className="canlab__quick-chip"
-                        onClick={() => setPendingTerminalCommand("candump vcan0")}
+                        onClick={() => setPendingTerminalCommand("candump vcan0 &")}
                       >
-                        candump vcan0
+                        candump vcan0 &
                       </button>
                       <button
                         type="button"
@@ -1190,12 +1201,15 @@ function CanPracticeWorkbench() {
                       </button>
                     </div>
 
-                    <CanCommandTerminal
-                      completions={CAN_PRACTICE_COMPLETIONS}
+                    <RealLabTerminal
+                      labId="can-basics"
                       clearSignal={terminalClearSignal}
-                      onCommand={submitTerminalCommand}
+                      reconnectSignal={terminalReconnectSignal}
                       pendingCommand={pendingTerminalCommand}
                       onCommandHandled={() => setPendingTerminalCommand(null)}
+                      onCommandObserved={observeTerminalCommand}
+                      onCanFrame={handleObservedCanFrame}
+                      onStatusChange={setTerminalStatus}
                     />
                   </div>
 
@@ -1243,7 +1257,7 @@ function CanPracticeWorkbench() {
                     </table>
                     {monitorFrames.length === 0 && (
                       <p className="canlab__empty-state">
-                        아직 생성된 CAN Event가 없습니다. Terminal 탭의 Mock 명령을 실행해 이벤트를 추가하세요.
+                        아직 생성된 CAN Event가 없습니다. Terminal 탭의 Linux 쉘에서 CAN 명령을 실행해 이벤트를 추가하세요.
                       </p>
                     )}
                   </div>
@@ -1375,7 +1389,7 @@ function CanPracticeWorkbench() {
                   {hintOpen && (
                     <p>
                       먼저 <code>ip link show vcan0</code>와 <code>candump vcan0</code>로 준비 상태를 확인한 뒤,
-                      허용된 <code>cansend</code> frame을 Terminal에서 전송해 보세요.
+                      실습 대상 <code>cansend</code> frame을 Terminal에서 전송해 보세요.
                     </p>
                   )}
                 </section>

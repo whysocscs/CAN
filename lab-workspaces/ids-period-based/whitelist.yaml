@@ -1,0 +1,6 @@
+allowed_can_ids:
+  "0x101":
+    name: DOOR
+    expected_period_ms: 100
+  "0x200":
+    name: TRUNK

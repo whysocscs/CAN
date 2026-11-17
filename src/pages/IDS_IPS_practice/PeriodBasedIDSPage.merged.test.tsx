@@ -4,11 +4,11 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import PeriodBasedIDSPage from "./PeriodBasedIDSPage"
 
-const terminal = vi.hoisted(() => ({ command: null as null | ((input: string) => Promise<string[]>) }))
+const terminal = vi.hoisted(() => ({ command: null as null | ((input: string) => void) }))
 vi.mock("@/features/lab-layout/LabIntroGate", () => ({ LabIntroButton: () => null }))
-vi.mock("@/features/can/practice/CanCommandTerminal", () => ({
-  default: ({ onCommand }: { onCommand: typeof terminal.command }) => {
-    terminal.command = onCommand
+vi.mock("@/features/terminal/RealLabTerminal", () => ({
+  default: ({ onCommandObserved }: { onCommandObserved: typeof terminal.command }) => {
+    terminal.command = onCommandObserved
     return <div>Terminal stub</div>
   },
 }))

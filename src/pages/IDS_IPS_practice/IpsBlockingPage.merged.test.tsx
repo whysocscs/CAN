@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import IpsBlockingPage from "./IpsBlockingPage"
 import type { IpsFrame, IpsRule } from "./IpsBlockingTimeline"
 
+vi.mock("@/features/terminal/RealLabTerminal", () => ({ default: () => <div>Terminal stub</div> }))
 vi.mock("@/features/lab-layout/LabIntroGate", () => ({ LabIntroButton: () => null }))
 vi.mock("./IpsBlockingTimeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./IpsBlockingTimeline")>()
@@ -46,7 +47,7 @@ it("allows retries and keeps each correct answer visible until advancing", () =>
   expect(screen.getByText(/정답입니다/)).toBeInTheDocument()
   fireEvent.click(screen.getByRole("button", { name: "다음 단계로 넘어가기" }))
   expect(screen.queryByRole("region", { name: "IPS 규칙 선택 문제" })).not.toBeInTheDocument()
-  expect(screen.getByText(/CAN ID 전체 차단 규칙의 문제점으로/)).toBeInTheDocument()
+  expect(screen.getAllByText(/CAN ID 전체 차단 규칙의 문제점으로/).length).toBeGreaterThan(0)
 })
 
 it("shows blocking results only after the scenario starts", () => {
