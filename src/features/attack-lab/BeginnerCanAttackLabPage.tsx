@@ -82,6 +82,7 @@ import { BEGINNER_CAN_ATTACK_CONFIG } from "./attackLabScenarioData"
 import { LabIntroButton } from "../lab-layout/LabIntroGate"
 import LabTabs from "../lab-layout/LabTabs"
 import { ATTACK_LAB_COMPLETIONS, completeCommand } from "../terminal/commandCompletion"
+import LabLinuxShellPanel from "../terminal/LabLinuxShellPanel"
 import {
   ATTACK_LAB_PREDICTION_PROMPTS,
   ATTACK_LAB_PRINCIPLE_QUESTIONS,
@@ -1204,7 +1205,13 @@ export default function BeginnerCanAttackLabPage({
           <LabTabs
             label="실습 도구"
             tabs={[
-              { id: "terminal", label: "Terminal", icon: TerminalWindow, content: terminalPanel },
+              { id: "terminal", label: "Guided Terminal", icon: TerminalWindow, content: terminalPanel },
+              {
+                id: "linux-shell",
+                label: "Linux Shell",
+                icon: TerminalWindow,
+                content: <LabLinuxShellPanel labId={`attack-${scenario}`} />,
+              },
               { id: "script", label: "Script", icon: Code, content: editorPanel },
               {
                 id: "monitor",

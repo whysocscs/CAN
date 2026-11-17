@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import IpsBlockingPage from "./IpsBlockingPage"
 import type { IpsFrame, IpsRule } from "./IpsBlockingTimeline"
 
+vi.mock("@/features/terminal/RealLabTerminal", () => ({ default: () => <div>Terminal stub</div> }))
 vi.mock("@/features/lab-layout/LabIntroGate", () => ({ LabIntroButton: () => null }))
 vi.mock("./IpsBlockingTimeline", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./IpsBlockingTimeline")>()

@@ -72,9 +72,19 @@ ver4의 **공격 실습 → KUKSA 권한 / SWUpdate 업로드**에서 새 실습
 `$env:VITE_ENABLE_REAL_TERMINAL = "false"`를 지정한다.
 KUKSA 세션은 서버 메모리에만 있고 SWUpdate는 요청마다 별도 프로세스를 실행·종료한다. 두 화면 모두 실제 차량·물리 CAN에는 연결하지 않는다.
 
-## 터미널 두 종류
+## 터미널 종류
 
 공격 실습 페이지의 `/labs/door-blackbox/.../terminal`은 whitelist parser이며 실제 shell을 만들지 않는다. `pwd`, `ls`, `cat`, 제한된 `candump`/`cansend` 문법만 Toy 결과로 처리한다.
+
+실습 페이지의 `/ws/lab-terminal?lab=<profile>`은 전용 `lab-terminal` 컨테이너 안에서
+프로필별 작업 폴더를 가진 실제 Bash PTY를 연다. 정상 CAN·Frame 송신기·Monitor,
+공격, IDS/IPS, KUKSA·SWUpdate 화면이 같은 격리 경계를 공유한다. 공격 실습의 기존
+allowlist interpreter는 단계별 채점을 위한 `Guided Terminal`로 별도 유지한다.
+컨테이너는 호스트 디렉터리나 Docker socket을 mount하지 않고,
+비root 사용자·read-only root filesystem·자원 제한으로 실행된다. 커널이 `vcan`을
+지원하면 SocketCAN `vcan0`를 사용하고, Docker Desktop/WSL처럼 모듈이 없는 환경에서는
+격리된 사용자 공간 CAN 버스로 자동 전환한다. 두 모드 모두 버스에서 관측된 frame만
+기존 CAN stream과 차량 시각화에 전달한다.
 
 별도의 `/ws/terminal`은 호스트 권한으로 POSIX PTY를 여는 기존 기능이다. frontend의 `VITE_ENABLE_REAL_TERMINAL=true`와 backend의 `CANLITE_ENABLE_REAL_TERMINAL=true`를 모두 명시하고 허용된 `Origin`으로 접속한 경우에만 연결되며, Docker Compose에서는 항상 비활성화한다. 이 기능은 공격 실습에 필요하지 않으며 공개 서버에서 활성화하면 안 된다.
 
