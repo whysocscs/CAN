@@ -78,12 +78,12 @@ def test_create_get_reset_terminal_run_and_wrong_scenario_pair_contract() -> Non
     )
     executed = client.post(
         f"/labs/can-attacks/spoofing/sessions/{session_id}/run",
-        json={"script": "# final action\ncansend vcan0 5A1#01"},
+        json={"script": "# final action\ncansend vcan0 101#00"},
     )
     reset = client.post(f"/labs/can-attacks/spoofing/sessions/{session_id}/reset")
 
     assert observed.status_code == 200
-    assert "5A1#00" in observed.json()["output"]
+    assert "101#01" in observed.json()["output"]
     assert executed.json()["code"] == "EXECUTED"
     assert reset.json()["generation"] == 1
     assert reset.json()["completed"] is False
@@ -95,7 +95,7 @@ def test_spoofing_and_replay_results_expose_scenario_routes() -> None:
     spoof = client.post("/labs/can-attacks/spoofing/sessions").json()
     spoof_result = client.post(
         f"/labs/can-attacks/spoofing/sessions/{spoof['sessionId']}/run",
-        json={"script": "cansend vcan0 5A1#01"},
+        json={"script": "cansend vcan0 101#00"},
     ).json()
     spoof_trace = spoof_result["flowTraces"][0]
     assert spoof_trace["route"] == [
@@ -253,18 +253,18 @@ def test_capture_and_rejected_attempt_emit_zero_but_each_accepted_attack_emits_o
     spoof_id = spoofing["sessionId"]
     client.post(
         f"/labs/can-attacks/spoofing/sessions/{spoof_id}/terminal",
-        json={"command": "cansend vcan0 5A1#00"},
+        json={"command": "cansend vcan0 101#01"},
     )
     assert emitted == []
     client.post(
         f"/labs/can-attacks/spoofing/sessions/{spoof_id}/terminal",
-        json={"command": "cansend vcan0 5A1#01"},
+        json={"command": "cansend vcan0 101#00"},
     )
 
     assert emitted == [
         {
-            "can_id": "0x5A1",
-            "data": ["01"],
+            "can_id": "0x101",
+            "data": ["00"],
             "context": {
                 "command": "TRUNK_OPEN",
                 "source": "obd",
@@ -343,26 +343,24 @@ def test_real_virtual_replay_event_has_no_top_level_replay_marker() -> None:
     )
 
     assert response.json()["code"] == "EXECUTED"
-    event = can._last_frames["0x5a2"]
+    event = can._last_frames["0x101"]
     assert "replay" not in event
     assert event["lab"]["scenario"] == "replay"
 
 
-def test_new_sessions_and_reset_clear_only_their_target_snapshots() -> None:
-    for can_id in ("0x456", "0x101", "0x200", "0x5a1", "0x5a2"):
+def test_new_sessions_and_reset_preserve_shared_normal_id_snapshots() -> None:
+    for can_id in ("0x456", "0x101", "0x200"):
         can._last_frames[can_id] = can.build_event(can_id, ["01"], timestamp_ms=1, channel="vcan0")
+    original = dict(can._last_frames)
     client = _client(emitted=[])
 
     spoofing = client.post("/labs/can-attacks/spoofing/sessions").json()
-    assert set(can._last_frames) == {"0x456", "0x101", "0x200", "0x5a2"}
+    assert can._last_frames == original
     replay = client.post("/labs/can-attacks/replay/sessions").json()
-    assert set(can._last_frames) == {"0x456", "0x101", "0x200"}
+    assert can._last_frames == original
 
-    can._last_frames["0x5a1"] = can.build_event("0x5a1", ["01"], timestamp_ms=2, channel="vcan0")
-    can._last_frames["0x5a2"] = can.build_event("0x5a2", ["00", "01"], timestamp_ms=2, channel="vcan0")
     client.post(f"/labs/can-attacks/spoofing/sessions/{spoofing['sessionId']}/reset")
-    assert "0x5a1" not in can._last_frames
-    assert set(can._last_frames) == {"0x456", "0x101", "0x200", "0x5a2"}
+    assert can._last_frames == original
     assert replay["sessionId"]
 
 
@@ -379,7 +377,7 @@ def test_stale_session_and_generation_attempts_are_suppressed() -> None:
         old = await module.create_session("spoofing")
         old_id = str(old["sessionId"])
         old_session = module._sessions["spoofing"][old_id]
-        accepted = old_session.execute_terminal("cansend vcan0 5A1#01").attempts[0]
+        accepted = old_session.execute_terminal("cansend vcan0 101#00").attempts[0]
         old_correlation = (old_id, 0)
 
         await module.reset_session("spoofing", old_id)
@@ -388,7 +386,7 @@ def test_stale_session_and_generation_attempts_are_suppressed() -> None:
         current = await module.create_session("spoofing")
         current_id = str(current["sessionId"])
         current_session = module._sessions["spoofing"][current_id]
-        current_attempt = current_session.execute_terminal("cansend vcan0 5A1#01").attempts[0]
+        current_attempt = current_session.execute_terminal("cansend vcan0 101#00").attempts[0]
         await module.create_session("spoofing")
         assert await module._emit_if_active(
             "spoofing", (current_id, 0), current_attempt, record
@@ -410,8 +408,8 @@ def test_virtual_publisher_never_uses_socketcan_subprocess_even_when_mode_is_soc
 
     published = asyncio.run(
         can.publish_virtual_event(
-            "0x5a1",
-            ["01"],
+            "0x101",
+            ["00"],
             context={"command": "TRUNK_OPEN"},
             processing={"filterResult": "ACCEPT", "executionResult": "EXECUTED"},
             monitoring={"idsObserved": True, "status": "NORMAL"},
@@ -422,8 +420,8 @@ def test_virtual_publisher_never_uses_socketcan_subprocess_even_when_mode_is_soc
     assert published is True
     assert calls == []
     assert can._pending_echoes == {}
-    assert can._last_frames["0x5a1"]["frame"] == {
-        "canId": "0x5a1",
+    assert can._last_frames["0x101"]["frame"] == {
+        "canId": "0x101",
         "dlc": 1,
-        "data": ["01"],
+        "data": ["00"],
     }

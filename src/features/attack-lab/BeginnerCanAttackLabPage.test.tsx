@@ -160,9 +160,9 @@ function liveEvent(
     channel: "vcan0",
     origin: "backend",
     frame: {
-      canId: "0x701",
+      canId: "0x101",
       dlc: replay ? 2 : 1,
-      data: replay ? ["00", "01"] : ["01"],
+      data: replay ? ["00", "01"] : ["00"],
     },
     lab: {
       labId: state.labId,
@@ -193,11 +193,11 @@ function executedBeginnerTrace(
     sequence: 1,
     kind: "inject",
     commandLabel: spoofing
-      ? "cansend vcan0 5A1#01"
+      ? "cansend vcan0 101#00"
       : "canplayer -I capture.log -l 1",
     commandIndex: 1,
-    canId: spoofing ? "0x5a1" : "0x5a2",
-    data: spoofing ? ["01"] : ["00", "01"],
+    canId: "0x101",
+    data: spoofing ? ["00"] : ["00", "01"],
     route: spoofing
       ? ["terminal", "obd", "ids", "gateway", "rear", "tailgate"]
       : ["terminal", "obd", "ids", "gateway", "body", "leftDoor"],
@@ -219,7 +219,7 @@ function captureTrace(): VehicleFlowTrace {
     kind: "capture",
     commandLabel: "candump -L vcan0 > capture.log",
     commandIndex: null,
-    canId: "0x5a2",
+    canId: "0x101",
     data: ["00", "01"],
     route: ["terminal", "obd", "monitor"],
     stoppedAt: null,
@@ -1089,7 +1089,7 @@ describe("BeginnerCanAttackLabPage", () => {
             sessionId: current.sessionId,
             generation: current.generation,
             fileName: "capture.log",
-            canId: "0x5A2",
+            canId: "0x101",
             data: ["00", "01"],
             verdict: "CAPTURED",
           },

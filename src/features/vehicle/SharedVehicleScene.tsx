@@ -212,8 +212,18 @@ export function vehicleLocalPointToWorld(
   return root.localToWorld(new THREE.Vector3(...point))
 }
 
+interface SharedVehicleCanvasProps {
+  children: ReactNode
+  background?: string
+  fog?: boolean
+}
+
 /** 정상 실습과 공격 실습이 공유하는 카메라·조명·렌더러 경계다. */
-export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
+export function SharedVehicleCanvas({
+  children,
+  background = NORMAL_CAN_SCENE_PRESET.scene.background,
+  fog = true,
+}: SharedVehicleCanvasProps) {
   const camera = useMemo(
     () => ({
       position: [...NORMAL_CAN_SCENE_PRESET.camera.position] as [
@@ -245,9 +255,9 @@ export function SharedVehicleCanvas({ children }: { children: ReactNode }) {
     >
       <color
         attach="background"
-        args={[NORMAL_CAN_SCENE_PRESET.scene.background]}
+        args={[background]}
       />
-      <fog attach="fog" args={[...NORMAL_CAN_SCENE_PRESET.scene.fog]} />
+      {fog ? <fog attach="fog" args={[...NORMAL_CAN_SCENE_PRESET.scene.fog]} /> : null}
       <ambientLight intensity={NORMAL_CAN_SCENE_PRESET.lights.ambient} />
       <hemisphereLight
         args={[...NORMAL_CAN_SCENE_PRESET.lights.hemisphere]}
@@ -396,9 +406,9 @@ export const SharedVehicleScene = forwardRef<
 
   return (
     <Bounds {...NORMAL_CAN_SCENE_PRESET.bounds} fit={!fixedCamera}>
-      <Center onCentered={onCentered} cacheKey={resource?.revision ?? 0}>
-        <primitive object={coordinateRoot} name={coordinateRoot.name}>
-          {resource && (
+      {resource ? (
+        <Center onCentered={onCentered} cacheKey={resource.revision}>
+          <primitive object={coordinateRoot} name={coordinateRoot.name}>
             <SharedVehicleCloneContext.Provider value={resource.scene}>
               <primitive object={resource.scene} onClick={handleClick} />
               {showEcuModels && selectedModel.id === "canlite-s3" ? (
@@ -406,9 +416,9 @@ export const SharedVehicleScene = forwardRef<
               ) : null}
               {children}
             </SharedVehicleCloneContext.Provider>
-          )}
-        </primitive>
-      </Center>
+          </primitive>
+        </Center>
+      ) : null}
     </Bounds>
   )
 })

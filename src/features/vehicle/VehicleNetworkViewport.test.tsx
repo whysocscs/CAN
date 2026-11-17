@@ -701,7 +701,7 @@ describe("VehicleNetworkViewport", () => {
     renderDoorViewport()
 
     expect(canvasState.canvasProps).toMatchObject({
-      shadows: { type: THREE.PCFShadowMap },
+      shadows: true,
       camera: {
         position: [5.8, 3.8, 7.6],
         fov: 38,

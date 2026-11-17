@@ -47,7 +47,7 @@ describe("AttackPracticePage route switch", () => {
     },
   )
 
-  it("keeps Door interactive and lists only supported attack scenarios", () => {
+  it("keeps Door interactive and lists all six attack routes", () => {
     render(
       <AppProvider>
         <AttackPracticePage route="attacks/chain" />
@@ -61,7 +61,23 @@ describe("AttackPracticePage route switch", () => {
     ).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Spoofing" })).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Replay" })).toBeInTheDocument()
-    expect(screen.getAllByRole("button")).toHaveLength(3)
+    expect(screen.getByRole("button", { name: "DoS" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "KUKSA 권한" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "SWUpdate 업로드" })).toBeInTheDocument()
+    expect(screen.getAllByRole("button")).toHaveLength(6)
+  })
+
+  it("labels DoS as a static preview with no execution controls", () => {
+    render(
+      <AppProvider>
+        <AttackPracticePage route="attacks/dos" />
+      </AppProvider>,
+    )
+    fireEvent.click(screen.getByRole("button", { name: /실습 시작/ }))
+
+    expect(screen.getAllByText(/정적 UI 미리보기/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/실행 및 통신 기능 제외/)).toBeInTheDocument()
+    expect(screen.queryByRole("button", { name: /실행|중지|초기화/ })).not.toBeInTheDocument()
   })
 
   it("shows the VERSION 2 introduction before every lab and restarts it when the lab changes", () => {

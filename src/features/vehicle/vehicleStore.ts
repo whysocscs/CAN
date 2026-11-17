@@ -69,11 +69,12 @@ const COMMAND_BINDINGS: Partial<Record<CanCommand, (
   data: string[],
 ) => boolean>> = {
   DOOR_LOCK: (data) => {
-    if (data.length !== 1) return false
-    // 1바이트 구형 프레임은 양쪽 같은 값으로 해석합니다.
-    const door = openRatio(data[0])
-    if (door === null) return false
-    setParts({ doorL: door, doorR: door })
+    if (data.length !== 1 && data.length !== 2) return false
+    const leftDoor = openRatio(data[0])
+    const rightDoor = data.length === 1 ? leftDoor : openRatio(data[1])
+    if (leftDoor === null || rightDoor === null) return false
+    // 1바이트 구형 프레임은 양쪽 같은 값, 2바이트 프레임은 좌/우 상태로 해석합니다.
+    setParts({ doorL: leftDoor, doorR: rightDoor })
     return true
   },
   TRUNK_OPEN: (data) => {
