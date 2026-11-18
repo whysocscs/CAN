@@ -296,6 +296,10 @@ export default function CanBasicsLessonPlayer({
 
   const handleWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
     if (Math.abs(event.deltaY) <= Math.abs(event.deltaX)) return
+    const viewport = event.currentTarget.querySelector(
+      ".can-lesson-player__viewport",
+    )
+    if (viewport && viewport.scrollHeight > viewport.clientHeight + 1) return
     event.preventDefault()
 
     const deltaScale =
@@ -365,7 +369,7 @@ export default function CanBasicsLessonPlayer({
 
   return (
     <div
-      className={`can-lesson-player${
+      className={`can-lesson-player can-lesson-player--foundations${
         prefersReducedMotion ? " can-lesson-player--reduced-motion" : ""
       }`}
       data-direction={direction}
@@ -524,16 +528,8 @@ export default function CanBasicsLessonPlayer({
           <figure
             key={`visual-${activeIndex}`}
             className="can-lesson-player__visual"
+            aria-label={`${current.step.title} 개념도`}
           >
-            <figcaption>
-              <span>
-                <small>
-                  {String(current.chapterIndex + 1).padStart(2, "0")}
-                </small>
-                <strong>{current.chapter.title}</strong>
-              </span>
-              <em>{current.chapter.koreanTitle}</em>
-            </figcaption>
             <div className="can-lesson-player__visual-canvas">
               {renderVisual()}
             </div>

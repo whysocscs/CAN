@@ -163,7 +163,7 @@ export function WhyCanVisual({ step }: { step: number }) {
             key={node.title}
             className="can-why__node"
           >
-            <rect x={node.x} y={node.y} width="148" height="72" rx="3" />
+            <rect x={node.x} y={node.y} width="174" height="72" rx="3" />
             <text x={node.x + 16} y={node.y + 29}>
               {node.title}
             </text>
@@ -238,7 +238,7 @@ function ProtocolBusNetwork({
               interested ? " is-interested" : ""
             }`}
           >
-            <rect x={node.x} y={node.y} width="150" height="72" rx="3" />
+            <rect x={node.x} y={node.y} width="174" height="72" rx="3" />
             <text x={node.x + 16} y={node.y + 29}>{node.title}</text>
             <text x={node.x + 16} y={node.y + 51} className="can-protocol__detail">
               {node.detail}
